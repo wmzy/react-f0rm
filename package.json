@@ -1,20 +1,82 @@
 {
   "name": "react-f0rm",
   "version": "0.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "react form",
+  "main": "dist/index.cjs.js",
+  "module": "dist/index.esm.js",
+  "browser": "dist/index.esm.js",
+  "unpkg": "dist/index.umd.min.js",
+  "types": "index.d.ts",
+  "files": [
+    "dist",
+    "*.d.ts"
+  ],
+  "sideEffects": false,
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "npm test -- --watch",
+    "commit": "lint-staged && git-cz -n",
+    "build": "npm run clean && cross-env NODE_ENV=production rollup -c",
+    "prepublishOnly": "rimraf dist && npm run build",
+    "coverage": "nyc report --reporter=text-lcov | coveralls",
+    "test": "cross-env NODE_ENV=test nyc mocha",
+    "clean": "rimraf dist node_modules/.cache",
+    "lint:fix": "eslint --fix src/",
+    "lint": "eslint src/"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/wmzy/react-f0rm.git"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "react",
+    "form",
+    "react-form"
+  ],
+  "author": "wmzy <1256573276@qq.com>",
   "license": "ISC",
   "bugs": {
     "url": "https://github.com/wmzy/react-f0rm/issues"
   },
-  "homepage": "https://github.com/wmzy/react-f0rm#readme"
+  "homepage": "https://github.com/wmzy/react-f0rm#readme",
+  "peerDependencies": {
+    "react": ">=16.8.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.12.16",
+    "@babel/preset-env": "^7.12.16",
+    "@babel/register": "^7.12.13",
+    "@rollup/plugin-babel": "^5.3.0",
+    "@rollup/plugin-commonjs": "^17.1.0",
+    "@rollup/plugin-node-resolve": "^11.2.0",
+    "@rollup/plugin-replace": "^2.3.4",
+    "babel-eslint": "^10.1.0",
+    "commitizen": "^4.2.3",
+    "coveralls": "^3.1.0",
+    "cross-env": "^7.0.3",
+    "eslint": "^7.20.0",
+    "eslint-config-airbnb": "^18.2.1",
+    "eslint-config-prettier": "^7.2.0",
+    "eslint-plugin-builtin-compat": "0.0.2",
+    "eslint-plugin-import": "^2.22.1",
+    "eslint-plugin-jsx-a11y": "^6.4.1",
+    "eslint-plugin-mocha": "^8.0.0",
+    "eslint-plugin-prettier": "^3.3.1",
+    "eslint-plugin-react": "^7.22.0",
+    "eslint-plugin-react-hooks": "^4.2.0",
+    "husky": "^5.0.9",
+    "lint-staged": "^10.5.4",
+    "mocha": "^8.3.0",
+    "nyc": "^15.1.0",
+    "prettier": "^2.2.1",
+    "react": "^17.0.1",
+    "rimraf": "^3.0.2",
+    "rollup": "^2.39.0",
+    "rollup-plugin-terser": "^7.0.2",
+    "should": "^13.2.3",
+    "should-sinon": "0.0.6",
+    "typescript": "^4.1.5"
+  },
+  "dependencies": {
+    "@for-fun/event-emitter": "^0.1.1"
+  }
 }
