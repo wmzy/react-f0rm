@@ -17,6 +17,7 @@ module.exports = {
     'no-return-assign': ['error', 'except-parens'],
     'no-shadow': 'off',
     'no-param-reassign': 'off',
+    'no-plusplus': 'off',
     'no-use-before-define': ['error', {functions: false}],
     'no-console': process.env.NODE_ENV === 'production' ? 'error' : 'warn',
     'no-debugger': process.env.NODE_ENV === 'production' ? 'error' : 'off'
