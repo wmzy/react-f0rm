@@ -13,12 +13,11 @@ const banner = `
 `;
 
 const extensions = ['.js', '.jsx', '.es6', '.es', '.mjs', '.ts'];
+const external = ['react'];
 
 export default {
   input: 'src/index.js',
-  ...(process.env.NODE_ENV === 'production'
-    ? {external: Object.keys(pkg.dependencies)}
-    : {}),
+  external,
   plugins: [
     replace({
       __DEV__: process.env.NODE_ENV !== 'production'
@@ -40,6 +39,9 @@ export default {
       amd: {
         id: pkg.name
       },
+      globals: {
+        react: 'React'
+      },
       file: pkg.unpkg.replace('.min.', '.'),
       sourcemap: true,
       format: 'umd'
@@ -48,6 +50,9 @@ export default {
       name: pkg.name,
       amd: {
         id: pkg.name
+      },
+      globals: {
+        react: 'React'
       },
       banner,
       file: pkg.unpkg,
