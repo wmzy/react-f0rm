@@ -2,13 +2,13 @@ import {create as createEmitter, emit} from '@for-fun/event-emitter';
 import {get, set} from './util';
 import createCounter, {waitUntil, isRunning} from './task-counter';
 
-/** @typedef { import('../index').Store } Store */
+/** @typedef { import('../index').Form } Form */
 /** @typedef { import('../index').Paths } Paths */
 
 /**
- * Create form store
+ * Create form instance
  * @param {Object} [defaultValues] default values
- * @return {Store}
+ * @return {Form}
  */
 export default function create(defaultValues) {
   const emitter = createEmitter();
@@ -24,7 +24,7 @@ export default function create(defaultValues) {
 
 /**
  * Get form values
- * @param {Store} store
+ * @param {Form} form
  */
 export function getValues({defaultValues, values}) {
   return values
@@ -34,7 +34,7 @@ export function getValues({defaultValues, values}) {
 
 /**
  * Get field value
- * @param {Store} store
+ * @param {Form} form
  * @param {Paths} paths
  */
 export function getValue({defaultValues, values}, paths) {
@@ -45,7 +45,7 @@ export function getValue({defaultValues, values}, paths) {
 
 /**
  * Set field value
- * @param {Store} store
+ * @param {Form} form
  * @param {Paths} paths
  * @param {any} value
  */
@@ -57,7 +57,7 @@ export function setValue({emitter, values}, paths, value) {
 
 /**
  * Get field error
- * @param {Store} store
+ * @param {Form} form
  * @param {Paths} paths
  */
 export function getError({errors}, paths) {
@@ -65,8 +65,16 @@ export function getError({errors}, paths) {
 }
 
 /**
+ * Get all errors
+ * @param {Form} form
+ */
+export function getErrors({errors}) {
+  return Array.from(errors.values());
+}
+
+/**
  * Set field error
- * @param {Store} store
+ * @param {Form} Form
  * @param {Paths} paths
  * @param {string | undefined} error
  */
@@ -77,7 +85,7 @@ export function setError({emitter, errors}, paths, error) {
 
 /**
  * Clear errors
- * @param {Store} store
+ * @param {Form} form
  */
 export function clearErrors({emitter, errors}) {
   errors.clear();
@@ -86,7 +94,7 @@ export function clearErrors({emitter, errors}) {
 
 /**
  * Set field touched state
- * @param {Store} store
+ * @param {Form} form
  * @param {Paths} paths
  */
 export function setTouched({emitter, touched}, paths) {
@@ -96,7 +104,7 @@ export function setTouched({emitter, touched}, paths) {
 
 /**
  * Set field touched state
- * @param {Store} store
+ * @param {Form} form
  * @param {Paths} paths
  */
 export function hasTouched({touched}, paths) {
@@ -105,7 +113,7 @@ export function hasTouched({touched}, paths) {
 
 /**
  * Is dirty
- * @param {Store} store
+ * @param {Form} form
  */
 export function isDirty({touched}) {
   return touched.size > 0;
@@ -113,12 +121,12 @@ export function isDirty({touched}) {
 
 /**
  * Remove field
- * @param {Store} store
+ * @param {Form} form
  * @param {Paths} paths
  */
-export function removeField(store, paths) {
+export function removeField(form, paths) {
   const key = JSON.stringify(paths);
-  const {emitter, values, touched, errors} = store;
+  const {emitter, values, touched, errors} = form;
   values.delete(key);
   touched.delete(key);
   errors.delete(key);
@@ -129,13 +137,13 @@ export function removeField(store, paths) {
 
 /**
  * Reset form
- * @param {Store} store
+ * @param {Form} form
  * @param {Object} [defaultValues]
  */
-export function reset(store, defaultValues) {
-  store.defaultValues = defaultValues;
-  clearErrors(store);
-  const {emitter, touched} = store;
+export function reset(form, defaultValues) {
+  form.defaultValues = defaultValues;
+  clearErrors(form);
+  const {emitter, touched} = form;
   touched.clear();
   emit(emitter, 'change');
   emit(emitter, 'touched');
@@ -143,7 +151,7 @@ export function reset(store, defaultValues) {
 }
 
 /**
- * @param {Store} store
+ * @param {Form} form
  */
 export function hasErrors({errors}) {
   return errors.size > 0;
@@ -151,15 +159,15 @@ export function hasErrors({errors}) {
 
 /**
  * Validate all fields.
- * @param {Store} store
+ * @param {Form} form
  * @return {Promise} resolve if no error; reject and stop validate if has an error;
  */
-export function validate(store) {
+export function validate(form) {
   const token = createCounter();
-  emit(store.emitter, 'validate', token);
+  emit(form.emitter, 'validate', token);
 
-  if (hasErrors(store)) return Promise.reject();
+  if (hasErrors(form)) return Promise.reject();
   if (!isRunning(token)) return Promise.resolve();
 
-  return waitUntil(token, () => hasErrors(store));
+  return waitUntil(token, () => hasErrors(form));
 }

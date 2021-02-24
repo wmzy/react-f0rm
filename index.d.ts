@@ -1,7 +1,7 @@
-export type Store = {
+export type Form<T=any> = {
   emitter: import('@for-fun/event-emitter').EventEmitter;
   validatingCount: number;
-  defaultValues?: any;
+  defaultValues?: T;
   values: Map<string, any>;
   errors: Map<string, string>;
   touched: Set<string>;
@@ -13,3 +13,10 @@ export type TaskCounter = {
   emitter: import('@for-fun/event-emitter').EventEmitter;
   count: number;
 };
+
+export type FormProps<T> = {
+  form?: Form<T>;
+  onSubmit?(values: T, e): void;
+  onValidSubmit?(values: T, e): void;
+  onInvalidSubmit?(values: T, e): void;
+}

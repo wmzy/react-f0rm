@@ -1,6 +1,5 @@
 {
   "hooks": {
-    "pre-push": "tnpm run lint:type",
     "pre-commit": "lint-staged"
   }
 }

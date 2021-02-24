@@ -1,17 +1,23 @@
 import {useRef, useReducer, useEffect} from 'react';
-import {on} from '@for-fun/event-emitter';
-import createStore, {
+import {on, emit} from '@for-fun/event-emitter';
+import createForm, {
   getError,
   getValue,
   hasErrors,
   hasTouched,
   isDirty
-} from '../store';
+} from '../form';
 
 export default function useForm(defaultValues) {
-  const storeRef = useRef();
-  storeRef.current = storeRef.current || createStore(defaultValues);
-  return storeRef.current;
+  const ref = useRef();
+  const form = (ref.current = ref.current || createForm());
+
+  useEffect(() => {
+    form.defaultValues = defaultValues;
+    emit(form.emitter, 'change');
+  }, [defaultValues]);
+
+  return form;
 }
 
 /**
@@ -28,29 +34,25 @@ export function useWatch(emitter, event, getter) {
 
 /**
  * Get field value state
- * @param {Store} store
+ * @param {Form} form
  * @param {Paths} paths
  */
-export function useValue(store, paths) {
-  return useWatch(store.emitter, 'change', getValue.bind(null, store, paths));
+export function useValue(form, paths) {
+  return useWatch(form.emitter, 'change', getValue.bind(null, form, paths));
 }
 
-export function useTouched(store, paths) {
-  return useWatch(
-    store.emitter,
-    'touched',
-    hasTouched.bind(null, store, paths)
-  );
+export function useTouched(form, paths) {
+  return useWatch(form.emitter, 'touched', hasTouched.bind(null, form, paths));
 }
 
-export function useError(store, paths) {
-  return useWatch(store.emitter, 'errors', getError.bind(null, store, paths));
+export function useError(form, paths) {
+  return useWatch(form.emitter, 'errors', getError.bind(null, form, paths));
 }
 
-export function useIsDirty(store) {
-  return useWatch(store.emitter, 'touched', isDirty.bind(null, store));
+export function useIsDirty(form) {
+  return useWatch(form.emitter, 'touched', isDirty.bind(null, form));
 }
 
-export function useHasErrors(store) {
-  return useWatch(store.emitter, 'errors', hasErrors.bind(null, store));
+export function useHasErrors(form) {
+  return useWatch(form.emitter, 'errors', hasErrors.bind(null, form));
 }
