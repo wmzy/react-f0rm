@@ -1,4 +1,4 @@
-import {create as createEmitter, emit, on, once} from '@for-fun/event-emitter';
+import {create as createEmitter, emit, on} from '@for-fun/event-emitter';
 /** @typedef { import('../index').TaskCounter } TaskCounter */
 
 /**
@@ -43,5 +43,5 @@ export function waitUntil(counter, ifReject) {
       off();
       resolve();
     });
-  })
+  });
 }

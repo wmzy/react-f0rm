@@ -1,7 +1,7 @@
 import hello from '../src';
 
-describe('hello world', function () {
-  it('should return `hello world`', function () {
+describe('hello world', () => {
+  it('should return `hello world`', () => {
     hello().should.be.equal('hello world');
   });
 });

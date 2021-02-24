@@ -23,6 +23,7 @@ module.exports = {
     'no-plusplus': 'off',
     'no-multi-assign': 'off',
     'no-use-before-define': ['error', {functions: false}],
+    'no-underscore-dangle': 'off',
     'no-console': process.env.NODE_ENV === 'production' ? 'error' : 'warn',
     'no-debugger': process.env.NODE_ENV === 'production' ? 'error' : 'off'
   },

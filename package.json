@@ -20,8 +20,8 @@
     "coverage": "nyc report --reporter=text-lcov | coveralls",
     "test": "cross-env NODE_ENV=test nyc mocha",
     "clean": "rimraf dist node_modules/.cache",
-    "lint:fix": "eslint --fix src/",
-    "lint": "eslint src/"
+    "lint:fix": "eslint --fix .",
+    "lint": "eslint ."
   },
   "repository": {
     "type": "git",

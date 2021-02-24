@@ -2,11 +2,9 @@ module.exports = {
   env: {
     mocha: true
   },
-  plugins: [
-    'mocha'
-  ],
+  plugins: ['mocha'],
   rules: {
     'builtin-compat/no-incompatible-builtins': 'off',
-    'func-names': 'off',
+    'func-names': 'off'
   }
-}
+};
