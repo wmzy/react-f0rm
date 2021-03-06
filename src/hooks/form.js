@@ -8,6 +8,10 @@ import createForm, {
   isDirty
 } from '../form';
 
+/** @typedef { import('@for-fun/event-emitter').EventEmitter } EventEmitter */
+/** @typedef { import('../../index').Form } Form */
+/** @typedef { import('../../index').Paths } Paths */
+
 export default function useForm(defaultValues) {
   const ref = useRef();
   const form = (ref.current = ref.current || createForm());
@@ -26,7 +30,7 @@ export default function useForm(defaultValues) {
  * @param {() => any} getter
  */
 export function useWatch(emitter, event, getter) {
-  const [value, syncValue] = useReducer(getter, getter);
+  const [value, syncValue] = useReducer(getter, undefined, getter);
 
   useEffect(() => on(emitter, event, syncValue), [emitter, event]);
   return value;

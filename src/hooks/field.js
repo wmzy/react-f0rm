@@ -1,47 +1,37 @@
-import {useEffect, useMemo, useRef} from 'react';
+import {useEffect, useMemo} from 'react';
 import {useFormContext} from '../context';
-import {getValue, removeField, setError, setTouched, setValue} from '../form';
-import {useValue} from './form';
+import {removeFieldByKey, setTouchedByKey, setValueByKey} from '../form';
+import {normalizePath} from '../util';
+import {useError, useValue} from './form';
+import useValidate from './validate';
 
 export default function useField({name, defaultValue, validate}) {
   const form = useFormContext();
-  const lockRef = useRef();
-  const validateRef = useRef();
-  validateRef.current = validate;
-  const nameKey = JSON.stringify(name);
+  const path = normalizePath(name);
+  const pathKey = JSON.stringify(path);
+
+  const validateRef = useValidate(validate, pathKey);
 
   const handlers = useMemo(() => {
-    setValue(form, name, defaultValue);
+    if (defaultValue !== undefined) setValueByKey(form, pathKey, defaultValue);
 
-    const onChange = v => setValue(form, name, v);
+    const onChange = v => setValueByKey(form, pathKey, v);
     const onBlur = () => {
-      setTouched(form, name);
-
-      if (!validateRef.current) return;
-      const result = validateRef.current(getValue(form, name));
-      if (!result) return;
-      if (typeof result === 'string') {
-        setError(form, name, result);
-        return;
-      }
-      const lock = (lockRef.current = {});
-      result
-        .then(error => {
-          if (lock === lockRef.current && error) setError(form, name, error);
-        })
-        .finally(() => (lockRef.current = null));
+      setTouchedByKey(form, pathKey);
+      validateRef.current();
     };
 
     return {onChange, onBlur};
-  }, [nameKey, form]);
+  }, [pathKey, form]);
 
   useEffect(
     () => () => {
-      removeField(form, name);
+      removeFieldByKey(form, pathKey);
     },
-    [nameKey, form]
+    [pathKey, form]
   );
 
-  const value = useValue(form, name);
-  return {value, ...handlers};
+  const value = useValue(form, path);
+  const error = useError(form, path);
+  return {value, error, ...handlers};
 }

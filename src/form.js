@@ -1,6 +1,5 @@
 import {create as createEmitter, emit} from '@for-fun/event-emitter';
-import {get, set} from './util';
-import createCounter, {waitUntil, isRunning} from './task-counter';
+import {get, set, waitUntil} from './util';
 
 /** @typedef { import('../index').Form } Form */
 /** @typedef { import('../index').Paths } Paths */
@@ -18,7 +17,8 @@ export default function create(defaultValues) {
     defaultValues,
     values: new Map(),
     errors: new Map(),
-    touched: new Set()
+    touched: new Set(),
+    validating: new Set()
   };
 }
 
@@ -27,9 +27,10 @@ export default function create(defaultValues) {
  * @param {Form} form
  */
 export function getValues({defaultValues, values}) {
-  return values
-    .keys()
-    .reduce((k, v) => set(v, JSON.parse(k), values.get(k)), defaultValues);
+  return Array.from(values.keys()).reduce(
+    (v, k) => set(v, JSON.parse(k), values.get(k)),
+    defaultValues
+  );
 }
 
 /**
@@ -44,13 +45,28 @@ export function getValue({defaultValues, values}, paths) {
 }
 
 /**
+ * Get field value by path key
+ * @param {Form} form
+ * @param {string} key
+ */
+export function getValueByKey({defaultValues, values}, key) {
+  if (values.has(key)) return values.get(key);
+  // TODO: refactor use WeakMap
+  return get(defaultValues, JSON.parse(key));
+}
+
+/**
  * Set field value
  * @param {Form} form
  * @param {Paths} paths
  * @param {any} value
  */
-export function setValue({emitter, values}, paths, value) {
+export function setValue(form, paths, value) {
   const key = JSON.stringify(paths);
+  setValueByKey(form, key, value);
+}
+
+export function setValueByKey({emitter, values}, key, value) {
   values.set(key, value);
   emit(emitter, 'change');
 }
@@ -72,14 +88,32 @@ export function getErrors({errors}) {
   return Array.from(errors.values());
 }
 
+export function unsetValidatingByKey({emitter, validating}, key) {
+  validating.delete(key);
+  emit(emitter, 'validating');
+}
+
+export function setValidatingByKey({emitter, validating}, key) {
+  validating.add(key);
+  emit(emitter, 'validating');
+}
+
 /**
  * Set field error
- * @param {Form} Form
+ * @param {Form} form
  * @param {Paths} paths
  * @param {string | undefined} error
  */
-export function setError({emitter, errors}, paths, error) {
-  errors.set(JSON.stringify(paths), error);
+export function setError(form, paths, error) {
+  setErrorByKey(form, JSON.stringify(paths), error);
+}
+
+export function setErrorByKey({emitter, errors}, key, error) {
+  if (error) {
+    errors.set(key, error);
+  } else {
+    errors.delete(key);
+  }
   emit(emitter, 'errors');
 }
 
@@ -97,8 +131,12 @@ export function clearErrors({emitter, errors}) {
  * @param {Form} form
  * @param {Paths} paths
  */
-export function setTouched({emitter, touched}, paths) {
-  touched.add(JSON.stringify(paths));
+export function setTouched(form, paths) {
+  setTouchedByKey(form, JSON.stringify(paths));
+}
+
+export function setTouchedByKey({emitter, touched}, key) {
+  touched.add(key);
   emit(emitter, 'touched');
 }
 
@@ -126,6 +164,10 @@ export function isDirty({touched}) {
  */
 export function removeField(form, paths) {
   const key = JSON.stringify(paths);
+  removeFieldByKey(form, key);
+}
+
+export function removeFieldByKey(form, key) {
   const {emitter, values, touched, errors} = form;
   values.delete(key);
   touched.delete(key);
@@ -136,6 +178,17 @@ export function removeField(form, paths) {
 }
 
 /**
+ * Set form defaultValues
+ * @param {Form} form
+ * @param {Object} [defaultValues]
+ */
+export function setDefaultValues(form, defaultValues) {
+  if (form.defaultValues === defaultValues) return;
+  form.defaultValues = defaultValues;
+  emit(form.emitter, 'change');
+}
+
+/**
  * Reset form
  * @param {Form} form
  * @param {Object} [defaultValues]
@@ -143,7 +196,8 @@ export function removeField(form, paths) {
 export function reset(form, defaultValues) {
   form.defaultValues = defaultValues;
   clearErrors(form);
-  const {emitter, touched} = form;
+  const {emitter, touched, values} = form;
+  values.clear();
   touched.clear();
   emit(emitter, 'change');
   emit(emitter, 'touched');
@@ -158,16 +212,25 @@ export function hasErrors({errors}) {
 }
 
 /**
+ * Trigger all fields validate.
+ * @param {Form} form
+ */
+export function trigger(form) {
+  emit(form.emitter, 'validate');
+}
+
+/**
  * Validate all fields.
  * @param {Form} form
  * @return {Promise} resolve if no error; reject and stop validate if has an error;
  */
 export function validate(form) {
-  const token = createCounter();
-  emit(form.emitter, 'validate', token);
+  trigger(form);
 
-  if (hasErrors(form)) return Promise.reject();
-  if (!isRunning(token)) return Promise.resolve();
-
-  return waitUntil(token, () => hasErrors(form));
+  return waitUntil(
+    form.emitter,
+    'validating',
+    () => !form.validating.size,
+    () => hasErrors(form)
+  );
 }

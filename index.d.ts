@@ -5,6 +5,7 @@ export type Form<T=any> = {
   values: Map<string, any>;
   errors: Map<string, string>;
   touched: Set<string>;
+  validating: Set<string>;
 }
 
 export type Paths = (string | number)[];
@@ -14,7 +15,7 @@ export type TaskCounter = {
   count: number;
 };
 
-export type FormProps<T> = {
+export type FormProps<T=any> = {
   form?: Form<T>;
   onSubmit?(values: T, e): void;
   onValidSubmit?(values: T, e): void;
