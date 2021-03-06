@@ -7,7 +7,7 @@ import createForm, {
 } from '../form';
 import {FormProvider} from '../context';
 
-/** @typedef { import('../index').FormProps } FormProps */
+/** @typedef { import('../../index').FormProps } FormProps */
 
 /**
  * Form

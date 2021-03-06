@@ -8,7 +8,13 @@ export type Form<T=any> = {
   validating: Set<string>;
 }
 
-export type Paths = (string | number)[];
+export type PathValue = (string | number)[];
+export type Name = string | PathValue;
+
+export type Path = {
+  value: PathValue;
+  key: string;
+}
 
 export type TaskCounter = {
   emitter: import('@for-fun/event-emitter').EventEmitter;
@@ -16,6 +22,7 @@ export type TaskCounter = {
 };
 
 export type FormProps<T=any> = {
+  defaultValues?: T;
   form?: Form<T>;
   onSubmit?(values: T, e): void;
   onValidSubmit?(values: T, e): void;

@@ -18,15 +18,15 @@ export function get(values, path) {
 }
 
 export function set(values, path, value) {
-  if (!path.length) return values;
+  if (!path.length) return value;
 
-  const prop = path[0];
-  if (typeof value === 'number') {
+  const [prop, ...props] = path;
+  if (typeof prop === 'number') {
     const arr = Array.isArray(values) ? values.slice() : [];
-    arr[prop] = set(arr[prop], path.slice(1), value);
+    arr[prop] = set(arr[prop], props, value);
     return arr;
   }
-  return {...values, [path[0]]: set(values[prop], path.slice(1), value)};
+  return {...values, [prop]: set(values[prop], props, value)};
 }
 
 export function isNil(value) {

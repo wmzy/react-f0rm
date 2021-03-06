@@ -1,19 +1,21 @@
 import {useRef, useReducer, useEffect} from 'react';
 import {on, emit} from '@for-fun/event-emitter';
 import createForm, {
-  getError,
-  getValue,
+  getErrorByPath,
+  getValueByPath,
+  hasTouchedByPath,
   hasErrors,
-  hasTouched,
   isDirty
 } from '../form';
+import createPath from '../path';
 
 /** @typedef { import('@for-fun/event-emitter').EventEmitter } EventEmitter */
 /** @typedef { import('../../index').Form } Form */
-/** @typedef { import('../../index').Paths } Paths */
+/** @typedef { import('../../index').Path } Path */
+/** @typedef { import('../../index').Name } Name */
 
 export default function useForm(defaultValues) {
-  const ref = useRef();
+  const ref = useRef(null);
   const form = (ref.current = ref.current || createForm());
 
   useEffect(() => {
@@ -39,18 +41,67 @@ export function useWatch(emitter, event, getter) {
 /**
  * Get field value state
  * @param {Form} form
- * @param {Paths} paths
+ * @param {Name} name
  */
-export function useValue(form, paths) {
-  return useWatch(form.emitter, 'change', getValue.bind(null, form, paths));
+export function useValue(form, name) {
+  return useValueByPath(form, createPath(name));
 }
 
-export function useTouched(form, paths) {
-  return useWatch(form.emitter, 'touched', hasTouched.bind(null, form, paths));
+/**
+ * Get field value state
+ * @param {Form} form
+ * @param {Path} path
+ */
+export function useValueByPath(form, path) {
+  return useWatch(
+    form.emitter,
+    'change',
+    getValueByPath.bind(null, form, path)
+  );
 }
 
-export function useError(form, paths) {
-  return useWatch(form.emitter, 'errors', getError.bind(null, form, paths));
+/**
+ * Get field touched state
+ * @param {Form} form
+ * @param {Name} name
+ */
+export function useTouched(form, name) {
+  return useTouchedByPath(form, createPath(name));
+}
+
+/**
+ * Get field touched state
+ * @param {Form} form
+ * @param {Path} path
+ */
+export function useTouchedByPath(form, path) {
+  return useWatch(
+    form.emitter,
+    'touched',
+    hasTouchedByPath.bind(null, form, path)
+  );
+}
+
+/**
+ * Get field error state
+ * @param {Form} form
+ * @param {Name} name
+ */
+export function useError(form, name) {
+  return useErrorByPath(form, createPath(name));
+}
+
+/**
+ * Get field error state
+ * @param {Form} form
+ * @param {Path} path
+ */
+export function useErrorByPath(form, path) {
+  return useWatch(
+    form.emitter,
+    'errors',
+    getErrorByPath.bind(null, form, path)
+  );
 }
 
 export function useIsDirty(form) {

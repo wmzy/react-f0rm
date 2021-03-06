@@ -19,7 +19,10 @@ export function Register() {
   return (
     <Form
       defaultValues={{name: 'wmzy', email: '1256573276@qq.com'}}
-      onSubmit={values => console.log(values)}
+      onSubmit={(values, e) => {
+        e.preventDefault();
+        console.log(values);
+      }}
     >
       <div>
         <Field

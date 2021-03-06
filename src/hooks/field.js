@@ -1,37 +1,36 @@
 import {useEffect, useMemo} from 'react';
 import {useFormContext} from '../context';
-import {removeFieldByKey, setTouchedByKey, setValueByKey} from '../form';
-import {normalizePath} from '../util';
-import {useError, useValue} from './form';
+import {removeFieldByPath, setTouchedByPath, setValueByPath} from '../form';
+import {useErrorByPath, useValueByPath} from './form';
+import usePath from './path';
 import useValidate from './validate';
 
 export default function useField({name, defaultValue, validate}) {
   const form = useFormContext();
-  const path = normalizePath(name);
-  const pathKey = JSON.stringify(path);
+  const path = usePath(name);
 
-  const validateRef = useValidate(validate, pathKey);
+  const validateRef = useValidate(validate, path);
 
   const handlers = useMemo(() => {
-    if (defaultValue !== undefined) setValueByKey(form, pathKey, defaultValue);
+    if (defaultValue !== undefined) setValueByPath(form, path, defaultValue);
 
-    const onChange = v => setValueByKey(form, pathKey, v);
+    const onChange = v => setValueByPath(form, path, v);
     const onBlur = () => {
-      setTouchedByKey(form, pathKey);
+      setTouchedByPath(form, path);
       validateRef.current();
     };
 
     return {onChange, onBlur};
-  }, [pathKey, form]);
+  }, [form, path]);
 
   useEffect(
     () => () => {
-      removeFieldByKey(form, pathKey);
+      removeFieldByPath(form, path);
     },
-    [pathKey, form]
+    [path, form]
   );
 
-  const value = useValue(form, path);
-  const error = useError(form, path);
+  const value = useValueByPath(form, path);
+  const error = useErrorByPath(form, path);
   return {value, error, ...handlers};
 }

@@ -1,8 +1,10 @@
 import {create as createEmitter, emit} from '@for-fun/event-emitter';
+import createPath from './path';
 import {get, set, waitUntil} from './util';
 
 /** @typedef { import('../index').Form } Form */
-/** @typedef { import('../index').Paths } Paths */
+/** @typedef { import('../index').Path } Path */
+/** @typedef { import('../index').Name } Name */
 
 /**
  * Create form instance
@@ -36,48 +38,59 @@ export function getValues({defaultValues, values}) {
 /**
  * Get field value
  * @param {Form} form
- * @param {Paths} paths
+ * @param {Name} name
  */
-export function getValue({defaultValues, values}, paths) {
-  const key = JSON.stringify(paths);
-  if (values.has(key)) return values.get(key);
-  return get(defaultValues, paths);
+export function getValue(form, name) {
+  return getValueByPath(form, createPath(name));
 }
 
 /**
- * Get field value by path key
+ * Get field value by path
  * @param {Form} form
- * @param {string} key
+ * @param {Path} path
  */
-export function getValueByKey({defaultValues, values}, key) {
-  if (values.has(key)) return values.get(key);
-  // TODO: refactor use WeakMap
-  return get(defaultValues, JSON.parse(key));
+export function getValueByPath({defaultValues, values}, path) {
+  if (values.has(path.key)) return values.get(path.key);
+  return get(defaultValues, path.value);
 }
 
 /**
  * Set field value
  * @param {Form} form
- * @param {Paths} paths
+ * @param {Name} name
  * @param {any} value
  */
-export function setValue(form, paths, value) {
-  const key = JSON.stringify(paths);
-  setValueByKey(form, key, value);
+export function setValue(form, name, value) {
+  setValueByPath(form, createPath(name), value);
 }
 
-export function setValueByKey({emitter, values}, key, value) {
-  values.set(key, value);
+/**
+ * Set field value
+ * @param {Form} form
+ * @param {Path} path
+ * @param {any} value
+ */
+export function setValueByPath({emitter, values}, path, value) {
+  values.set(path.key, value);
   emit(emitter, 'change');
 }
 
 /**
  * Get field error
  * @param {Form} form
- * @param {Paths} paths
+ * @param {Name} name
  */
-export function getError({errors}, paths) {
-  return errors.get(JSON.stringify(paths));
+export function getError(form, name) {
+  return getErrorByPath(form, createPath(name));
+}
+
+/**
+ * Get field error by path
+ * @param {Form} form
+ * @param {Path} path
+ */
+export function getErrorByPath({errors}, path) {
+  return errors.get(path.key);
 }
 
 /**
@@ -88,12 +101,12 @@ export function getErrors({errors}) {
   return Array.from(errors.values());
 }
 
-export function unsetValidatingByKey({emitter, validating}, key) {
+export function unsetValidatingByPath({emitter, validating}, {key}) {
   validating.delete(key);
   emit(emitter, 'validating');
 }
 
-export function setValidatingByKey({emitter, validating}, key) {
+export function setValidatingByPath({emitter, validating}, {key}) {
   validating.add(key);
   emit(emitter, 'validating');
 }
@@ -101,18 +114,24 @@ export function setValidatingByKey({emitter, validating}, key) {
 /**
  * Set field error
  * @param {Form} form
- * @param {Paths} paths
+ * @param {Name} name
  * @param {string | undefined} error
  */
-export function setError(form, paths, error) {
-  setErrorByKey(form, JSON.stringify(paths), error);
+export function setError(form, name, error) {
+  setErrorByPath(form, createPath(name), error);
 }
 
-export function setErrorByKey({emitter, errors}, key, error) {
+/**
+ * Set field error
+ * @param {Form} form
+ * @param {Path} path
+ * @param {string | undefined} error
+ */
+export function setErrorByPath({emitter, errors}, path, error) {
   if (error) {
-    errors.set(key, error);
+    errors.set(path.key, error);
   } else {
-    errors.delete(key);
+    errors.delete(path.key);
   }
   emit(emitter, 'errors');
 }
@@ -129,13 +148,18 @@ export function clearErrors({emitter, errors}) {
 /**
  * Set field touched state
  * @param {Form} form
- * @param {Paths} paths
+ * @param {Name} name
  */
-export function setTouched(form, paths) {
-  setTouchedByKey(form, JSON.stringify(paths));
+export function setTouched(form, name) {
+  setTouchedByPath(form, createPath(name));
 }
 
-export function setTouchedByKey({emitter, touched}, key) {
+/**
+ * Set field touched state
+ * @param {Form} form
+ * @param {Path} path
+ */
+export function setTouchedByPath({emitter, touched}, {key}) {
   touched.add(key);
   emit(emitter, 'touched');
 }
@@ -143,10 +167,19 @@ export function setTouchedByKey({emitter, touched}, key) {
 /**
  * Set field touched state
  * @param {Form} form
- * @param {Paths} paths
+ * @param {Name} name
  */
-export function hasTouched({touched}, paths) {
-  return touched.has(JSON.stringify(paths));
+export function hasTouched(form, name) {
+  return hasTouchedByPath(form, createPath(name));
+}
+
+/**
+ * Set field touched state
+ * @param {Form} form
+ * @param {Path} path
+ */
+export function hasTouchedByPath({touched}, path) {
+  return touched.has(path.key);
 }
 
 /**
@@ -160,21 +193,27 @@ export function isDirty({touched}) {
 /**
  * Remove field
  * @param {Form} form
- * @param {Paths} paths
+ * @param {Name} name
  */
-export function removeField(form, paths) {
-  const key = JSON.stringify(paths);
-  removeFieldByKey(form, key);
+export function removeField(form, name) {
+  removeFieldByPath(form, createPath(name));
 }
 
-export function removeFieldByKey(form, key) {
-  const {emitter, values, touched, errors} = form;
+/**
+ * Remove field
+ * @param {Form} form
+ * @param {Path} path
+ */
+export function removeFieldByPath(form, {key}) {
+  const {emitter, values, touched, errors, validating} = form;
   values.delete(key);
   touched.delete(key);
   errors.delete(key);
+  validating.delete(key);
   emit(emitter, 'change');
   emit(emitter, 'touched');
   emit(emitter, 'errors');
+  emit(emitter, 'validating');
 }
 
 /**

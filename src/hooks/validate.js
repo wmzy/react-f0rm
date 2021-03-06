@@ -2,35 +2,35 @@ import {useEffect, useRef} from 'react';
 import {on} from '@for-fun/event-emitter';
 import {useFormContext} from '../context';
 import {
-  getValueByKey,
-  setErrorByKey,
-  setValidatingByKey,
-  unsetValidatingByKey
+  getValueByPath,
+  setErrorByPath,
+  setValidatingByPath,
+  unsetValidatingByPath
 } from '../form';
 import useStage from './stage';
 
-export default function useValidate(validate, pathKey) {
+export default function useValidate(validate, path) {
   const form = useFormContext();
   const lockRef = useRef(null);
 
   const validateRef = useStage(() => {
     if (!validate) return;
-    const result = validate(getValueByKey(form, pathKey));
+    const result = validate(getValueByPath(form, path));
     if (typeof result === 'string' || !result) {
-      setErrorByKey(form, pathKey, result);
+      setErrorByPath(form, path, result);
       return;
     }
     const lock = (lockRef.current = {});
-    setValidatingByKey(form, pathKey);
+    setValidatingByPath(form, path);
     result
       .then(error => {
         if (lock === lockRef.current) {
-          setErrorByKey(form, pathKey, error);
+          setErrorByPath(form, path, error);
         }
       })
       .finally(() => {
         if (lock === lockRef.current) {
-          unsetValidatingByKey(form, pathKey);
+          unsetValidatingByPath(form, path);
           lockRef.current = null;
         }
       });
