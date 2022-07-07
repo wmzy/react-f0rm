@@ -1,11 +1,7 @@
 import * as React from 'react';
-import createForm, {
-  getErrors,
-  getValues,
-  setDefaultValues,
-  validate
-} from '../form';
+import {getErrors, getValues, validate} from '../form';
 import {FormProvider} from '../context';
+import useForm from '../hooks/form';
 
 /** @typedef { import('../../index').FormProps } FormProps */
 
@@ -14,17 +10,18 @@ import {FormProvider} from '../context';
  * @param {FormProps} props
  */
 export default function Form({
-  form: f,
+  form: f1,
   defaultValues,
   onSubmit,
   onValidSubmit,
   onInvalidSubmit,
   ...props
 }) {
-  const form = React.useMemo(() => f || createForm(defaultValues), [f]);
-  if (defaultValues !== undefined) setDefaultValues(form, defaultValues);
+  const f2 = useForm({defaultValues});
+  const form = f1 || f2;
 
   function handleSubmit(e) {
+    e.preventDefault();
     const task = validate(form);
 
     if (!(onSubmit || onValidSubmit || onInvalidSubmit)) return;

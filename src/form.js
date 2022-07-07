@@ -3,23 +3,25 @@ import createPath from './path';
 import {get, set, waitUntil} from './util';
 
 /** @typedef { import('../index').Form } Form */
+/** @typedef { import('../index').Options } Options */
 /** @typedef { import('../index').Path } Path */
 /** @typedef { import('../index').Name } Name */
 
 /**
  * Create form instance
- * @param {Object} [defaultValues] default values
+ * @param {Options} [options]
  * @return {Form}
  */
-export default function create(defaultValues) {
+export default function create(options) {
   const emitter = createEmitter();
   return {
     emitter,
-    validatingCount: 0,
-    defaultValues,
+    revalidateOnChange: true,
+    ...options,
     values: new Map(),
     errors: new Map(),
     touched: new Set(),
+    validators: new Map(),
     validating: new Set()
   };
 }
@@ -72,7 +74,7 @@ export function setValue(form, name, value) {
  */
 export function setValueByPath({emitter, values}, path, value) {
   values.set(path.key, value);
-  emit(emitter, 'change');
+  emit(emitter, 'change', path);
 }
 
 /**
@@ -96,9 +98,19 @@ export function getErrorByPath({errors}, path) {
 /**
  * Get all errors
  * @param {Form} form
+ * @return {string[]}
  */
 export function getErrors({errors}) {
   return Array.from(errors.values());
+}
+
+/**
+ * Get first error string
+ * @param {Form} form
+ * @return {string}
+ */
+export function getFirstError({errors}) {
+  return errors.values().next().value;
 }
 
 export function unsetValidatingByPath({emitter, validating}, {key}) {
@@ -160,6 +172,7 @@ export function setTouched(form, name) {
  * @param {Path} path
  */
 export function setTouchedByPath({emitter, touched}, {key}) {
+  if (touched.has(key)) return;
   touched.add(key);
   emit(emitter, 'touched');
 }
@@ -255,21 +268,35 @@ export function hasErrors({errors}) {
  * @param {Form} form
  */
 export function trigger(form) {
-  emit(form.emitter, 'validate');
+  form.validators.forEach(validator => validator());
 }
 
 /**
- * Validate all fields.
+ * Validate and throw if any field error.
  * @param {Form} form
  * @return {Promise} resolve if no error; reject and stop validate if has an error;
  */
-export function validate(form) {
-  trigger(form);
+export async function ensureValidate(form) {
+  form.validators.forEach((validator, key) => {
+    validator();
+    if (hasErrors(form)) throw new Error(form.errors.get(key));
+  });
 
   return waitUntil(
     form.emitter,
     'validating',
     () => !form.validating.size,
     () => hasErrors(form)
-  );
+  ).catch(() => {
+    throw new Error(getFirstError(form));
+  });
+}
+
+/**
+ * Validate and return if any field error.
+ * @param {Form} form
+ * @return {Promise<void | string>};
+ */
+export async function validate(form) {
+  return ensureValidate(form).catch(e => e.message);
 }

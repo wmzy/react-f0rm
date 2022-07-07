@@ -1,4 +1,4 @@
-import {useEffect, useRef} from 'react';
+import {useCallback, useEffect, useRef} from 'react';
 import {on} from '@for-fun/event-emitter';
 import {useFormContext} from '../context';
 import {
@@ -7,13 +7,12 @@ import {
   setValidatingByPath,
   unsetValidatingByPath
 } from '../form';
-import useStage from './stage';
 
 export default function useValidate(validate, path) {
   const form = useFormContext();
   const lockRef = useRef(null);
 
-  const validateRef = useStage(() => {
+  form.validators.set(path.key, () => {
     if (!validate) return;
     const result = validate(getValueByPath(form, path));
     if (typeof result === 'string' || !result) {
@@ -36,8 +35,6 @@ export default function useValidate(validate, path) {
       });
   });
 
-  useEffect(() => on(form.emitter, 'validate', () => validateRef.current()), [
-    form
-  ]);
-  return validateRef;
+  useEffect(() => form.validators.delete(path.key), [form, path]);
+  return useCallback(() => form.validators.get(path.key)(), [form, path]);
 }

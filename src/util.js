@@ -9,12 +9,12 @@ export function normalizePath(path) {
     .map(prop => (prop.endsWith(']') ? Number.parseInt(prop, 10) : prop));
 }
 
+// eslint-disable-next-line consistent-return
 export function get(values, path) {
   try {
     return path.reduce((values, p) => values[p], values);
-  } catch (e) {
-    return undefined;
-  }
+    // eslint-disable-next-line no-empty
+  } catch (e) {}
 }
 
 export function set(values, path, value) {
@@ -26,7 +26,7 @@ export function set(values, path, value) {
     arr[prop] = set(arr[prop], props, value);
     return arr;
   }
-  return {...values, [prop]: set(values[prop], props, value)};
+  return {...values, [prop]: set(values && values[prop], props, value)};
 }
 
 export function isNil(value) {
@@ -49,8 +49,8 @@ export function isEmpty(value) {
  */
 export function waitUntil(emitter, event, isResolve, isReject) {
   return new Promise((resolve, reject) => {
-    if (isReject()) return reject();
-    if (isResolve()) return resolve();
+    if (isReject()) return void reject();
+    if (isResolve()) return void resolve();
 
     const off = on(emitter, event, () => {
       if (isReject()) {

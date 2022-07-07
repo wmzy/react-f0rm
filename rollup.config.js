@@ -61,7 +61,7 @@ export default {
       plugins: [terser({output: {comments: /^!/}})]
     },
     {
-      file: pkg.module,
+      file: pkg.main,
       sourcemap: true,
       format: 'es'
     }

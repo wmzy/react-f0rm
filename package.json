@@ -2,10 +2,11 @@
   "name": "react-f0rm",
   "version": "0.1.0",
   "description": "react form",
-  "main": "dist/index.cjs.js",
-  "module": "dist/index.esm.js",
-  "browser": "dist/index.esm.js",
+  "main": "dist/index.esm.js",
   "unpkg": "dist/index.umd.min.js",
+  "exports": {
+    ".": "./dist/index.esm.js"
+  },
   "types": "index.d.ts",
   "files": [
     "dist",
@@ -56,6 +57,7 @@
     "@storybook/addon-essentials": "^6.1.20",
     "@storybook/addon-links": "^6.1.20",
     "@storybook/react": "^6.1.20",
+    "@types/mocha": "^8.2.2",
     "@types/react": "^17.0.2",
     "babel-eslint": "^10.1.0",
     "babel-loader": "^8.2.2",

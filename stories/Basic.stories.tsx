@@ -2,7 +2,7 @@ import * as React from 'react';
 // also exported from '@storybook/react' if you can deal with breaking changes in 6.1
 import {Story, Meta} from '@storybook/react/types-6-0';
 
-import {Form, Field} from '../src';
+import {Form, Field, Checkbox} from '../src';
 import {FormProps} from '..';
 
 export default {
@@ -20,19 +20,21 @@ export function Register() {
     <Form
       defaultValues={{name: 'wmzy', email: '1256573276@qq.com'}}
       onSubmit={(values, e) => {
-        e.preventDefault();
         console.log(values);
       }}
     >
       <div>
+        <label>name:
         <Field
           name="name"
           render={({onChange, ...props}) => (
             <input {...props} onChange={e => onChange(e.target.value)} />
           )}
         />
+        </label>
       </div>
       <div>
+        <label>age:
         <Field
           name="age"
           validate={age =>
@@ -40,11 +42,18 @@ export function Register() {
           }
           render={({onChange, error, ...props}) => (
             <>
-              <input {...props} onChange={e => onChange(e.target.value)} />
+              <input {...props} type="number" onChange={e => onChange(e.target.value)} />
               {error}
             </>
           )}
         />
+        </label>
+      </div>
+
+      <div>
+        <label>
+          <Checkbox name="toggle" />
+        </label>
       </div>
       <button>SUBMIT</button>
     </Form>

@@ -1,11 +1,12 @@
 import {useRef, useReducer, useEffect} from 'react';
-import {on, emit} from '@for-fun/event-emitter';
+import {on} from '@for-fun/event-emitter';
 import createForm, {
   getErrorByPath,
   getValueByPath,
   hasTouchedByPath,
   hasErrors,
-  isDirty
+  isDirty,
+  setDefaultValues
 } from '../form';
 import createPath from '../path';
 
@@ -14,14 +15,11 @@ import createPath from '../path';
 /** @typedef { import('../../index').Path } Path */
 /** @typedef { import('../../index').Name } Name */
 
-export default function useForm(defaultValues) {
+export default function useForm(options) {
   const ref = useRef(null);
-  const form = (ref.current = ref.current || createForm());
+  const form = (ref.current = ref.current || createForm(options));
 
-  useEffect(() => {
-    form.defaultValues = defaultValues;
-    emit(form.emitter, 'change');
-  }, [defaultValues]);
+  setDefaultValues(form, options && options.defaultValues);
 
   return form;
 }

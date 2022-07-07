@@ -1,12 +1,24 @@
+declare const __DEV__: boolean;
+
+export type Validator = (value: any) => void | string | Promise<void> | Promise<string>;
+
+export type Options<T=any> = Partial<{
+  defaultValues: T;
+  validateOnSubmit: boolean;
+  validateOnChange: boolean;
+  validateOnBlur: boolean;
+  revalidateOnChange: boolean;
+  revalidateOnBlur: boolean;
+}>;
+
 export type Form<T=any> = {
   emitter: import('@for-fun/event-emitter').EventEmitter;
-  validatingCount: number;
-  defaultValues?: T;
   values: Map<string, any>;
   errors: Map<string, string>;
   touched: Set<string>;
+  validators: Map<string, () => void>;
   validating: Set<string>;
-}
+} & Options<T>;
 
 export type PathValue = (string | number)[];
 export type Name = string | PathValue;
