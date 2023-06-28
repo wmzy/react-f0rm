@@ -1,8 +1,12 @@
+import {ReactNode} from 'react';
+
 declare const __DEV__: boolean;
 
-export type Validator = (value: any) => void | string | Promise<void> | Promise<string>;
+export type Validator = (
+  value: any
+) => void | string | Promise<void> | Promise<string>;
 
-export type Options<T=any> = Partial<{
+export type Options<T = any> = Partial<{
   defaultValues: T;
   validateOnSubmit: boolean;
   validateOnChange: boolean;
@@ -11,8 +15,8 @@ export type Options<T=any> = Partial<{
   revalidateOnBlur: boolean;
 }>;
 
-export type Form<T=any> = {
-  emitter: import('@for-fun/event-emitter').EventEmitter;
+export type Form<T = any> = {
+  emitter: import('@for-fun/event-emitter').EventEmitter<any>;
   values: Map<string, any>;
   errors: Map<string, string>;
   touched: Set<string>;
@@ -26,17 +30,18 @@ export type Name = string | PathValue;
 export type Path = {
   value: PathValue;
   key: string;
-}
+};
 
 export type TaskCounter = {
-  emitter: import('@for-fun/event-emitter').EventEmitter;
+  emitter: import('@for-fun/event-emitter').EventEmitter<any>;
   count: number;
 };
 
-export type FormProps<T=any> = {
+export type FormProps<T = any> = {
   defaultValues?: T;
   form?: Form<T>;
   onSubmit?(values: T, e): void;
   onValidSubmit?(values: T, e): void;
   onInvalidSubmit?(values: T, e): void;
-}
+  children?: ReactNode;
+};
