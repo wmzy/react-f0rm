@@ -18,8 +18,11 @@ import createPath from '../path';
 export default function useForm(options) {
   const ref = useRef(null);
   const form = (ref.current = ref.current || createForm(options));
+  const defaultValues = options && options.defaultValues;
 
-  setDefaultValues(form, options && options.defaultValues);
+  useEffect(() => {
+    setDefaultValues(form, defaultValues);
+  }, [defaultValues]);
 
   return form;
 }

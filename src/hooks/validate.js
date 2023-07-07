@@ -7,6 +7,8 @@ import {
   setValidatingByPath,
   unsetValidatingByPath
 } from '../form';
+import {useStageFn} from './stage';
+import {isPromise} from '../util';
 
 export default function useValidate(validate, path) {
   const form = useFormContext();
@@ -14,8 +16,8 @@ export default function useValidate(validate, path) {
 
   form.validators.set(path.key, () => {
     if (!validate) return;
-    const result = validate(getValueByPath(form, path));
-    if (typeof result === 'string' || !result) {
+    const result = validate(getValueByPath(form, path), {form, path});
+    if (!isPromise(result)) {
       setErrorByPath(form, path, result);
       return;
     }
@@ -35,6 +37,7 @@ export default function useValidate(validate, path) {
       });
   });
 
-  useEffect(() => form.validators.delete(path.key), [form, path]);
-  return useCallback(() => form.validators.get(path.key)(), [form, path]);
+  useEffect(() => () => form.validators.delete(path.key), [form, path.key]);
+
+  return useStageFn(() => form.validators.get(path.key)());
 }

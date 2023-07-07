@@ -6,7 +6,13 @@ import usePath from './path';
 import useValidate from './validate';
 import {useStageFn} from './stage';
 
-export default function useField({form: f1, name, defaultValue, validate, ...rest}) {
+export default function useField({
+  form: f1,
+  name,
+  defaultValue,
+  validate,
+  ...rest
+}) {
   const f2 = useFormContext();
   const form = f1 || f2;
   const path = usePath(name);
@@ -20,24 +26,20 @@ export default function useField({form: f1, name, defaultValue, validate, ...res
   const error = useErrorByPath(form, path);
   const value = useValueByPath(form, path);
 
-  const onChange = useStageFn(
-    form.validateOnChange ||
+  const onChange = useStageFn(v => {
+    setValueByPath(form, path, v);
+    if (
+      form.validateOnChange ||
       (form.revalidateOnChange && error && error !== undefined)
-      ? v => {
-          setValueByPath(form, path, v);
-          validator();
-        }
-      : v => setValueByPath(form, path, v)
-  );
+    )
+      validator();
+  });
 
-  const onBlur = useStageFn(
-    form.validateOnBlur || (form.revalidateOnBlur && error !== undefined)
-      ? () => {
-          setTouchedByPath(form, path);
-          validator();
-        }
-      : () => setTouchedByPath(form, path)
-  );
+  const onBlur = useStageFn(() => {
+    setTouchedByPath(form, path);
+    if (form.validateOnBlur || (form.revalidateOnBlur && error !== undefined))
+      validator();
+  });
 
   useEffect(
     () => () => {
@@ -46,5 +48,5 @@ export default function useField({form: f1, name, defaultValue, validate, ...res
     [path, form]
   );
 
-  return {...rest, value, error, onChange, onBlur};
+  return {...rest, value, error, onChange, onBlur, name: path.key};
 }

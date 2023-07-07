@@ -37,7 +37,7 @@ export default function Form({
 
   return (
     <FormProvider value={form}>
-      <form {...props} onSubmit={handleSubmit} />
+      <form {...props} noValidate onSubmit={handleSubmit} />
     </FormProvider>
   );
 }

@@ -1,7 +1,7 @@
 import * as React from 'react';
 import type {StoryObj, Meta} from '@storybook/react';
 
-import {Form, Field, Checkbox} from '../src';
+import {Form, Field, Input, Checkbox} from '../src';
 import {FormProps} from '..';
 
 const meta = {
@@ -17,7 +17,6 @@ export default meta;
 export const Register: StoryObj<typeof Form> = {
   render: () => (
     <Form
-      defaultValues={{name: 'wmzy', email: '1256573276@qq.com'}}
       onSubmit={(values, e) => {
         console.log(values);
       }}
@@ -25,38 +24,54 @@ export const Register: StoryObj<typeof Form> = {
       <div>
         <label>
           name:
-          <Field
-            name="name"
-            render={({onChange, ...props}) => (
-              <input {...props} onChange={e => onChange(e.target.value)} />
-            )}
-          />
+          <Input name="name" />
+        </label>
+      </div>
+      <div>
+        <label>
+          gender:
+          <Input as="select" name="gender">
+            <option value="female">female</option>
+            <option value="male">male</option>
+            <option value="other">other</option>
+          </Input>
+        </label>
+      </div>
+      <button type="submit">SUBMIT</button>
+    </Form>
+  )
+};
+
+export const Validation: StoryObj<typeof Form> = {
+  render: () => (
+    <Form
+      onSubmit={(values, e) => {
+        console.log('values:', values);
+      }}
+      onValidSubmit={(values, e) => {
+        console.log('valid values:', values);
+      }}
+    >
+      <div>
+        <label>
+          name:
+          <Input name="name" required minLength={2} maxLength={20} pattern="[A-Za-z]+" />
         </label>
       </div>
       <div>
         <label>
           age:
-          <Field
+          <Input
             name="age"
             validate={age =>
-              Number(age) <= 0 ? 'age should be a positive number' : undefined
+              {
+                console.log('vvv')
+                return Number(age) <= 0 ? 'age should be a positive number' : undefined;
+              }
             }
-            render={({onChange, error, ...props}) => (
-              <>
-                <input
-                  {...props}
-                  type="number"
-                  onChange={e => onChange(e.target.value)}
-                />
-                {error}
-              </>
-            )}
+            max={100}
+            type="number"
           />
-        </label>
-      </div>
-      <div>
-        <label>
-          <Checkbox name="toggle" />
         </label>
       </div>
       <button>SUBMIT</button>

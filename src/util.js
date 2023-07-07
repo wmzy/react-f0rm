@@ -41,6 +41,10 @@ export function isEmpty(value) {
   return values.length === 0 || values.every(isEmpty);
 }
 
+export function isPromise(value) {
+  return value && typeof value.then === 'function';
+}
+
 /**
  * @param {EventEmitter} emitter
  * @param {string} event
