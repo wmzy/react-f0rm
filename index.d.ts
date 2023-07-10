@@ -15,8 +15,8 @@ export type Options<T = any> = Partial<{
   revalidateOnBlur: boolean;
 }>;
 
-export type Form<T = any> = {
-  emitter: import('@for-fun/event-emitter').EventEmitter<any>;
+export type Form<T extends object = any> = {
+  emitter: import('@for-fun/event-emitter').EventEmitter;
   values: Map<string, any>;
   errors: Map<string, string>;
   touched: Set<string>;
@@ -45,3 +45,12 @@ export type FormProps<T = any> = {
   onInvalidSubmit?(values: T, e): void;
   children?: ReactNode;
 };
+
+export type FieldOptions<T extends object = any, P extends object = {}> = {
+  form: Form<T>;
+  name: Name;
+  defaultValue?: any;
+  validate?: () => void | string | Promise<void> | Promise<string>;
+} & P;
+
+export type UseField = (options: FieldOptions) => any;

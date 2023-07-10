@@ -1,27 +1,17 @@
 import * as React from 'react';
 import useField from '../hooks/field';
 
-export default function Field({render, ...props}) {
-  const field = useField(props);
-  return render(field);
-}
-
-export function FieldAs({as: Component, ...props}) {
-  const field = useField(props);
-  return <Component {...field} />;
-}
-
 const buildInError = Symbol('buildInError');
 
-export function Input({validate, eventToValue, defaultValue, ...props}) {
+export function Field({validate, eventToValue, defaultValue, ...props}) {
   const ref = React.useRef(null);
   const {as, value, valueToProps, onChange, error, ...rest} =
     useField({
       ...props,
       defaultValue: defaultValue ?? '',
-      validate: val => {
+      validate: (...params) => {
         if (false === ref.current?.checkValidity()) return buildInError;
-        if (validate) return validate(val);
+        if (validate) return validate(...params);
       }
     });
   const Component = as || 'input';

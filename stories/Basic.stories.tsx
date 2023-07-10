@@ -1,8 +1,7 @@
 import * as React from 'react';
 import type {StoryObj, Meta} from '@storybook/react';
 
-import {Form, Field, Input, Checkbox} from '../src';
-import {FormProps} from '..';
+import {Form, Field, Checkbox} from '../src';
 
 const meta = {
   title: 'ReactF0rm/Basic',
@@ -24,17 +23,17 @@ export const Register: StoryObj<typeof Form> = {
       <div>
         <label>
           name:
-          <Input name="name" />
+          <Field name="name" />
         </label>
       </div>
       <div>
         <label>
           gender:
-          <Input as="select" name="gender">
+          <Field as="select" name="gender">
             <option value="female">female</option>
             <option value="male">male</option>
             <option value="other">other</option>
-          </Input>
+          </Field>
         </label>
       </div>
       <button type="submit">SUBMIT</button>
@@ -55,13 +54,13 @@ export const Validation: StoryObj<typeof Form> = {
       <div>
         <label>
           name:
-          <Input name="name" required minLength={2} maxLength={20} pattern="[A-Za-z]+" />
+          <Field name="name" required minLength={2} maxLength={20} pattern="[A-Za-z]+" />
         </label>
       </div>
       <div>
         <label>
           age:
-          <Input
+          <Field
             name="age"
             validate={age =>
               {
@@ -74,6 +73,40 @@ export const Validation: StoryObj<typeof Form> = {
           />
         </label>
       </div>
+      <button>SUBMIT</button>
+    </Form>
+  )
+};
+
+const Input = ({ label, ...props }) => (
+  <div>
+    <label>{label}</label>
+    <Field {...props} />
+  </div>
+);
+
+const Select = React.forwardRef(({ label, ...props }, ref) => (
+  <div>
+    <label>{label}</label>
+    <select {...props} ref={ref}>
+      <option value="20">20</option>
+      <option value="30">30</option>
+    </select>
+  </div>
+));
+
+export const IntegratingAnExistingForm: StoryObj<typeof Form> = {
+  render: () => (
+    <Form
+      onSubmit={(values, e) => {
+        console.log('values:', values);
+      }}
+      onValidSubmit={(values, e) => {
+        console.log('valid values:', values);
+      }}
+    >
+      <Input label="Name" name="name" required />
+      <Field as={Select} label="Age" name="age" />
       <button>SUBMIT</button>
     </Form>
   )

@@ -6,6 +6,10 @@ import usePath from './path';
 import useValidate from './validate';
 import {useStageFn} from './stage';
 
+/**
+ * @param options
+ * @type {import('../../index').UseField}
+ */
 export default function useField({
   form: f1,
   name,
