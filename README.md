@@ -25,7 +25,7 @@ import {From, Field} from 'react-f0rm';
 export default function Register() {
   return (
     <Form
-      defaultValues={{name: 'wmzy', email: '1256573276@qq.com'}}
+      initialValues={{name: 'wmzy', email: '1256573276@qq.com'}}
       onSubmit={values => console.log(values)}
     >
       <Field

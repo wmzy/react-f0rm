@@ -6,7 +6,7 @@ import createForm, {
   hasTouchedByPath,
   hasErrors,
   isDirty,
-  setDefaultValues
+  setInitialValues
 } from '../form';
 import createPath from '../path';
 
@@ -18,11 +18,11 @@ import createPath from '../path';
 export default function useForm(options) {
   const ref = useRef(null);
   const form = (ref.current = ref.current || createForm(options));
-  const defaultValues = options && options.defaultValues;
+  const initialValues = options && options.initialValues;
 
   useEffect(() => {
-    setDefaultValues(form, defaultValues);
-  }, [defaultValues]);
+    setInitialValues(form, initialValues);
+  }, [initialValues]);
 
   return form;
 }

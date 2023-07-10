@@ -30,10 +30,10 @@ export default function create(options) {
  * Get form values
  * @param {Form} form
  */
-export function getValues({defaultValues, values}) {
+export function getValues({initialValues, values}) {
   return Array.from(values.keys()).reduce(
     (v, k) => set(v, JSON.parse(k), values.get(k)),
-    defaultValues
+    initialValues
   );
 }
 
@@ -51,9 +51,9 @@ export function getValue(form, name) {
  * @param {Form} form
  * @param {Path} path
  */
-export function getValueByPath({defaultValues, values}, path) {
+export function getValueByPath({initialValues, values}, path) {
   if (values.has(path.key)) return values.get(path.key);
-  return get(defaultValues, path.value);
+  return get(initialValues, path.value);
 }
 
 /**
@@ -230,23 +230,23 @@ export function removeFieldByPath(form, {key}) {
 }
 
 /**
- * Set form defaultValues
+ * Set form initialValues
  * @param {Form} form
- * @param {Object} [defaultValues]
+ * @param {Object} [initialValues]
  */
-export function setDefaultValues(form, defaultValues) {
-  if (form.defaultValues === defaultValues) return;
-  form.defaultValues = defaultValues;
+export function setInitialValues(form, initialValues) {
+  if (form.initialValues === initialValues) return;
+  form.initialValues = initialValues;
   emit(form.emitter, 'change');
 }
 
 /**
  * Reset form
  * @param {Form} form
- * @param {Object} [defaultValues]
+ * @param {Object} [initialValues]
  */
-export function reset(form, defaultValues) {
-  form.defaultValues = defaultValues;
+export function reset(form, initialValues) {
+  form.initialValues = initialValues;
   clearErrors(form);
   const {emitter, touched, values} = form;
   values.clear();

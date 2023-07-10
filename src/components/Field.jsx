@@ -3,12 +3,12 @@ import useField from '../hooks/field';
 
 const buildInError = Symbol('buildInError');
 
-export function Field({validate, eventToValue, defaultValue, ...props}) {
+export function Field({validate, eventToValue, initialValue, ...props}) {
   const ref = React.useRef(null);
   const {as, value, valueToProps, onChange, error, ...rest} =
     useField({
       ...props,
-      defaultValue: defaultValue ?? '',
+      initialValue: initialValue ?? '',
       validate: (...params) => {
         if (false === ref.current?.checkValidity()) return buildInError;
         if (validate) return validate(...params);

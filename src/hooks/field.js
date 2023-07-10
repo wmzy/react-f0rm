@@ -13,7 +13,7 @@ import {useStageFn} from './stage';
 export default function useField({
   form: f1,
   name,
-  defaultValue,
+  initialValue,
   validate,
   ...rest
 }) {
@@ -24,7 +24,7 @@ export default function useField({
   const validator = useValidate(validate, path);
 
   useMemo(() => {
-    if (defaultValue !== undefined) setValueByPath(form, path, defaultValue);
+    if (initialValue !== undefined) setValueByPath(form, path, initialValue);
   }, [form, path]);
 
   const error = useErrorByPath(form, path);

@@ -7,7 +7,7 @@ export type Validator = (
 ) => void | string | Promise<void> | Promise<string>;
 
 export type Options<T = any> = Partial<{
-  defaultValues: T;
+  initialValues: T;
   validateOnSubmit: boolean;
   validateOnChange: boolean;
   validateOnBlur: boolean;
@@ -38,7 +38,7 @@ export type TaskCounter = {
 };
 
 export type FormProps<T = any> = {
-  defaultValues?: T;
+  initialValues?: T;
   form?: Form<T>;
   onSubmit?(values: T, e): void;
   onValidSubmit?(values: T, e): void;
@@ -49,7 +49,7 @@ export type FormProps<T = any> = {
 export type FieldOptions<T extends object = any, P extends object = {}> = {
   form: Form<T>;
   name: Name;
-  defaultValue?: any;
+  initialValue?: any;
   validate?: () => void | string | Promise<void> | Promise<string>;
 } & P;
 

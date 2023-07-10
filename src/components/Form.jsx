@@ -11,13 +11,13 @@ import useForm from '../hooks/form';
  */
 export default function Form({
   form: f1,
-  defaultValues,
+  initialValues,
   onSubmit,
   onValidSubmit,
   onInvalidSubmit,
   ...props
 }) {
-  const f2 = useForm({defaultValues});
+  const f2 = useForm({initialValues});
   const form = f1 || f2;
 
   function handleSubmit(e) {
