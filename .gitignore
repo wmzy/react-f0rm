@@ -27,3 +27,4 @@ tmp
 /dist
 .node
 .husky
+storybook-static

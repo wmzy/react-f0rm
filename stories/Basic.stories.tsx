@@ -1,5 +1,5 @@
 import * as React from 'react';
-import type {StoryObj, Meta} from '@storybook/react';
+import type {StoryObj, Meta} from '@storybook/react-vite';
 
 import {Form, Field, Checkbox} from '../src';
 
