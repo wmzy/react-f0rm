@@ -32,7 +32,9 @@
     "lint": "eslint .",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
-    "size": "size-limit"
+    "size": "size-limit",
+    "docs:build": "cd docs-site && npm run build",
+    "docs:deploy": "cd docs-site && npm run deploy"
   },
   "repository": {
     "type": "git",
