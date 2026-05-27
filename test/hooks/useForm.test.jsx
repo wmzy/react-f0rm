@@ -5,9 +5,17 @@ import useForm, {
   useError,
   useTouched,
   useIsDirty,
-  useHasErrors
+  useHasErrors,
+  useIsSubmitting,
+  useSubmitCount
 } from '../../src/hooks/form';
-import {setValue, setError, setTouched} from '../../src/form';
+import {
+  setValue,
+  setError,
+  setTouched,
+  setIsSubmitting,
+  incrementSubmitCount
+} from '../../src/form';
 
 describe('useForm', () => {
   it('returns a form instance', () => {
@@ -119,5 +127,61 @@ describe('useHasErrors', () => {
     });
     act(() => setError(result.current.form, 'name', 'required'));
     expect(result.current.hasErrors).toBe(true);
+  });
+});
+
+describe('useIsSubmitting', () => {
+  it('returns false initially', () => {
+    const initialValues = {name: 'test'};
+    const {result} = renderHook(() => {
+      const form = useForm({initialValues});
+      return {form, isSubmitting: useIsSubmitting(form)};
+    });
+    expect(result.current.isSubmitting).toBe(false);
+  });
+
+  it('returns true when submitting', () => {
+    const initialValues = {name: 'test'};
+    const {result} = renderHook(() => {
+      const form = useForm({initialValues});
+      return {form, isSubmitting: useIsSubmitting(form)};
+    });
+    act(() => setIsSubmitting(result.current.form, true));
+    expect(result.current.isSubmitting).toBe(true);
+  });
+
+  it('returns false after submission ends', () => {
+    const initialValues = {name: 'test'};
+    const {result} = renderHook(() => {
+      const form = useForm({initialValues});
+      return {form, isSubmitting: useIsSubmitting(form)};
+    });
+    act(() => setIsSubmitting(result.current.form, true));
+    expect(result.current.isSubmitting).toBe(true);
+    act(() => setIsSubmitting(result.current.form, false));
+    expect(result.current.isSubmitting).toBe(false);
+  });
+});
+
+describe('useSubmitCount', () => {
+  it('returns 0 initially', () => {
+    const initialValues = {name: 'test'};
+    const {result} = renderHook(() => {
+      const form = useForm({initialValues});
+      return {form, submitCount: useSubmitCount(form)};
+    });
+    expect(result.current.submitCount).toBe(0);
+  });
+
+  it('increments when submit count changes', () => {
+    const initialValues = {name: 'test'};
+    const {result} = renderHook(() => {
+      const form = useForm({initialValues});
+      return {form, submitCount: useSubmitCount(form)};
+    });
+    act(() => incrementSubmitCount(result.current.form));
+    expect(result.current.submitCount).toBe(1);
+    act(() => incrementSubmitCount(result.current.form));
+    expect(result.current.submitCount).toBe(2);
   });
 });
