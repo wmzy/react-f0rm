@@ -1,22 +1,37 @@
 import {useEffect, useMemo} from 'react';
 import {useFormContext} from '../context';
 import {removeFieldByPath, setTouchedByPath, setValueByPath} from '../form';
+import type {Form} from '../form';
+import type {Name, Path} from '../path';
 import {useErrorByPath, useValueByPath} from './form';
 import usePath from './path';
 import useValidate from './validate';
 import {useStageFn} from './stage';
 
-/**
- * @param options
- * @type {import('../../index').UseField}
- */
+interface UseFieldOptions {
+  form?: Form;
+  name: Name;
+  initialValue?: any;
+  validate?: (value: any, meta: {form: Form; path: Path}) => string | undefined | Promise<string | undefined>;
+  [key: string]: any;
+}
+
+interface UseFieldResult {
+  value: any;
+  error: string | undefined;
+  onChange: (v: any) => void;
+  onBlur: () => void;
+  name: string;
+  [key: string]: any;
+}
+
 export default function useField({
   form: f1,
   name,
   initialValue,
   validate,
   ...rest
-}) {
+}: UseFieldOptions): UseFieldResult {
   const f2 = useFormContext();
   const form = f1 || f2;
   const path = usePath(name);
@@ -30,7 +45,7 @@ export default function useField({
   const error = useErrorByPath(form, path);
   const value = useValueByPath(form, path);
 
-  const onChange = useStageFn(v => {
+  const onChange = useStageFn((v: any) => {
     setValueByPath(form, path, v);
     if (
       form.validateOnChange ||
