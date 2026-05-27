@@ -12,6 +12,7 @@ interface UseFieldOptions {
   form?: Form;
   name: Name;
   initialValue?: any;
+  shouldUnregister?: boolean;
   validate?: (value: any, meta: {form: Form; path: Path}) => string | undefined | Promise<string | undefined>;
   [key: string]: any;
 }
@@ -29,6 +30,7 @@ export default function useField({
   form: f1,
   name,
   initialValue,
+  shouldUnregister,
   validate,
   ...rest
 }: UseFieldOptions): UseFieldResult {
@@ -62,9 +64,11 @@ export default function useField({
 
   useEffect(
     () => () => {
-      removeFieldByPath(form, path);
+      if (shouldUnregister !== false) {
+        removeFieldByPath(form, path);
+      }
     },
-    [path, form]
+    [path, form, shouldUnregister]
   );
 
   return {...rest, value, error, onChange, onBlur, name: path.key};

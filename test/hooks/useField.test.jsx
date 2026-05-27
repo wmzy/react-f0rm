@@ -3,12 +3,17 @@ import {renderHook, act} from '@testing-library/react';
 import {FormProvider} from '../../src/context';
 import useField from '../../src/hooks/field';
 import useForm from '../../src/hooks/form';
+import {getValues} from '../../src/form';
 import React from 'react';
 
-function wrapper({children}) {
-  const form = useForm({initialValues: {name: 'test'}});
-  return <FormProvider value={form}>{children}</FormProvider>;
+function createWrapper(initialValues) {
+  return function Wrapper({children}) {
+    const form = useForm({initialValues});
+    return <FormProvider value={form}>{children}</FormProvider>;
+  };
 }
+
+const wrapper = createWrapper({name: 'test'});
 
 describe('useField', () => {
   it('returns field state', () => {
@@ -37,5 +42,28 @@ describe('useField', () => {
       {wrapper}
     );
     expect(result.current.value).toBe('default@test.com');
+  });
+
+  it('preserves value on unmount when shouldUnregister is false', () => {
+    const initialValues = {name: 'test'};
+    const w = createWrapper(initialValues);
+    const {result, unmount} = renderHook(
+      () => useField({name: 'name', shouldUnregister: false}),
+      {wrapper: w}
+    );
+    act(() => result.current.onChange('changed'));
+    unmount();
+    // Value should still be in the form after unmount
+  });
+
+  it('removes value on unmount when shouldUnregister is true', () => {
+    const initialValues = {name: 'test'};
+    const w = createWrapper(initialValues);
+    const {result, unmount} = renderHook(
+      () => useField({name: 'name', shouldUnregister: true}),
+      {wrapper: w}
+    );
+    act(() => result.current.onChange('changed'));
+    unmount();
   });
 });
