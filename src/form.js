@@ -289,10 +289,7 @@ export function trigger(form) {
  * @return {Promise} resolve if no error; reject and stop validate if has an error;
  */
 export async function ensureValidate(form) {
-  form.validators.forEach((validator, key) => {
-    validator();
-    if (hasErrors(form)) throw new Error(form.errors.get(key));
-  });
+  form.validators.forEach(validator => validator());
 
   return waitUntil(
     form.emitter,
