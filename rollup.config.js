@@ -15,67 +15,78 @@ const banner = `
 const extensions = ['.js', '.jsx', '.es6', '.es', '.mjs', '.ts'];
 const external = ['react'];
 
-export default {
-  input: {
-    index: 'src/index.ts',
-    'resolvers/zod': 'src/resolvers/zod.ts',
-    'resolvers/yup': 'src/resolvers/yup.ts'
+const plugins = [
+  replace({
+    __DEV__: process.env.NODE_ENV !== 'production'
+  }),
+  resolve({
+    extensions,
+    browser: true
+  }),
+  commonjs(),
+  esbuild({
+    target: 'esnext'
+  })
+];
+
+export default [
+  // Main entry — UMD + ESM + CJS
+  {
+    input: 'src/index.ts',
+    external,
+    plugins,
+    output: [
+      {
+        name: pkg.name,
+        amd: {id: pkg.name},
+        globals: {react: 'React'},
+        file: pkg.unpkg.replace('.min.', '.'),
+        sourcemap: true,
+        format: 'umd'
+      },
+      {
+        name: pkg.name,
+        amd: {id: pkg.name},
+        globals: {react: 'React'},
+        banner,
+        file: pkg.unpkg,
+        sourcemap: true,
+        format: 'umd',
+        plugins: [terser({output: {comments: /^!/}})]
+      },
+      {
+        file: pkg.module,
+        sourcemap: true,
+        format: 'es'
+      },
+      {
+        file: pkg.main,
+        sourcemap: true,
+        format: 'cjs'
+      }
+    ]
   },
-  external,
-  plugins: [
-    replace({
-      __DEV__: process.env.NODE_ENV !== 'production'
-    }),
-    resolve({
-      extensions,
-      browser: true
-    }),
-    commonjs(),
-    esbuild({
-      target: 'esnext'
-    })
-  ],
-  output: [
-    // browser-friendly UMD build (index only)
-    {
-      name: pkg.name,
-      amd: {
-        id: pkg.name
-      },
-      globals: {
-        react: 'React'
-      },
-      entryFileNames: '[name].umd.js',
-      dir: 'dist',
-      sourcemap: true,
-      format: 'umd'
+  // Resolvers — ESM + CJS only (no UMD)
+  {
+    input: {
+      'resolvers/zod': 'src/resolvers/zod.ts',
+      'resolvers/yup': 'src/resolvers/yup.ts'
     },
-    {
-      name: pkg.name,
-      amd: {
-        id: pkg.name
+    external,
+    plugins,
+    output: [
+      {
+        dir: 'dist',
+        entryFileNames: '[name].esm.js',
+        sourcemap: true,
+        format: 'es'
       },
-      globals: {
-        react: 'React'
-      },
-      banner,
-      entryFileNames: '[name].umd.min.js',
-      dir: 'dist',
-      sourcemap: true,
-      format: 'umd',
-      plugins: [terser({output: {comments: /^!/}})]
-    },
-    {
-      entryFileNames: '[name].esm.js',
-      dir: 'dist',
-      sourcemap: true,
-      format: 'es'
-    },
-    {
-      entryFileNames: '[name].cjs.js',
-      dir: 'dist',
-      sourcemap: true,
-      format: 'cjs'
-    }
-  ]
-};
+      {
+        dir: 'dist',
+        entryFileNames: '[name].cjs.js',
+        sourcemap: true,
+        format: 'cjs'
+      }
+    ]
+  }
+];
