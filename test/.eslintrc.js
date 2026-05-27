@@ -1,8 +1,7 @@
 module.exports = {
   env: {
-    mocha: true
+    vitest: true
   },
-  plugins: ['mocha'],
   rules: {
     'builtin-compat/no-incompatible-builtins': 'off',
     'func-names': 'off'
