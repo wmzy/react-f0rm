@@ -1,5 +1,6 @@
 import {useRef, useReducer, useEffect} from 'react';
 import {on} from '@for-fun/event-emitter';
+import type {EventEmitter} from '@for-fun/event-emitter';
 import createForm, {
   getErrorByPath,
   getValueByPath,
@@ -8,15 +9,14 @@ import createForm, {
   isDirty,
   setInitialValues
 } from '../form';
+import type {Form, Options, Name} from '../form';
 import createPath from '../path';
+import type {Path} from '../path';
 
-/** @typedef { import('@for-fun/event-emitter').EventEmitter } EventEmitter */
-/** @typedef { import('../../index').Form } Form */
-/** @typedef { import('../../index').Path } Path */
-/** @typedef { import('../../index').Name } Name */
-
-export default function useForm(options) {
-  const ref = useRef(null);
+export default function useForm<T extends Record<string, any> = any>(
+  options?: Options<T>
+): Form<T> {
+  const ref = useRef<Form<T> | null>(null);
   const form = (ref.current = ref.current || createForm(options));
   const initialValues = options && options.initialValues;
 
@@ -27,12 +27,11 @@ export default function useForm(options) {
   return form;
 }
 
-/**
- * @param {EventEmitter} emitter
- * @param {string} event
- * @param {() => any} getter
- */
-export function useWatch(emitter, event, getter) {
+export function useWatch<T>(
+  emitter: EventEmitter,
+  event: string,
+  getter: () => T
+): T {
   const [value, syncValue] = useReducer(getter, undefined, getter);
 
   useEffect(() => on(emitter, event, syncValue), [emitter, event]);
@@ -41,19 +40,15 @@ export function useWatch(emitter, event, getter) {
 
 /**
  * Get field value state
- * @param {Form} form
- * @param {Name} name
  */
-export function useValue(form, name) {
+export function useValue(form: Form, name: Name): any {
   return useValueByPath(form, createPath(name));
 }
 
 /**
- * Get field value state
- * @param {Form} form
- * @param {Path} path
+ * Get field value state by path
  */
-export function useValueByPath(form, path) {
+export function useValueByPath(form: Form, path: Path): any {
   return useWatch(
     form.emitter,
     'change',
@@ -63,19 +58,15 @@ export function useValueByPath(form, path) {
 
 /**
  * Get field touched state
- * @param {Form} form
- * @param {Name} name
  */
-export function useTouched(form, name) {
+export function useTouched(form: Form, name: Name): boolean {
   return useTouchedByPath(form, createPath(name));
 }
 
 /**
- * Get field touched state
- * @param {Form} form
- * @param {Path} path
+ * Get field touched state by path
  */
-export function useTouchedByPath(form, path) {
+export function useTouchedByPath(form: Form, path: Path): boolean {
   return useWatch(
     form.emitter,
     'touched',
@@ -85,19 +76,15 @@ export function useTouchedByPath(form, path) {
 
 /**
  * Get field error state
- * @param {Form} form
- * @param {Name} name
  */
-export function useError(form, name) {
+export function useError(form: Form, name: Name): string | undefined {
   return useErrorByPath(form, createPath(name));
 }
 
 /**
- * Get field error state
- * @param {Form} form
- * @param {Path} path
+ * Get field error state by path
  */
-export function useErrorByPath(form, path) {
+export function useErrorByPath(form: Form, path: Path): string | undefined {
   return useWatch(
     form.emitter,
     'errors',
@@ -105,10 +92,10 @@ export function useErrorByPath(form, path) {
   );
 }
 
-export function useIsDirty(form) {
+export function useIsDirty(form: Form): boolean {
   return useWatch(form.emitter, 'touched', isDirty.bind(null, form));
 }
 
-export function useHasErrors(form) {
+export function useHasErrors(form: Form): boolean {
   return useWatch(form.emitter, 'errors', hasErrors.bind(null, form));
 }
