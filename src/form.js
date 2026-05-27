@@ -196,10 +196,22 @@ export function hasTouchedByPath({touched}, path) {
 }
 
 /**
- * Is dirty
+ * Is dirty — any value differs from initialValues
  * @param {Form} form
  */
-export function isDirty({touched}) {
+export function isDirty({initialValues, values}) {
+  for (const [key, value] of values) {
+    const path = JSON.parse(key);
+    if (get(initialValues, path) !== value) return true;
+  }
+  return false;
+}
+
+/**
+ * Is touched — any field has been touched
+ * @param {Form} form
+ */
+export function isTouched({touched}) {
   return touched.size > 0;
 }
 
