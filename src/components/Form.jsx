@@ -20,19 +20,19 @@ export default function Form({
   const f2 = useForm({initialValues});
   const form = f1 || f2;
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
-    const task = validate(form);
-
-    if (!(onSubmit || onValidSubmit || onInvalidSubmit)) return;
+    const error = await validate(form);
 
     const values = getValues(form);
+
+    if (error) {
+      if (onInvalidSubmit) onInvalidSubmit(getErrors(form), values);
+      return;
+    }
+
     if (onSubmit) onSubmit(values, e);
-    task.then(valid =>
-      valid
-        ? onValidSubmit && onValidSubmit(values, e)
-        : onInvalidSubmit && onInvalidSubmit(getErrors(form), values)
-    );
+    if (onValidSubmit) onValidSubmit(values, e);
   }
 
   return (
