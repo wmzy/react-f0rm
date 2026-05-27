@@ -21,61 +21,77 @@ interface FieldProps extends UseFieldOptions {
 
 const buildInError = Symbol('buildInError');
 
-export function Field({
-  validate,
-  eventToValue,
-  initialValue,
-  ...props
-}: FieldProps) {
-  const ref = React.useRef<HTMLInputElement | null>(null);
-  const {as, value, valueToProps, onChange, error, ...rest} = useField({
-    ...props,
-    initialValue,
-    validate: (...params: [any, any]) => {
-      if (false === ref.current?.checkValidity()) return buildInError as any;
-      if (validate) return validate(...params);
-    }
-  });
-  const Component = as || 'input';
-
-  React.useEffect(() => {
-    if (!ref.current) return;
-    if ((error as any) === buildInError) {
-      ref.current.setCustomValidity('');
-      ref.current.reportValidity();
-      return;
-    }
-
-    if (typeof error === 'string') {
-      ref.current.setCustomValidity(error);
-      ref.current.reportValidity();
-    }
-  }, [error]);
-
-  const toValue = eventToValue ?? ((e: any) => e.target.value);
-
-  return (
-    <Component
-      {...rest}
-      {...(valueToProps ? valueToProps(value) : {value})}
-      onChange={(e: any) => onChange(toValue(e))}
-      ref={ref}
-    />
-  );
+function setRef<T>(ref: React.Ref<T> | undefined, value: T | null) {
+  if (typeof ref === 'function') {
+    ref(value);
+  } else if (ref) {
+    (ref as React.MutableRefObject<T | null>).current = value;
+  }
 }
+
+export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
+  function Field({validate, eventToValue, initialValue, ...props}, ref) {
+    const innerRef = React.useRef<HTMLInputElement | null>(null);
+    const mergedRef = React.useCallback(
+      (node: HTMLInputElement | null) => {
+        innerRef.current = node;
+        setRef(ref, node);
+      },
+      [ref]
+    );
+    const {as, value, valueToProps, onChange, error, ...rest} = useField({
+      ...props,
+      initialValue,
+      validate: (...params: [any, any]) => {
+        if (false === innerRef.current?.checkValidity())
+          return buildInError as any;
+        if (validate) return validate(...params);
+      }
+    });
+    const Component = as || 'input';
+
+    React.useEffect(() => {
+      if (!innerRef.current) return;
+      if ((error as any) === buildInError) {
+        innerRef.current.setCustomValidity('');
+        innerRef.current.reportValidity();
+        return;
+      }
+
+      if (typeof error === 'string') {
+        innerRef.current.setCustomValidity(error);
+        innerRef.current.reportValidity();
+      }
+    }, [error]);
+
+    const toValue = eventToValue ?? ((e: any) => e.target.value);
+
+    return (
+      <Component
+        {...rest}
+        {...(valueToProps ? valueToProps(value) : {value})}
+        onChange={(e: any) => onChange(toValue(e))}
+        ref={mergedRef}
+      />
+    );
+  }
+);
 
 interface CheckboxProps extends UseFieldOptions {}
 
-export function Checkbox(props: CheckboxProps) {
-  const {value, onChange, error, ...rest} = useField(props);
-  return (
-    <input
-      {...rest}
-      type="checkbox"
-      checked={!!value}
-      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-        onChange(e.target.checked)
-      }
-    />
-  );
-}
+export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
+  function Checkbox(props, ref) {
+    const {value, onChange, error, ...rest} = useField(props);
+    return (
+      <input
+        {...rest}
+        type="checkbox"
+        checked={!!value}
+        onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+          onChange(e.target.checked)
+        }
+        ref={ref}
+      />
+    );
+  }
+);
