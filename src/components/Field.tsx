@@ -4,7 +4,7 @@ import type {Name} from '../path';
 
 interface UseFieldOptions {
   form?: any;
-  name: Name;
+  name?: Name;
   initialValue?: any;
   validate?: (
     value: any,
@@ -30,7 +30,7 @@ function setRef<T>(ref: React.Ref<T> | undefined, value: T | null) {
 }
 
 export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
-  function Field({validate, eventToValue, initialValue, ...props}, ref) {
+  function Field({validate, eventToValue, initialValue, name, ...props}, ref) {
     const innerRef = React.useRef<HTMLInputElement | null>(null);
     const mergedRef = React.useCallback(
       (node: HTMLInputElement | null) => {
@@ -41,6 +41,7 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
     );
     const {as, value, valueToProps, onChange, error, ...rest} = useField({
       ...props,
+      name: name!,
       initialValue,
       validate: (...params: [any, any]) => {
         if (false === innerRef.current?.checkValidity())
@@ -80,8 +81,8 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
 interface CheckboxProps extends UseFieldOptions {}
 
 export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
-  function Checkbox(props, ref) {
-    const {value, onChange, error, ...rest} = useField(props);
+  function Checkbox({name, ...props}, ref) {
+    const {value, onChange, error, ...rest} = useField({...props, name: name!});
     return (
       <input
         {...rest}

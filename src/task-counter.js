@@ -1,5 +1,8 @@
 import {create as createEmitter, emit, on} from '@for-fun/event-emitter';
-/** @typedef { import('../index').TaskCounter } TaskCounter */
+
+/**
+ * @typedef {{ emitter: import('@for-fun/event-emitter').EventEmitter; count: number }} TaskCounter
+ */
 
 /**
  * @return {TaskCounter}
@@ -10,18 +13,20 @@ export default function create() {
 
 /**
  * @param {TaskCounter} counter
- * @param {Promise} task
+ * @param {Promise<any>} task
  */
 export function run(counter, task) {
   counter.count++;
   task.finally(() => {
     counter.count--;
+    // @ts-ignore — emit types from @for-fun/event-emitter are complex
     emit(counter.emitter, 'done');
   });
 }
 
 /**
  * @param {TaskCounter} counter
+ * @return {boolean}
  */
 export function isRunning(counter) {
   return Boolean(counter.count);
@@ -30,6 +35,7 @@ export function isRunning(counter) {
 /**
  * @param {TaskCounter} counter
  * @param {() => boolean} ifReject
+ * @return {Promise<void>}
  */
 export function waitUntil(counter, ifReject) {
   return new Promise((resolve, reject) => {
