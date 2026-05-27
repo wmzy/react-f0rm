@@ -1,30 +1,34 @@
 import * as React from 'react';
 import {getErrors, getValues, validate} from '../form';
+import type {Form} from '../form';
 import {FormProvider} from '../context';
 import useForm from '../hooks/form';
 
-/** @typedef { import('../../index').FormProps } FormProps */
+interface FormProps<T extends Record<string, any> = any>
+  extends React.FormHTMLAttributes<HTMLFormElement> {
+  form?: Form<T>;
+  initialValues?: T;
+  onSubmit?: (values: T, e: React.FormEvent) => void;
+  onValidSubmit?: (values: T, e: React.FormEvent) => void;
+  onInvalidSubmit?: (errors: string[], values: T) => void;
+}
 
-/**
- * Form
- * @param {FormProps} props
- */
-export default function Form({
+export default function Form<T extends Record<string, any> = any>({
   form: f1,
   initialValues,
   onSubmit,
   onValidSubmit,
   onInvalidSubmit,
   ...props
-}) {
-  const f2 = useForm({initialValues});
+}: FormProps<T>) {
+  const f2 = useForm<T>({initialValues});
   const form = f1 || f2;
 
-  async function handleSubmit(e) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const error = await validate(form);
 
-    const values = getValues(form);
+    const values = getValues(form) as T;
 
     if (error) {
       if (onInvalidSubmit) onInvalidSubmit(getErrors(form), values);
