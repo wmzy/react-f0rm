@@ -8,7 +8,7 @@ export function Field({validate, eventToValue, initialValue, ...props}) {
   const {as, value, valueToProps, onChange, error, ...rest} =
     useField({
       ...props,
-      initialValue: initialValue ?? '',
+      initialValue,
       validate: (...params) => {
         if (false === ref.current?.checkValidity()) return buildInError;
         if (validate) return validate(...params);
