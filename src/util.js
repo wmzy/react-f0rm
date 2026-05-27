@@ -9,12 +9,11 @@ export function normalizePath(path) {
     .map(prop => (prop.endsWith(']') ? Number.parseInt(prop, 10) : prop));
 }
 
-// eslint-disable-next-line consistent-return
 export function get(values, path) {
-  try {
-    return path.reduce((values, p) => values[p], values);
-    // eslint-disable-next-line no-empty
-  } catch (e) {}
+  return path.reduce((current, p) => {
+    if (current == null) return undefined;
+    return current[p];
+  }, values);
 }
 
 export function set(values, path, value) {
