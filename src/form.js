@@ -249,6 +249,7 @@ export function removeFieldByPath(form, {key}) {
 export function setInitialValues(form, initialValues) {
   if (form.initialValues === initialValues) return;
   form.initialValues = initialValues;
+  form.values.clear();
   emit(form.emitter, 'change');
 }
 
