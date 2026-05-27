@@ -24,7 +24,10 @@ import createForm, {
   getValues,
   ensureValidate,
   setValidatingByPath,
-  unsetValidatingByPath
+  unsetValidatingByPath,
+  setIsSubmitting,
+  incrementSubmitCount,
+  setSubmitSuccessful
 } from '../src/form';
 import createPath from '../src/path';
 
@@ -248,5 +251,118 @@ describe('ensureValidate', () => {
       }, 10);
     });
     await expect(ensureValidate(form)).rejects.toThrow('async error');
+  });
+});
+
+describe('form-level validation', () => {
+  it('runs form-level validate on ensureValidate', async () => {
+    const form = createForm({
+      initialValues: {password: 'abc', confirm: 'xyz'},
+      validate: (values) => {
+        if (values.password !== values.confirm) return {confirm: 'Passwords must match'};
+        return {};
+      }
+    });
+    await expect(ensureValidate(form)).rejects.toThrow('Passwords must match');
+    expect(getError(form, 'confirm')).toBe('Passwords must match');
+  });
+
+  it('passes when form-level validate returns empty', async () => {
+    const form = createForm({
+      initialValues: {a: 1},
+      validate: () => ({})
+    });
+    await expect(ensureValidate(form)).resolves.toBeUndefined();
+  });
+
+  it('passes when form-level validate returns falsy', async () => {
+    const form = createForm({
+      initialValues: {a: 1},
+      validate: () => undefined
+    });
+    await expect(ensureValidate(form)).resolves.toBeUndefined();
+  });
+
+  it('receives current values including overrides', async () => {
+    const form = createForm({
+      initialValues: {a: 1},
+      validate: (values) => {
+        if (values.a !== 2) return {a: 'a must be 2'};
+        return {};
+      }
+    });
+    setValue(form, 'a', 2);
+    await expect(ensureValidate(form)).resolves.toBeUndefined();
+  });
+
+  it('runs after field-level validators', async () => {
+    const order = [];
+    const form = createForm({
+      initialValues: {a: 1},
+      validate: () => {
+        order.push('form');
+        return {};
+      }
+    });
+    form.validators.set('a', () => {
+      order.push('field');
+    });
+    await ensureValidate(form);
+    expect(order).toEqual(['field', 'form']);
+  });
+
+  it('supports async form-level validate', async () => {
+    const form = createForm({
+      initialValues: {name: ''},
+      validate: async (values) => {
+        await new Promise(r => setTimeout(r, 10));
+        if (!values.name) return {name: 'name is required'};
+        return {};
+      }
+    });
+    await expect(ensureValidate(form)).rejects.toThrow('name is required');
+    expect(getError(form, 'name')).toBe('name is required');
+  });
+
+  it('does not run form-level validate when field-level fails', async () => {
+    const spy = vi.fn(() => ({}));
+    const form = createForm({
+      initialValues: {a: 1},
+      validate: spy
+    });
+    form.validators.set('a', () => {
+      setError(form, 'a', 'field error');
+    });
+    await expect(ensureValidate(form)).rejects.toThrow('field error');
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe('submission state', () => {
+  it('tracks isSubmitting', () => {
+    const form = createForm();
+    expect(form.isSubmitting).toBe(false);
+    setIsSubmitting(form, true);
+    expect(form.isSubmitting).toBe(true);
+    setIsSubmitting(form, false);
+    expect(form.isSubmitting).toBe(false);
+  });
+
+  it('tracks submitCount', () => {
+    const form = createForm();
+    expect(form.submitCount).toBe(0);
+    incrementSubmitCount(form);
+    expect(form.submitCount).toBe(1);
+    incrementSubmitCount(form);
+    expect(form.submitCount).toBe(2);
+  });
+
+  it('tracks isSubmitSuccessful', () => {
+    const form = createForm();
+    expect(form.isSubmitSuccessful).toBeUndefined();
+    setSubmitSuccessful(form, true);
+    expect(form.isSubmitSuccessful).toBe(true);
+    setSubmitSuccessful(form, false);
+    expect(form.isSubmitSuccessful).toBe(false);
   });
 });

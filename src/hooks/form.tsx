@@ -99,3 +99,11 @@ export function useIsDirty(form: Form): boolean {
 export function useHasErrors(form: Form): boolean {
   return useWatch(form.emitter, 'errors', hasErrors.bind(null, form));
 }
+
+export function useIsSubmitting(form: Form): boolean {
+  return useWatch(form.emitter, 'submitting', () => form.isSubmitting);
+}
+
+export function useSubmitCount(form: Form): number {
+  return useWatch(form.emitter, 'submitCount', () => form.submitCount);
+}

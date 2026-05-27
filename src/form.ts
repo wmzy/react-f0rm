@@ -18,6 +18,10 @@ export interface Form<T extends Record<string, any> = any> {
   touched: Set<string>;
   validators: Map<string, () => void>;
   validating: Set<string>;
+  validate?: (values: T) => Record<string, string> | Promise<Record<string, string>>;
+  isSubmitting: boolean;
+  submitCount: number;
+  isSubmitSuccessful: boolean | undefined;
 }
 
 export type Options<T extends Record<string, any> = any> = {
@@ -46,7 +50,10 @@ export default function create<T extends Record<string, any> = any>(options?: Op
     errors: new Map(),
     touched: new Set(),
     validators: new Map(),
-    validating: new Set()
+    validating: new Set(),
+    isSubmitting: false,
+    submitCount: 0,
+    isSubmitSuccessful: undefined
   };
 }
 
@@ -316,7 +323,7 @@ export function trigger(form: Form): void {
 export async function ensureValidate(form: Form): Promise<void> {
   form.validators.forEach(validator => validator());
 
-  return waitUntil(
+  await waitUntil(
     form.emitter,
     'validating',
     () => !form.validating.size,
@@ -324,6 +331,17 @@ export async function ensureValidate(form: Form): Promise<void> {
   ).catch(() => {
     throw new Error(getFirstError(form));
   });
+
+  if (form.validate) {
+    const result = await form.validate(getValues(form));
+    const entries = result ? Object.entries(result) : [];
+    if (entries.length) {
+      entries.forEach(([field, error]) => {
+        setError(form, field, error);
+      });
+      throw new Error(getFirstError(form));
+    }
+  }
 }
 
 /**
@@ -333,4 +351,19 @@ export async function ensureValidate(form: Form): Promise<void> {
  */
 export async function validate(form: Form): Promise<void | string> {
   return ensureValidate(form).catch(e => e.message);
+}
+
+export function setIsSubmitting(form: Form, value: boolean): void {
+  form.isSubmitting = value;
+  emit(form.emitter, 'submitting');
+}
+
+export function incrementSubmitCount(form: Form): void {
+  form.submitCount++;
+  emit(form.emitter, 'submitCount');
+}
+
+export function setSubmitSuccessful(form: Form, value: boolean): void {
+  form.isSubmitSuccessful = value;
+  emit(form.emitter, 'submitSuccessful');
 }

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import {getErrors, getValues, validate} from '../form';
+import {getErrors, getValues, validate, setIsSubmitting, incrementSubmitCount, setSubmitSuccessful} from '../form';
 import type {Form} from '../form';
 import {FormProvider} from '../context';
 import useForm from '../hooks/form';
@@ -26,17 +26,28 @@ export default function Form<T extends Record<string, any> = any>({
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const error = await validate(form);
+    setIsSubmitting(form, true);
+    incrementSubmitCount(form);
 
+    const error = await validate(form);
     const values = getValues(form) as T;
 
     if (error) {
+      setIsSubmitting(form, false);
+      setSubmitSuccessful(form, false);
       if (onInvalidSubmit) onInvalidSubmit(getErrors(form), values);
       return;
     }
 
-    if (onSubmit) onSubmit(values, e);
-    if (onValidSubmit) onValidSubmit(values, e);
+    try {
+      if (onSubmit) await onSubmit(values, e);
+      if (onValidSubmit) onValidSubmit(values, e);
+      setSubmitSuccessful(form, true);
+    } catch {
+      setSubmitSuccessful(form, false);
+    } finally {
+      setIsSubmitting(form, false);
+    }
   }
 
   return (

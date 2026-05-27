@@ -16,7 +16,11 @@ const extensions = ['.js', '.jsx', '.es6', '.es', '.mjs', '.ts'];
 const external = ['react'];
 
 export default {
-  input: 'src/index.ts',
+  input: {
+    index: 'src/index.ts',
+    'resolvers/zod': 'src/resolvers/zod.ts',
+    'resolvers/yup': 'src/resolvers/yup.ts'
+  },
   external,
   plugins: [
     replace({
@@ -32,7 +36,7 @@ export default {
     })
   ],
   output: [
-    // browser-friendly UMD build
+    // browser-friendly UMD build (index only)
     {
       name: pkg.name,
       amd: {
@@ -41,7 +45,8 @@ export default {
       globals: {
         react: 'React'
       },
-      file: pkg.unpkg.replace('.min.', '.'),
+      entryFileNames: '[name].umd.js',
+      dir: 'dist',
       sourcemap: true,
       format: 'umd'
     },
@@ -54,15 +59,23 @@ export default {
         react: 'React'
       },
       banner,
-      file: pkg.unpkg,
+      entryFileNames: '[name].umd.min.js',
+      dir: 'dist',
       sourcemap: true,
       format: 'umd',
       plugins: [terser({output: {comments: /^!/}})]
     },
     {
-      file: pkg.main,
+      entryFileNames: '[name].esm.js',
+      dir: 'dist',
       sourcemap: true,
       format: 'es'
+    },
+    {
+      entryFileNames: '[name].cjs.js',
+      dir: 'dist',
+      sourcemap: true,
+      format: 'cjs'
     }
   ]
 };

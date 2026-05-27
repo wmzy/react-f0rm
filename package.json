@@ -9,7 +9,9 @@
     ".": {
       "import": "./dist/index.esm.js",
       "require": "./dist/index.cjs.js"
-    }
+    },
+    "./resolvers/zod": "./dist/resolvers/zod.js",
+    "./resolvers/yup": "./dist/resolvers/yup.js"
   },
   "types": "dist/index.d.ts",
   "files": [
