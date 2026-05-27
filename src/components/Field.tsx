@@ -1,6 +1,6 @@
 import * as React from 'react';
 import useField from '../hooks/field';
-import type {Name} from '../hooks/path';
+import type {Name} from '../path';
 
 interface UseFieldOptions {
   form?: any;

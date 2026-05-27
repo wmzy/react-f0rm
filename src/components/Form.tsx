@@ -5,7 +5,7 @@ import {FormProvider} from '../context';
 import useForm from '../hooks/form';
 
 interface FormProps<T extends Record<string, any> = any>
-  extends React.FormHTMLAttributes<HTMLFormElement> {
+  extends Omit<React.FormHTMLAttributes<HTMLFormElement>, 'onSubmit'> {
   form?: Form<T>;
   initialValues?: T;
   onSubmit?: (values: T, e: React.FormEvent) => void;

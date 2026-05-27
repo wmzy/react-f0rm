@@ -1,5 +1,7 @@
-import {create as createEmitter, emit} from '@for-fun/event-emitter';
+import {create as createEmitter, emit as _emit} from '@for-fun/event-emitter';
 import type {EventEmitter} from '@for-fun/event-emitter';
+
+const emit = _emit as (emitter: EventEmitter, event: string, ...args: any[]) => void;
 import createPath from './path';
 import type {Path} from './path';
 import {get, set, waitUntil} from './util';

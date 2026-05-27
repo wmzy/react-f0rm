@@ -2,15 +2,18 @@
   "name": "react-f0rm",
   "version": "0.1.0",
   "description": "react form",
-  "main": "dist/index.esm.js",
+  "main": "dist/index.cjs.js",
+  "module": "dist/index.esm.js",
   "unpkg": "dist/index.umd.min.js",
   "exports": {
-    ".": "./dist/index.esm.js"
+    ".": {
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.cjs.js"
+    }
   },
-  "types": "index.d.ts",
+  "types": "dist/index.d.ts",
   "files": [
-    "dist",
-    "*.d.ts"
+    "dist"
   ],
   "sideEffects": false,
   "scripts": {
