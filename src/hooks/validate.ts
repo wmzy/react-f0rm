@@ -1,5 +1,4 @@
-import {useCallback, useEffect, useRef} from 'react';
-import {on} from '@for-fun/event-emitter';
+import {useEffect, useRef} from 'react';
 import {useFormContext} from '../context';
 import {
   getValueByPath,
@@ -7,12 +6,22 @@ import {
   setValidatingByPath,
   unsetValidatingByPath
 } from '../form';
+import type {Form} from '../form';
+import type {Path} from '../path';
 import {useStageFn} from './stage';
 import {isPromise} from '../util';
 
-export default function useValidate(validate, path) {
-  const form = useFormContext();
-  const lockRef = useRef(null);
+export type Validator = (
+  value: any,
+  meta: {form: Form; path: Path}
+) => string | undefined | Promise<string | undefined>;
+
+export default function useValidate(
+  validate: Validator | undefined,
+  path: Path
+): () => void {
+  const form = useFormContext() as Form;
+  const lockRef = useRef<object | null>(null);
   const validateRef = useRef(validate);
   validateRef.current = validate;
 
@@ -28,7 +37,7 @@ export default function useValidate(validate, path) {
       const lock = (lockRef.current = {});
       setValidatingByPath(form, path);
       result
-        .then(error => {
+        .then((error: string | undefined) => {
           if (lock === lockRef.current) {
             setErrorByPath(form, path, error);
           }
@@ -42,7 +51,9 @@ export default function useValidate(validate, path) {
     };
 
     form.validators.set(path.key, validator);
-    return () => form.validators.delete(path.key);
+    return () => {
+      form.validators.delete(path.key);
+    };
   }, [form, path.key]);
 
   return useStageFn(() => form.validators.get(path.key)?.());
