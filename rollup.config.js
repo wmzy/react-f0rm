@@ -1,7 +1,7 @@
 import resolve from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
 import replace from '@rollup/plugin-replace';
-import babel from '@rollup/plugin-babel';
+import esbuild from 'rollup-plugin-esbuild';
 import terser from '@rollup/plugin-terser';
 import pkg from './package.json' with { type: 'json' };
 
@@ -16,7 +16,7 @@ const extensions = ['.js', '.jsx', '.es6', '.es', '.mjs', '.ts'];
 const external = ['react'];
 
 export default {
-  input: 'src/index.js',
+  input: 'src/index.ts',
   external,
   plugins: [
     replace({
@@ -27,9 +27,8 @@ export default {
       browser: true
     }),
     commonjs(),
-    babel({
-      extensions,
-      exclude: ['node_modules/**']
+    esbuild({
+      target: 'esnext'
     })
   ],
   output: [

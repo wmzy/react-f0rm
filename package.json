@@ -94,6 +94,7 @@
     "react-dom": "^18.2.0",
     "rimraf": "^5.0.1",
     "rollup": "^3.26.2",
+    "rollup-plugin-esbuild": "^6.2.1",
     "storybook": "^7.0.26",
     "typescript": "^5.1.6",
     "vitest": "^3.0.0"
