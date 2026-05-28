@@ -31,7 +31,7 @@ function setRef<T>(ref: React.Ref<T> | undefined, value: T | null) {
 }
 
 export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
-  function Field({validate, eventToValue, initialValue, name, asProps, ...props}, ref) {
+  ({validate, eventToValue, initialValue, name, asProps, ...props}, ref) => {
     const innerRef = React.useRef<HTMLInputElement | null>(null);
     const mergedRef = React.useCallback(
       (node: HTMLInputElement | null) => {
@@ -45,7 +45,7 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
       name: name!,
       initialValue,
       validate: (...params: [any, any]) => {
-        if (false === innerRef.current?.checkValidity())
+        if (innerRef.current?.checkValidity() === false)
           return buildInError as any;
         if (validate) return validate(...params);
       }
@@ -83,7 +83,7 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
 interface CheckboxProps extends UseFieldOptions {}
 
 export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
-  function Checkbox({name, ...props}, ref) {
+  ({name, ...props}, ref) => {
     const {value, onChange, error, ...rest} = useField({...props, name: name!});
     return (
       <input

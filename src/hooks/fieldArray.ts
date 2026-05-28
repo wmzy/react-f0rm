@@ -16,10 +16,7 @@ interface FieldArrayItem {
   index: number;
 }
 
-export default function useFieldArray(options: {
-  name: Name;
-  form?: Form;
-}): {
+export default function useFieldArray(options: {name: Name; form?: Form}): {
   fields: FieldArrayItem[];
   append: (value: any) => void;
   prepend: (value: any) => void;
@@ -33,9 +30,10 @@ export default function useFieldArray(options: {
   const path = usePath(options.name);
   const idsRef = useRef<string[]>([]);
 
-  const getArray = useCallback((): any[] => {
-    return getValueByPath(form, path) || [];
-  }, [form, path]);
+  const getArray = useCallback(
+    (): any[] => getValueByPath(form, path) || [],
+    [form, path]
+  );
 
   const setArray = useCallback(
     (arr: any[]) => {
@@ -56,7 +54,11 @@ export default function useFieldArray(options: {
   }, [getArray]);
 
   // Use useWatch pattern: subscribe to 'change' events and re-compute fields
-  const [fields, syncFields] = useReducer(computeFields, undefined, computeFields);
+  const [fields, syncFields] = useReducer(
+    computeFields,
+    undefined,
+    computeFields
+  );
   useEffect(() => on(form.emitter, 'change', syncFields), [form.emitter]);
 
   const append = useStageFn((value: any) => {

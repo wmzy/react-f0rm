@@ -1,10 +1,14 @@
 import {create as createEmitter, emit as _emit} from '@for-fun/event-emitter';
 import type {EventEmitter} from '@for-fun/event-emitter';
-
-const emit = _emit as (emitter: EventEmitter, event: string, ...args: any[]) => void;
 import createPath from './path';
 import type {Path} from './path';
 import {get, set, waitUntil} from './util';
+
+const emit = _emit as (
+  emitter: EventEmitter,
+  event: string,
+  ...args: any[]
+) => void;
 
 export type PathValue = (string | number)[];
 export type Name = string | PathValue;
@@ -18,7 +22,9 @@ export interface Form<T extends Record<string, any> = any> {
   touched: Set<string>;
   validators: Map<string, () => void>;
   validating: Set<string>;
-  validate?: (values: T) => Record<string, string> | Promise<Record<string, string>>;
+  validate?: (
+    values: T
+  ) => Record<string, string> | Promise<Record<string, string>>;
   isSubmitting: boolean;
   submitCount: number;
   isSubmitSuccessful: boolean | undefined;
@@ -31,7 +37,9 @@ export type Options<T extends Record<string, any> = any> = {
   validateOnBlur?: boolean;
   revalidateOnChange?: boolean;
   revalidateOnBlur?: boolean;
-  validate?: (values: T) => Record<string, string> | Promise<Record<string, string>>;
+  validate?: (
+    values: T
+  ) => Record<string, string> | Promise<Record<string, string>>;
 };
 
 /**
@@ -39,7 +47,9 @@ export type Options<T extends Record<string, any> = any> = {
  * @param options
  * @return form instance
  */
-export default function create<T extends Record<string, any> = any>(options?: Options<T>): Form<T> {
+export default function create<T extends Record<string, any> = any>(
+  options?: Options<T>
+): Form<T> {
   const emitter = createEmitter();
   return {
     emitter,
@@ -103,7 +113,11 @@ export function setValue(form: Form, name: Name, value: any): void {
  * @param path
  * @param value
  */
-export function setValueByPath({emitter, values}: Form, path: Path, value: any): void {
+export function setValueByPath(
+  {emitter, values}: Form,
+  path: Path,
+  value: any
+): void {
   values.set(path.key, value);
   emit(emitter, 'change', path);
 }
@@ -144,12 +158,18 @@ export function getFirstError({errors}: Form): string | undefined {
   return errors.values().next().value;
 }
 
-export function unsetValidatingByPath({emitter, validating}: Form, {key}: Path): void {
+export function unsetValidatingByPath(
+  {emitter, validating}: Form,
+  {key}: Path
+): void {
   validating.delete(key);
   emit(emitter, 'validating');
 }
 
-export function setValidatingByPath({emitter, validating}: Form, {key}: Path): void {
+export function setValidatingByPath(
+  {emitter, validating}: Form,
+  {key}: Path
+): void {
   validating.add(key);
   emit(emitter, 'validating');
 }
@@ -160,7 +180,11 @@ export function setValidatingByPath({emitter, validating}: Form, {key}: Path): v
  * @param name
  * @param error
  */
-export function setError(form: Form, name: Name, error: string | undefined): void {
+export function setError(
+  form: Form,
+  name: Name,
+  error: string | undefined
+): void {
   setErrorByPath(form, createPath(name), error);
 }
 
@@ -170,7 +194,11 @@ export function setError(form: Form, name: Name, error: string | undefined): voi
  * @param path
  * @param error
  */
-export function setErrorByPath({emitter, errors}: Form, path: Path, error: string | undefined): void {
+export function setErrorByPath(
+  {emitter, errors}: Form,
+  path: Path,
+  error: string | undefined
+): void {
   if (error) {
     errors.set(path.key, error);
   } else {

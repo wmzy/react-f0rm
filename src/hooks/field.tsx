@@ -13,7 +13,10 @@ interface UseFieldOptions {
   name: Name;
   initialValue?: any;
   shouldUnregister?: boolean;
-  validate?: (value: any, meta: {form: Form; path: Path}) => string | undefined | Promise<string | undefined>;
+  validate?: (
+    value: any,
+    meta: {form: Form; path: Path}
+  ) => string | undefined | Promise<string | undefined>;
   [key: string]: any;
 }
 

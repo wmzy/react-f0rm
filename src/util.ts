@@ -1,7 +1,9 @@
 import {on} from '@for-fun/event-emitter';
 import type {EventEmitter} from '@for-fun/event-emitter';
 
-export function normalizePath(path: string | (string | number)[]): (string | number)[] {
+export function normalizePath(
+  path: string | (string | number)[]
+): (string | number)[] {
   if (Array.isArray(path)) return path;
   return path
     .split(/\.|\[/)
@@ -43,7 +45,12 @@ export function isPromise(value: any): value is Promise<any> {
   return value && typeof value.then === 'function';
 }
 
-export function waitUntil(emitter: EventEmitter<any>, event: string, isResolve: () => boolean, isReject: () => boolean): Promise<void> {
+export function waitUntil(
+  emitter: EventEmitter<any>,
+  event: string,
+  isResolve: () => boolean,
+  isReject: () => boolean
+): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     if (isReject()) return void reject();
     if (isResolve()) return void resolve();

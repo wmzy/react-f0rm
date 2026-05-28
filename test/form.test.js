@@ -7,7 +7,6 @@ import createForm, {
   setValueByPath,
   getError,
   setError,
-  getErrorByPath,
   setErrorByPath,
   getErrors,
   getFirstError,
@@ -18,7 +17,6 @@ import createForm, {
   isTouched,
   isDirty,
   removeField,
-  removeFieldByPath,
   setInitialValues,
   reset,
   getValues,
@@ -258,8 +256,9 @@ describe('form-level validation', () => {
   it('runs form-level validate on ensureValidate', async () => {
     const form = createForm({
       initialValues: {password: 'abc', confirm: 'xyz'},
-      validate: (values) => {
-        if (values.password !== values.confirm) return {confirm: 'Passwords must match'};
+      validate: values => {
+        if (values.password !== values.confirm)
+          return {confirm: 'Passwords must match'};
         return {};
       }
     });
@@ -286,7 +285,7 @@ describe('form-level validation', () => {
   it('receives current values including overrides', async () => {
     const form = createForm({
       initialValues: {a: 1},
-      validate: (values) => {
+      validate: values => {
         if (values.a !== 2) return {a: 'a must be 2'};
         return {};
       }
@@ -314,7 +313,7 @@ describe('form-level validation', () => {
   it('supports async form-level validate', async () => {
     const form = createForm({
       initialValues: {name: ''},
-      validate: async (values) => {
+      validate: async values => {
         await new Promise(r => setTimeout(r, 10));
         if (!values.name) return {name: 'name is required'};
         return {};

@@ -1,11 +1,20 @@
 import * as React from 'react';
-import {getErrors, getValues, validate, setIsSubmitting, incrementSubmitCount, setSubmitSuccessful} from '../form';
+import {
+  getErrors,
+  getValues,
+  validate,
+  setIsSubmitting,
+  incrementSubmitCount,
+  setSubmitSuccessful
+} from '../form';
 import type {Form} from '../form';
 import {FormProvider} from '../context';
 import useForm from '../hooks/form';
 
-interface FormProps<T extends Record<string, any> = any>
-  extends Omit<React.FormHTMLAttributes<HTMLFormElement>, 'onSubmit'> {
+interface FormProps<T extends Record<string, any> = any> extends Omit<
+  React.FormHTMLAttributes<HTMLFormElement>,
+  'onSubmit'
+> {
   form?: Form<T>;
   initialValues?: T;
   onSubmit?: (values: T, e: React.FormEvent) => void;

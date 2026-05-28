@@ -8,7 +8,10 @@ interface GroupProps {
   name: Name;
   form?: any;
   initialValue?: any;
-  validate?: (value: any, meta: {form: any; path: any}) => string | undefined | Promise<string | undefined>;
+  validate?: (
+    value: any,
+    meta: {form: any; path: any}
+  ) => string | undefined | Promise<string | undefined>;
   [key: string]: any;
 }
 

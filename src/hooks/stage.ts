@@ -8,5 +8,8 @@ export default function useStage<T>(value: T): MutableRefObject<T> {
 
 export function useStageFn<T extends (...args: any[]) => any>(fn: T): T {
   const ref = useStage(fn);
-  return useCallback((...params: any[]) => ref.current(...params), []) as unknown as T;
+  return useCallback(
+    (...params: any[]) => ref.current(...params),
+    []
+  ) as unknown as T;
 }
