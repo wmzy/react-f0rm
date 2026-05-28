@@ -8,11 +8,20 @@
   "unpkg": "dist/index.umd.min.js",
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.esm.js",
       "require": "./dist/index.cjs.js"
     },
-    "./resolvers/zod": "./dist/resolvers/zod.js",
-    "./resolvers/yup": "./dist/resolvers/yup.js"
+    "./resolvers/zod": {
+      "types": "./dist/resolvers/zod.d.ts",
+      "import": "./dist/resolvers/zod.esm.js",
+      "require": "./dist/resolvers/zod.cjs.js"
+    },
+    "./resolvers/yup": {
+      "types": "./dist/resolvers/yup.d.ts",
+      "import": "./dist/resolvers/yup.esm.js",
+      "require": "./dist/resolvers/yup.cjs.js"
+    }
   },
   "types": "dist/index.d.ts",
   "files": [
@@ -103,6 +112,7 @@
     "react-dom": "^18.2.0",
     "rimraf": "^5.0.1",
     "rollup": "^3.26.2",
+    "rollup-plugin-dts": "^6.4.1",
     "rollup-plugin-esbuild": "^6.2.1",
     "size-limit": "^12.1.0",
     "storybook": "^10.4.1",

@@ -3,6 +3,7 @@ import commonjs from '@rollup/plugin-commonjs';
 import replace from '@rollup/plugin-replace';
 import esbuild from 'rollup-plugin-esbuild';
 import terser from '@rollup/plugin-terser';
+import dts from 'rollup-plugin-dts';
 import pkg from './package.json' with { type: 'json' };
 
 const banner = `
@@ -86,6 +87,22 @@ export default [
         entryFileNames: '[name].cjs.js',
         sourcemap: true,
         format: 'cjs'
+      }
+    ]
+  },
+  // Declaration files
+  {
+    input: {
+      index: 'src/index.ts',
+      'resolvers/zod': 'src/resolvers/zod.ts',
+      'resolvers/yup': 'src/resolvers/yup.ts'
+    },
+    plugins: [dts({ tsconfig: './tsconfig.build.json' })],
+    output: [
+      {
+        dir: 'dist',
+        entryFileNames: '[name].d.ts',
+        format: 'es'
       }
     ]
   }

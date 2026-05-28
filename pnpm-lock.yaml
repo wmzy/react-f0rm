@@ -153,6 +153,9 @@ importers:
       rollup:
         specifier: ^3.26.2
         version: 3.30.0
+      rollup-plugin-dts:
+        specifier: ^6.4.1
+        version: 6.4.1(rollup@3.30.0)(typescript@5.9.3)
       rollup-plugin-esbuild:
         specifier: ^6.2.1
         version: 6.2.1(esbuild@0.28.0)(rollup@3.30.0)
@@ -4207,6 +4210,13 @@ packages:
   rimraf@5.0.10:
     resolution: {integrity: sha512-l0OE8wL34P4nJH/H2ffoaniAokM2qSmrtXHmlpvYr5AVVX8msAyW0l8NVJFDxlSK4u3Uh/f41cQheDVdnYijwQ==}
     hasBin: true
+
+  rollup-plugin-dts@6.4.1:
+    resolution: {integrity: sha512-l//F3Zf7ID5GoOfLfD8kroBjQKEKpy1qfhtAdnpibFZMffPaylrg1CoDC2vGkPeTeyxUe4bVFCln2EFuL7IGGg==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      rollup: ^3.29.4 || ^4
+      typescript: ^4.5 || ^5.0 || ^6.0
 
   rollup-plugin-esbuild@6.2.1:
     resolution: {integrity: sha512-jTNOMGoMRhs0JuueJrJqbW8tOwxumaWYq+V5i+PD+8ecSCVkuX27tGW7BXqDgoULQ55rO7IdNxPcnsWtshz3AA==}
@@ -9201,6 +9211,17 @@ snapshots:
   rimraf@5.0.10:
     dependencies:
       glob: 10.5.0
+
+  rollup-plugin-dts@6.4.1(rollup@3.30.0)(typescript@5.9.3):
+    dependencies:
+      '@jridgewell/remapping': 2.3.5
+      '@jridgewell/sourcemap-codec': 1.5.5
+      convert-source-map: 2.0.0
+      magic-string: 0.30.21
+      rollup: 3.30.0
+      typescript: 5.9.3
+    optionalDependencies:
+      '@babel/code-frame': 7.29.7
 
   rollup-plugin-esbuild@6.2.1(esbuild@0.28.0)(rollup@3.30.0):
     dependencies:
