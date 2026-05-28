@@ -16,8 +16,9 @@ A controlled input component with built-in validation support.
 | `initialValue` | `any` | Override initial value |
 | `eventToValue` | `(event) => any` | Transform event to value |
 | `valueToProps` | `(value) => object` | Transform value to props |
+| `...props` | `any` | All other props are forwarded to the rendered component |
 
-Also accepts all native `<input>` HTML attributes.
+When `as` is omitted, `...props` are passed to a native `<input>`. When `as` is a custom component, `...props` are spread onto that component along with `value` and `onChange`.
 
 ## Prop Forwarding
 
