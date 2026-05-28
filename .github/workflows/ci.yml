@@ -20,10 +20,10 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
-      - run: pnpm build
-      - run: pnpm test
-      - run: pnpm tsc --noEmit
+      - run: npm run lint
+      - run: npm run build
+      - run: npm test
+      - run: npx tsc --noEmit
 
   size:
     runs-on: ubuntu-latest
