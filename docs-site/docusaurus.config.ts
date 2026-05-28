@@ -36,7 +36,7 @@ const config: Config = {
       {
         docs: {
           sidebarPath: './sidebars.ts',
-          editUrl: 'https://github.com/wmzy/react-f0rm/tree/master/docs-site/',
+          editUrl: 'https://github.com/wmzy/react-f0rm/tree/main/docs-site/',
         },
         blog: false,
         theme: {
