@@ -15,6 +15,7 @@ interface UseFieldOptions {
 
 interface FieldProps extends UseFieldOptions {
   as?: React.ComponentType<any>;
+  asProps?: Record<string, any>;
   eventToValue?: (e: any) => any;
   valueToProps?: (value: any) => Record<string, any>;
 }
@@ -30,7 +31,7 @@ function setRef<T>(ref: React.Ref<T> | undefined, value: T | null) {
 }
 
 export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
-  function Field({validate, eventToValue, initialValue, name, ...props}, ref) {
+  function Field({validate, eventToValue, initialValue, name, asProps, ...props}, ref) {
     const innerRef = React.useRef<HTMLInputElement | null>(null);
     const mergedRef = React.useCallback(
       (node: HTMLInputElement | null) => {
@@ -70,6 +71,7 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
     return (
       <Component
         {...rest}
+        {...asProps}
         {...(valueToProps ? valueToProps(value) : {value})}
         onChange={(e: any) => onChange(toValue(e))}
         ref={mergedRef}

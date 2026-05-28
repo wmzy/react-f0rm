@@ -12,13 +12,14 @@ A controlled input component with built-in validation support.
 |------|------|-------------|
 | `name` | `string \| (string\|number)[]` | Field name (supports dot notation) |
 | `as` | `ComponentType` | Custom component to render |
+| `asProps` | `Record<string, any>` | Props passed directly to the `as` component (use when prop names conflict with Field's own props) |
 | `validate` | `(value, meta) => string \| undefined` | Field-level validator |
 | `initialValue` | `any` | Override initial value |
 | `eventToValue` | `(event) => any` | Transform event to value |
 | `valueToProps` | `(value) => object` | Transform value to props |
 | `...props` | `any` | All other props are forwarded to the rendered component |
 
-When `as` is omitted, `...props` are passed to a native `<input>`. When `as` is a custom component, `...props` are spread onto that component along with `value` and `onChange`.
+When `as` is omitted, `...props` are passed to a native `<input>`. When `as` is a custom component, `...props` are spread onto that component along with `value` and `onChange`. If a prop name conflicts (e.g., your component has a `validate` prop), use `asProps` to pass it explicitly.
 
 ## Prop Forwarding
 

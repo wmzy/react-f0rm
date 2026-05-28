@@ -8,7 +8,7 @@ The `as` prop lets you use any component as a form field — not just native `<i
 
 ## How It Works
 
-`Field` consumes a fixed set of props (`name`, `as`, `validate`, `initialValue`, `eventToValue`, `valueToProps`). Everything else passes through to your component:
+`Field` consumes a fixed set of props (`name`, `as`, `validate`, `initialValue`, `eventToValue`, `valueToProps`). Everything else passes through to your component. If a prop name conflicts with Field's own props, use `asProps` (see [Prop Name Conflicts](#prop-name-conflicts)).
 
 ```tsx
 <Field
@@ -110,6 +110,30 @@ If your component expects props instead of a `value` prop, use `valueToProps`:
   }}
 />
 ```
+
+## Prop Name Conflicts
+
+If your custom component has a prop with the same name as one of Field's consumed props (e.g., `validate`, `name`, `initialValue`), use `asProps` to pass it explicitly. `asProps` values are merged after `...rest`, so they take priority:
+
+```tsx
+function MyComponent({ validate, ...props }) {
+  // validate here is MyComponent's own prop, not Field's validator
+  return <div>{validate ? 'Enabled' : 'Disabled'}</div>;
+}
+
+// Without asProps — `validate` is consumed by Field, never reaches MyComponent
+<Field name="feature" as={MyComponent} validate={someValue} />  // wrong!
+
+// With asProps — `validate` is forwarded directly to MyComponent
+<Field
+  name="feature"
+  as={MyComponent}
+  validate={(v) => !v && 'Required'}  // Field's validator
+  asProps={{ validate: someValue }}    // forwarded to MyComponent
+/>
+```
+
+Merge order: `{...rest} {...asProps} {value} {onChange}` — `asProps` overrides `rest`, and `value`/`onChange` always win.
 
 ## forwardRef Support
 
