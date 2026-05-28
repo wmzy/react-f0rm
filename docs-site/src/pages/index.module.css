@@ -1,8 +1,3 @@
-/**
- * CSS files with the .module.css suffix will be treated as CSS modules
- * and scoped locally.
- */
-
 .heroBanner {
   padding: 4rem 0;
   text-align: center;
@@ -10,9 +5,25 @@
   overflow: hidden;
 }
 
+.heroLogo {
+  width: 160px;
+  height: 160px;
+  margin-bottom: 1rem;
+  animation: float 6s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
 @media screen and (max-width: 996px) {
   .heroBanner {
     padding: 2rem;
+  }
+  .heroLogo {
+    width: 120px;
+    height: 120px;
   }
 }
 
@@ -20,4 +31,30 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 0.5rem;
+}
+
+.installCmd {
+  margin-top: 1.5rem;
+}
+
+.installCmd code {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0.6rem 1.2rem;
+  border-radius: 6px;
+  font-size: 1rem;
+  letter-spacing: 0.02em;
+  user-select: all;
+}
+
+.bundleSection {
+  padding: 4rem 0;
+  text-align: center;
+}
+
+.bundleSize {
+  font-size: 3.5rem;
+  font-weight: 700;
+  color: var(--ifm-color-primary);
+  margin: 0.5rem 0;
 }

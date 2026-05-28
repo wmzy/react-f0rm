@@ -5,7 +5,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 const config: Config = {
   title: 'react-f0rm',
   tagline: 'Lightweight, event-driven React form library',
-  favicon: 'img/favicon.ico',
+  favicon: 'img/favicon.svg',
 
   future: {
     v4: true,
@@ -52,6 +52,10 @@ const config: Config = {
     },
     navbar: {
       title: 'react-f0rm',
+      logo: {
+        alt: 'react-f0rm logo',
+        src: 'img/logo.svg',
+      },
       items: [
         {
           type: 'docSidebar',

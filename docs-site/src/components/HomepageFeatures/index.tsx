@@ -5,50 +5,79 @@ import styles from './styles.module.css';
 
 type FeatureItem = {
   title: string;
-  Svg: React.ComponentType<React.ComponentProps<'svg'>>;
   description: ReactNode;
+  icon: string;
 };
 
 const FeatureList: FeatureItem[] = [
   {
-    title: 'Easy to Use',
-    Svg: require('@site/static/img/undraw_docusaurus_mountain.svg').default,
+    title: 'Event-Driven',
+    icon: '⚡',
     description: (
       <>
-        Docusaurus was designed from the ground up to be easily installed and
-        used to get your website up and running quickly.
+        Updates are driven by an event emitter, not React state. Only fields
+        that change re-render — not the entire form.
       </>
     ),
   },
   {
-    title: 'Focus on What Matters',
-    Svg: require('@site/static/img/undraw_docusaurus_tree.svg').default,
+    title: 'Tree-Shakeable',
+    icon: '🌲',
     description: (
       <>
-        Docusaurus lets you focus on your docs, and we&apos;ll do the chores. Go
-        ahead and move your docs into the <code>docs</code> directory.
+        Every function is independently exported. If you don't use field arrays
+        or schema resolvers, they're eliminated from your bundle automatically.
       </>
     ),
   },
   {
-    title: 'Powered by React',
-    Svg: require('@site/static/img/undraw_docusaurus_react.svg').default,
+    title: 'TypeScript Native',
+    icon: '🔷',
     description: (
       <>
-        Extend or customize your website layout by reusing React. Docusaurus can
-        be extended while reusing the same header and footer.
+        Written in TypeScript with full type inference. Generic form types flow
+        through hooks and components — no manual type annotations needed.
+      </>
+    ),
+  },
+  {
+    title: 'Schema Validation',
+    icon: '✅',
+    description: (
+      <>
+        First-class support for Zod and Yup via tree-shakeable resolvers.
+        Also supports field-level and form-level validation functions.
+      </>
+    ),
+  },
+  {
+    title: 'Field Arrays',
+    icon: '📋',
+    description: (
+      <>
+        Built-in <code>useFieldArray</code> hook with stable IDs, plus
+        append, prepend, insert, remove, swap, and move operations.
+      </>
+    ),
+  },
+  {
+    title: 'Submission State',
+    icon: '🚀',
+    description: (
+      <>
+        Track <code>isSubmitting</code>, <code>submitCount</code>, and{' '}
+        <code>isSubmitSuccessful</code> out of the box. Built-in double-submit
+        protection.
       </>
     ),
   },
 ];
 
-function Feature({title, Svg, description}: FeatureItem) {
+function Feature({title, description, icon}: FeatureItem) {
   return (
     <div className={clsx('col col--4')}>
-      <div className="text--center">
-        <Svg className={styles.featureSvg} role="img" />
-      </div>
-      <div className="text--center padding-horiz--md">
+      <div className={styles.featureCard}>
+        <div className={styles.featureIcon}>{icon}</div>
         <Heading as="h3">{title}</Heading>
         <p>{description}</p>
       </div>
