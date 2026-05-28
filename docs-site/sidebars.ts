@@ -7,7 +7,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Guides',
-      items: ['guides/validation', 'guides/field-arrays', 'guides/submission', 'guides/typescript'],
+      items: ['guides/validation', 'guides/field-arrays', 'guides/submission', 'guides/typescript', 'guides/custom-components'],
     },
     {
       type: 'category',
