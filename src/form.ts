@@ -273,18 +273,20 @@ export function getFirstError({errors}: Form): string | undefined {
 
 export function unsetValidatingByPath(
   {emitter, validating}: Form,
-  {key}: Path
+  path: Path
 ): void {
-  validating.delete(key);
-  emit(emitter, 'validating');
+  validating.delete(path.key);
+  // Path payload lets key-scoped subscribers (onKeyEvent) skip unrelated
+  // fields; payload-less listeners ignore it.
+  emit(emitter, 'validating', path);
 }
 
 export function setValidatingByPath(
   {emitter, validating}: Form,
-  {key}: Path
+  path: Path
 ): void {
-  validating.add(key);
-  emit(emitter, 'validating');
+  validating.add(path.key);
+  emit(emitter, 'validating', path);
 }
 
 /**
@@ -321,7 +323,9 @@ export function setErrorByPath(
   } else {
     errors.delete(path.key);
   }
-  emit(emitter, 'errors');
+  // Path payload lets key-scoped subscribers (onKeyEvent) skip unrelated
+  // fields; payload-less listeners ignore it.
+  emit(emitter, 'errors', path);
 }
 
 /**
@@ -347,10 +351,12 @@ export function setTouched(form: Form, name: Name): void {
  * @param form
  * @param path
  */
-export function setTouchedByPath({emitter, touched}: Form, {key}: Path): void {
-  if (touched.has(key)) return;
-  touched.add(key);
-  emit(emitter, 'touched');
+export function setTouchedByPath({emitter, touched}: Form, path: Path): void {
+  if (touched.has(path.key)) return;
+  touched.add(path.key);
+  // Path payload lets key-scoped subscribers (onKeyEvent) skip unrelated
+  // fields; payload-less listeners ignore it.
+  emit(emitter, 'touched', path);
 }
 
 /**

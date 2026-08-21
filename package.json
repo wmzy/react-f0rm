@@ -26,6 +26,11 @@
       "types": "./dist/resolvers/yup.d.ts",
       "import": "./dist/resolvers/yup.esm.js",
       "require": "./dist/resolvers/yup.cjs.js"
+    },
+    "./devtools": {
+      "types": "./dist/devtools/index.d.ts",
+      "import": "./dist/devtools/index.esm.js",
+      "require": "./dist/devtools/index.cjs.js"
     }
   },
   "types": "dist/index.d.ts",

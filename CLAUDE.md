@@ -68,11 +68,20 @@ Key exports: `createForm`, `getValues`, `getValue`, `setValue` (4th `options?: S
 ### Context (`src/context.ts`)
 `FormContext` provides the form instance to nested components via `useFormContext()`.
 
+### Subscriptions (`src/subscribe.ts`)
+Path-scoped event subscription primitives — the reason a keystroke stays O(affected fields) instead of O(all subscribers):
+- `onPathEvent(emitter, event, path, scope, cb)` — `leaf` scope fires for writes at the path itself or an ancestor; `branch` scope additionally fires for descendants (array sections). Payload-less emits (reset, removeField, setInitialValues) always fire — the correctness fallback.
+- `onKeyEvent(emitter, event, key, cb)` — exact-key match or payload-less; used by error/touched watches. Ancestor/descendant tests compare JSON path keys with a mandatory trailing comma so `["tagsX"]` never prefix-matches `["tags"]`.
+- Emit sites that mutate a single path carry the `Path` payload (`setValueByPath`, `setErrorByPath`, `setTouchedByPath`, `setValidating*`); bulk operations emit payload-less so every subscriber resyncs.
+
 ### Resolvers (`src/resolvers/`)
 Schema validation adapters (tree-shakeable, separate entry points):
 - `standard-schema` — one adapter for any Standard Schema v1 implementation (zod v3.24+/v4, valibot v1, arktype): `standardSchemaResolver` (field-level) and `standardSchemaFormValidator` (form-level; issues without a path land on the `_form` key)
 - `zodResolver` — adapts Zod schemas
 - `yupResolver` — adapts Yup schemas
+
+### Devtools (`src/devtools/`)
+`<Devtools form? position? />` — live state panel (values/errors/touched/dirty tabs, submit status, Reset & Validate actions) shipped behind its own tree-shakeable entry `react-f0rm/devtools` (never imported by the main entry, so the ~5 KB core is unaffected). Zero runtime dependencies: styles are injected once via an idempotent `<style>` element; data flows through the same public hooks/`useWatch` aggregates. Collapses to a corner badge (red dot when errors exist).
 
 ## Testing
 

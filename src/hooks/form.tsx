@@ -2,6 +2,7 @@ import {useState, useEffect, useCallback, useRef} from 'react';
 import {useSyncExternalStore} from 'use-sync-external-store/shim';
 import {on} from '@for-fun/event-emitter';
 import type {EventEmitter} from '@for-fun/event-emitter';
+import {onKeyEvent, onPathEvent} from '../subscribe';
 import createForm, {
   getErrorByPath,
   getValueByPath,
@@ -69,16 +70,15 @@ interface WatchCache<T> {
 }
 
 /**
- * Subscribe to a form event and keep the component's snapshot of `getter()`
- * in sync with the form state.
- *
- * Built on useSyncExternalStore, so snapshots taken while React renders are
- * guaranteed consistent (no tearing under concurrent rendering) and changes
- * emitted before the subscription effect runs are still picked up.
+ * Shared core of {@link useWatch} and the path-scoped hooks: a
+ * useSyncExternalStore binding over a custom event subscription.
+ * `subscribeFactory` receives the invalidate callback (drop the snapshot
+ * cache, then notify React) and returns its unsubscribe function, so the
+ * core stays identical whether the subscription is global or scoped to
+ * one path.
  */
-export function useWatch<T>(
-  emitter: EventEmitter,
-  event: string,
+function useWatchCore<T>(
+  subscribeFactory: (invalidate: () => void) => () => void,
   getter: () => T
 ): T {
   // useSyncExternalStore requires getSnapshot to return the same reference
@@ -114,13 +114,33 @@ export function useWatch<T>(
         cache.hasValue = false;
         notify();
       };
-      return on(emitter, event, invalidate);
+      return subscribeFactory(invalidate);
     },
-    [emitter, event, cache]
+    [subscribeFactory, cache]
   );
 
   // getServerSnapshot is deliberately omitted: this is a client-only library.
   return useSyncExternalStore(subscribe, getSnapshot);
+}
+
+/**
+ * Subscribe to a form event and keep the component's snapshot of `getter()`
+ * in sync with the form state.
+ *
+ * Built on useSyncExternalStore, so snapshots taken while React renders are
+ * guaranteed consistent (no tearing under concurrent rendering) and changes
+ * emitted before the subscription effect runs are still picked up.
+ */
+export function useWatch<T>(
+  emitter: EventEmitter,
+  event: string,
+  getter: () => T
+): T {
+  const subscribeFactory = useCallback(
+    (invalidate: () => void) => on(emitter, event, invalidate),
+    [emitter, event]
+  );
+  return useWatchCore(subscribeFactory, getter);
 }
 
 /**
@@ -137,11 +157,20 @@ export function useValue<
  * Get field value state by path
  */
 export function useValueByPath(form: Form, path: Path): any {
-  return useWatch(
-    form.emitter,
-    'change',
-    getValueByPath.bind(null, form, path)
+  const {emitter} = form;
+  const {key} = path;
+  // 'leaf' scope: a leaf read depends only on its own key and its
+  // ancestors' (getValueByPath fallback chain), so writes elsewhere --
+  // siblings, descendants, string-prefix lookalikes ('["a","bX"]') -- never
+  // invalidate the snapshot. Payload-less broadcasts (reset, removeField,
+  // setInitialValues) still sync everything.
+  const subscribeFactory = useCallback(
+    (invalidate: () => void) =>
+      onPathEvent(emitter, 'change', path, 'leaf', invalidate),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are `key` on purpose: useValue creates a fresh Path per render, so the object must stay out of the deps while the key string pins the subscription
+    [emitter, key]
   );
+  return useWatchCore(subscribeFactory, getValueByPath.bind(null, form, path));
 }
 
 /**
@@ -158,9 +187,17 @@ export function useTouched<
  * Get field touched state by path
  */
 export function useTouchedByPath(form: Form, path: Path): boolean {
-  return useWatch(
-    form.emitter,
-    'touched',
+  const {emitter} = form;
+  const {key} = path;
+  // Touched is stored per exact key, so only this field's own setTouched
+  // (now emitted with its path) matters; payload-less broadcasts (reset,
+  // removeField) still sync everything.
+  const subscribeFactory = useCallback(
+    (invalidate: () => void) => onKeyEvent(emitter, 'touched', key, invalidate),
+    [emitter, key]
+  );
+  return useWatchCore(
+    subscribeFactory,
     hasTouchedByPath.bind(null, form, path)
   );
 }
@@ -181,11 +218,16 @@ export function useError<
  * @return current FieldError object ({type, message}), or undefined
  */
 export function useErrorByPath(form: Form, path: Path): FieldError | undefined {
-  return useWatch(
-    form.emitter,
-    'errors',
-    getErrorByPath.bind(null, form, path)
+  const {emitter} = form;
+  const {key} = path;
+  // Errors are stored per exact key, so only writes to this field's error
+  // (setErrorByPath now emits with its path) matter; payload-less
+  // broadcasts (clearErrors, reset, removeField) still sync everything.
+  const subscribeFactory = useCallback(
+    (invalidate: () => void) => onKeyEvent(emitter, 'errors', key, invalidate),
+    [emitter, key]
   );
+  return useWatchCore(subscribeFactory, getErrorByPath.bind(null, form, path));
 }
 
 export function useIsDirty(form: Form): boolean {

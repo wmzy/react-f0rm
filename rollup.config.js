@@ -67,13 +67,16 @@ export default [
       }
     ]
   },
-  // Resolvers — ESM + CJS only (no UMD). zod/yup reuse the standard-schema
-  // module, so rollup emits shared chunks alongside the entry chunks.
+  // Side entries — ESM + CJS only (no UMD). zod/yup reuse the
+  // standard-schema module, so rollup emits shared chunks alongside the
+  // entry chunks. devtools bundles the core it inspects; like the
+  // resolvers it stays out of the main entry's bundle graph.
   {
     input: {
       'resolvers/standard-schema': 'src/resolvers/standard-schema.ts',
       'resolvers/zod': 'src/resolvers/zod.ts',
-      'resolvers/yup': 'src/resolvers/yup.ts'
+      'resolvers/yup': 'src/resolvers/yup.ts',
+      'devtools/index': 'src/devtools/index.ts'
     },
     external,
     plugins,
@@ -100,7 +103,8 @@ export default [
       index: 'src/index.ts',
       'resolvers/standard-schema': 'src/resolvers/standard-schema.ts',
       'resolvers/zod': 'src/resolvers/zod.ts',
-      'resolvers/yup': 'src/resolvers/yup.ts'
+      'resolvers/yup': 'src/resolvers/yup.ts',
+      'devtools/index': 'src/devtools/index.ts'
     },
     plugins: [dts({ tsconfig: './tsconfig.build.json' })],
     output: [

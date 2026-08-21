@@ -21,8 +21,14 @@ import createForm, {
   getValue,
   getValues,
   getError,
-  getTouchedFields
+  getTouchedFields,
+  clearErrors,
+  removeField,
+  reset
 } from '../../src/form';
+import {create as createEmitter, emit} from '@for-fun/event-emitter';
+import {onKeyEvent, onPathEvent} from '../../src/subscribe';
+import createPath from '../../src/path';
 
 describe('useForm', () => {
   it('returns a form instance', () => {
@@ -186,6 +192,44 @@ describe('useValue', () => {
     );
     expect(container.textContent).toBe('changed');
   });
+
+  it('does not re-render for sibling, lookalike-prefix or descendant writes', () => {
+    // Leaf scope: useValueByPath only subscribes to writes at its own key,
+    // so unrelated fields' changes never wake it up.
+    const initialValues = {a: {b: 1, c: 2}, other: 'x'};
+    let renders = 0;
+    const {result} = renderHook(() => {
+      renders++;
+      const form = useForm({initialValues});
+      return {form, value: useValue(form, 'a.b')};
+    });
+    const before = renders;
+    act(() => setValue(result.current.form, 'a.c', 3)); // sibling
+    act(() => setValue(result.current.form, 'a.bX', 3)); // prefix lookalike
+    act(() => setValue(result.current.form, 'other', 'y')); // unrelated
+    expect(renders).toBe(before);
+    expect(result.current.value).toBe(1);
+    // Sanity: the own write still re-renders exactly once.
+    act(() => setValue(result.current.form, 'a.b', 9));
+    expect(renders).toBe(before + 1);
+    expect(result.current.value).toBe(9);
+  });
+
+  it('syncs on payload-less broadcasts (removeField and reset)', () => {
+    // removeFieldByPath and reset emit 'change' without a path payload:
+    // scoped subscribers must treat that as a full sync, not stay stuck.
+    const initialValues = {name: 'init'};
+    const {result} = renderHook(() => {
+      const form = useForm({initialValues});
+      return {form, value: useValue(form, 'name')};
+    });
+    act(() => setValue(result.current.form, 'name', 'draft'));
+    expect(result.current.value).toBe('draft');
+    act(() => removeField(result.current.form, 'name'));
+    expect(result.current.value).toBeUndefined();
+    act(() => reset(result.current.form, {name: 'fresh'}));
+    expect(result.current.value).toBe('fresh');
+  });
 });
 
 describe('useError', () => {
@@ -211,6 +255,48 @@ describe('useError', () => {
     );
     expect(result.current.error).toBe('too short');
   });
+
+  it('does not re-render when another field gets an error', () => {
+    // Exact-key subscription: setErrorByPath emits 'errors' with its path,
+    // so other fields' errors never wake this subscriber.
+    let renders = 0;
+    const {result} = renderHook(() => {
+      renders++;
+      const form = useForm({initialValues: {}});
+      return {form, error: useError(form, 'name')};
+    });
+    const before = renders;
+    act(() => setError(result.current.form, 'other', 'boom'));
+    expect(renders).toBe(before);
+    expect(result.current.error).toBeUndefined();
+    // Sanity: the own error still lands.
+    act(() => setError(result.current.form, 'name', 'required'));
+    expect(renders).toBe(before + 1);
+    expect(result.current.error).toBe('required');
+  });
+
+  it('clears on payload-less clearErrors broadcast', () => {
+    const {result} = renderHook(() => {
+      const form = useForm({initialValues: {}});
+      return {form, error: useError(form, 'name')};
+    });
+    act(() => setError(result.current.form, 'name', 'required'));
+    expect(result.current.error).toBe('required');
+    // clearErrors emits 'errors' without a payload: full sync, no deadlock.
+    act(() => clearErrors(result.current.form));
+    expect(result.current.error).toBeUndefined();
+  });
+
+  it('clears on reset', () => {
+    const {result} = renderHook(() => {
+      const form = useForm({initialValues: {}});
+      return {form, error: useError(form, 'name')};
+    });
+    act(() => setError(result.current.form, 'name', 'required'));
+    expect(result.current.error).toBe('required');
+    act(() => reset(result.current.form));
+    expect(result.current.error).toBeUndefined();
+  });
 });
 
 describe('useTouched', () => {
@@ -223,6 +309,37 @@ describe('useTouched', () => {
     expect(result.current.touched).toBe(false);
     act(() => setTouched(result.current.form, 'name'));
     expect(result.current.touched).toBe(true);
+  });
+
+  it('does not re-render when another field is touched', () => {
+    // Exact-key subscription: setTouchedByPath emits 'touched' with its
+    // path, so other fields' blurs never wake this subscriber.
+    let renders = 0;
+    const {result} = renderHook(() => {
+      renders++;
+      const form = useForm({initialValues: {}});
+      return {form, touched: useTouched(form, 'name')};
+    });
+    const before = renders;
+    act(() => setTouched(result.current.form, 'other'));
+    expect(renders).toBe(before);
+    expect(result.current.touched).toBe(false);
+    // Sanity: the own touch still lands.
+    act(() => setTouched(result.current.form, 'name'));
+    expect(renders).toBe(before + 1);
+    expect(result.current.touched).toBe(true);
+  });
+
+  it('clears on reset', () => {
+    const {result} = renderHook(() => {
+      const form = useForm({initialValues: {}});
+      return {form, touched: useTouched(form, 'name')};
+    });
+    act(() => setTouched(result.current.form, 'name'));
+    expect(result.current.touched).toBe(true);
+    // reset emits 'touched' without a payload: full sync.
+    act(() => reset(result.current.form));
+    expect(result.current.touched).toBe(false);
   });
 });
 
@@ -392,5 +509,66 @@ describe('useSubmitCount', () => {
     expect(result.current.submitCount).toBe(1);
     act(() => incrementSubmitCount(result.current.form));
     expect(result.current.submitCount).toBe(2);
+  });
+});
+
+// Direct unit tests of the src/subscribe.ts primitives the scoped hooks are
+// built on (useValueByPath/useFieldArray -> onPathEvent, useErrorByPath/
+// useTouchedByPath -> onKeyEvent). Ancestor-write invalidation is only
+// observable at this layer: getValueByPath reads ancestors through the
+// initialValues fallback, so hook-level values do not move on ancestor
+// writes. Placed in this file (not a new one) because the scoped hooks it
+// exercises live in src/hooks/form.tsx.
+describe('onPathEvent / onKeyEvent primitives', () => {
+  it('leaf scope fires on own, ancestor and payload-less emits', () => {
+    const emitter = createEmitter();
+    const calls = [];
+    const off = onPathEvent(
+      emitter,
+      'change',
+      createPath('a.b'),
+      'leaf',
+      () => calls.push('hit')
+    );
+    emit(emitter, 'change', createPath('a.b')); // own
+    emit(emitter, 'change', createPath('a')); // ancestor
+    emit(emitter, 'change'); // payload-less broadcast
+    expect(calls).toHaveLength(3);
+    off();
+    emit(emitter, 'change', createPath('a.b'));
+    expect(calls).toHaveLength(3); // unsubscribed stays silent
+  });
+
+  it('leaf scope stays silent for sibling, lookalike-prefix and descendant writes', () => {
+    const emitter = createEmitter();
+    let calls = 0;
+    onPathEvent(emitter, 'change', createPath('a.b'), 'leaf', () => calls++);
+    emit(emitter, 'change', createPath('a.c')); // sibling
+    emit(emitter, 'change', createPath('a.bX')); // string-prefix lookalike
+    emit(emitter, 'change', createPath('other')); // unrelated
+    emit(emitter, 'change', createPath('a.b.c')); // descendant
+    expect(calls).toBe(0);
+  });
+
+  it('branch scope additionally fires for descendant writes', () => {
+    const emitter = createEmitter();
+    let calls = 0;
+    onPathEvent(emitter, 'change', createPath('tags'), 'branch', () => calls++);
+    emit(emitter, 'change', createPath('tags')); // own
+    emit(emitter, 'change', createPath('tags.0')); // direct child (array index)
+    emit(emitter, 'change', createPath('tags.0.name')); // deep descendant
+    emit(emitter, 'change', createPath('tagsX')); // prefix lookalike: silent
+    expect(calls).toBe(3);
+  });
+
+  it('onKeyEvent fires only for the exact key and payload-less emits', () => {
+    const emitter = createEmitter();
+    let calls = 0;
+    onKeyEvent(emitter, 'errors', createPath('name').key, () => calls++);
+    emit(emitter, 'errors', createPath('name')); // exact
+    emit(emitter, 'errors'); // payload-less broadcast
+    emit(emitter, 'errors', createPath('nameX')); // lookalike
+    emit(emitter, 'errors', createPath('other')); // unrelated
+    expect(calls).toBe(2);
   });
 });

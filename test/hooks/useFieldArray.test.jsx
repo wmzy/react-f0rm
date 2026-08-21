@@ -168,4 +168,49 @@ describe('useFieldArray', () => {
     act(() => reset(form, {tags: ['x']}));
     expect(api.fields).toHaveLength(1);
   });
+
+  it('re-syncs when a deep descendant of an item changes', () => {
+    // Branch scope: writes arbitrarily far below the array key re-aggregate
+    // the subtree, not just direct children.
+    const form = createForm({initialValues: {tags: [{name: 'a'}]}});
+    let renders = 0;
+    function TagsArray() {
+      renders += 1;
+      const {fields} = useFieldArray({name: 'tags', form});
+      return <div>{fields.map(f => <span key={f.id}>{f.index}</span>)}</div>;
+    }
+    render(<TagsArray />);
+    const initialRenders = renders;
+    act(() => setValue(form, 'tags.0.name', 'b'));
+    expect(renders).toBe(initialRenders + 1);
+    expect(getValueByPath(form, createPath('tags.0.name'))).toBe('b');
+  });
+
+  it('scopes a nested array by its full multi-segment key', () => {
+    const form = createForm({
+      initialValues: {a: {tags: ['x'], other: 'y'}}
+    });
+    let renders = 0;
+    let api;
+    function NestedArray() {
+      renders += 1;
+      api = useFieldArray({name: 'a.tags', form});
+      return <div>{api.fields.length}</div>;
+    }
+    render(<NestedArray />);
+    const initialRenders = renders;
+    // Sibling inside the same parent object: silent.
+    act(() => setValue(form, 'a.other', 'z'));
+    expect(renders).toBe(initialRenders);
+    // Prefix lookalike at depth: 'a.tagsX' must not match 'a.tags'.
+    act(() => setValue(form, 'a.tagsX', 'q'));
+    expect(renders).toBe(initialRenders);
+    // A descendant write re-syncs.
+    act(() => setValue(form, 'a.tags.0', 'b'));
+    expect(renders).toBe(initialRenders + 1);
+    expect(getValueByPath(form, createPath('a.tags.0'))).toBe('b');
+    // Own writes (append) still re-sync.
+    act(() => api.append('c'));
+    expect(api.fields).toHaveLength(2);
+  });
 });
