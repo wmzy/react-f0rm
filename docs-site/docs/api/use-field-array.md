@@ -30,7 +30,7 @@ function TodoList() {
 | Option | Type | Description |
 |--------|------|-------------|
 | `name` | `string` | Array field name |
-| `form` | `Form` | Form instance (optional) |
+| `form` | `Form` | Explicit form instance — wins over the context and makes the hook work outside a `<Form>` provider |
 
 ## Returns
 
@@ -40,6 +40,10 @@ function TodoList() {
 | `append` | `(value: any) => void` | Add to end |
 | `prepend` | `(value: any) => void` | Add to start |
 | `insert` | `(index: number, value: any) => void` | Insert at index |
-| `remove` | `(index: number) => void` | Remove at index |
+| `remove` | `(index: number) => void` | Remove item |
 | `swap` | `(from: number, to: number) => void` | Swap two items |
 | `move` | `(from: number, to: number) => void` | Move item |
+
+## Subscription Scope
+
+The hook subscribes with a path-prefix filter: only `change` events touching this array's branch — the array key itself or any descendant key — recompute `fields` and re-render the component. Typing into unrelated fields never re-renders the list.
