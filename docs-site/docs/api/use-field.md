@@ -27,7 +27,7 @@ function CustomInput({ name }) {
 | `name` | `string \| (string\|number)[]` | Field name |
 | `form` | `Form` | Form instance (optional, uses context if omitted) |
 | `initialValue` | `any` | Override initial value |
-| `validate` | `(value, meta) => string \| undefined` | Validator |
+| `validate` | `(value, meta) => string \| FieldError \| undefined` | Validator (strings are normalized to `{type: 'custom', message}`) |
 | `shouldUnregister` | `boolean` | Remove value on unmount (default: false) |
 
 ## Returns
@@ -35,7 +35,8 @@ function CustomInput({ name }) {
 | Property | Type | Description |
 |----------|------|-------------|
 | `value` | `any` | Current field value |
-| `error` | `string \| undefined` | Current error |
+| `error` | `string \| undefined` | Current error's message string |
+| `errorObject` | `FieldError \| undefined` | Full error object (`{type, message}`) |
 | `onChange` | `(value: any) => void` | Update value |
 | `onBlur` | `() => void` | Mark as touched |
 | `name` | `string` | Serialized field name |

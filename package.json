@@ -12,6 +12,11 @@
       "import": "./dist/index.esm.js",
       "require": "./dist/index.cjs.js"
     },
+    "./resolvers/standard-schema": {
+      "types": "./dist/resolvers/standard-schema.d.ts",
+      "import": "./dist/resolvers/standard-schema.esm.js",
+      "require": "./dist/resolvers/standard-schema.cjs.js"
+    },
     "./resolvers/zod": {
       "types": "./dist/resolvers/zod.d.ts",
       "import": "./dist/resolvers/zod.esm.js",
@@ -62,7 +67,21 @@
   },
   "homepage": "https://github.com/wmzy/react-f0rm#readme",
   "peerDependencies": {
-    "react": ">=16.8.0"
+    "react": ">=16.8.0",
+    "valibot": ">=1.0.0",
+    "yup": ">=0.32.0",
+    "zod": ">=3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "valibot": {
+      "optional": true
+    },
+    "yup": {
+      "optional": true
+    },
+    "zod": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@babel/core": "^7.22.8",
@@ -110,6 +129,7 @@
     "prettier": "^3.0.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-hook-form": "^7.85.0",
     "rimraf": "^5.0.1",
     "rollup": "^3.26.2",
     "rollup-plugin-dts": "^6.4.1",
@@ -120,7 +140,8 @@
     "vitest": "^3.0.0"
   },
   "dependencies": {
-    "@for-fun/event-emitter": "^1.0.0"
+    "@for-fun/event-emitter": "^1.0.0",
+    "use-sync-external-store": "^1.6.0"
   },
   "size-limit": [
     {

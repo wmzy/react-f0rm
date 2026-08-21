@@ -1,9 +1,10 @@
-import {describe, it, expect} from 'vitest';
-import {render, screen} from '@testing-library/react';
+import {describe, it, expect, vi} from 'vitest';
+import {render, screen, act} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import Form from '../../src/components/Form';
 import {Group, Item} from '../../src/components/Radio';
+import createForm, {setError} from '../../src/form';
 
 describe('Radio', () => {
   it('renders radio inputs', () => {
@@ -44,5 +45,24 @@ describe('Radio', () => {
     expect(screen.getByTestId('agree').checked).toBe(false);
     await user.click(screen.getByTestId('agree'));
     expect(screen.getByTestId('agree').checked).toBe(true);
+  });
+
+  it('attaches aria-invalid on items when the group has an error', async () => {
+    const form = createForm({initialValues: {color: ''}});
+    render(
+      <Form form={form}>
+        <Group name="color">
+          <Item value="red" data-testid="red" />
+        </Group>
+      </Form>
+    );
+    const radio = screen.getByTestId('red');
+    expect(radio.getAttribute('aria-invalid')).toBeNull();
+    await act(async () => {
+      setError(form, 'color', 'pick one');
+    });
+    await vi.waitFor(() => {
+      expect(radio.getAttribute('aria-invalid')).toBe('true');
+    });
   });
 });

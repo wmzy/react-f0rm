@@ -1,9 +1,17 @@
-import {useCallback, useEffect, useMemo, useReducer, useRef} from 'react';
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef
+} from 'react';
 import {on} from '@for-fun/event-emitter';
-import {useFormContext} from '../context';
+import {FormContext} from '../context';
 import {getValueByPath, setValueByPath} from '../form';
 import type {Form, Name} from '../form';
 import usePath from './path';
+import type {Path} from '../path';
 import {useStageFn} from './stage';
 
 let idCounter = 0;
@@ -25,8 +33,11 @@ export default function useFieldArray(options: {name: Name; form?: Form}): {
   swap: (from: number, to: number) => void;
   move: (from: number, to: number) => void;
 } {
-  const f2 = useFormContext();
-  const form = options.form || f2;
+  // Read the context unconditionally (hook call order must be stable), then
+  // let an explicitly passed form win — works without a <FormProvider>.
+  const contextForm = useContext(FormContext);
+  const form = options.form || contextForm;
+  if (!form) throw new Error('no form provided');
   const path = usePath(options.name);
   const idsRef = useRef<string[]>([]);
 
@@ -53,13 +64,33 @@ export default function useFieldArray(options: {name: Name; form?: Form}): {
     return idsRef.current.map((id, index) => ({id, index}));
   }, [getArray]);
 
-  // Use useWatch pattern: subscribe to 'change' events and re-compute fields
+  // Use useWatch pattern: subscribe to 'change' events and re-compute fields,
+  // but only for changes that touch this array's branch -- the array key
+  // itself or any descendant key -- so typing into unrelated fields does not
+  // re-render the array component. Keys are JSON.stringify'd segment arrays
+  // ('["tags"]', '["tags",0]'), so descendants share the parent prefix plus
+  // a ',' separator; requiring that ',' keeps sibling keys like '["tagsX"]'
+  // from matching. Payload-less 'change' emits (reset, removeFieldByPath,
+  // setInitialValues) always sync.
   const [fields, syncFields] = useReducer(
     computeFields,
     undefined,
     computeFields
   );
-  useEffect(() => on(form.emitter, 'change', syncFields), [form.emitter]);
+  const childKeyPrefix = `${path.key.slice(0, -1)},`;
+  useEffect(
+    () =>
+      on(form.emitter, 'change', (changed?: Path) => {
+        if (
+          changed === undefined ||
+          changed.key === path.key ||
+          changed.key.startsWith(childKeyPrefix)
+        ) {
+          syncFields();
+        }
+      }),
+    [form.emitter, path.key, childKeyPrefix]
+  );
 
   const append = useStageFn((value: any) => {
     const arr = getArray();

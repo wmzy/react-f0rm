@@ -67,9 +67,11 @@ export default [
       }
     ]
   },
-  // Resolvers — ESM + CJS only (no UMD)
+  // Resolvers — ESM + CJS only (no UMD). zod/yup reuse the standard-schema
+  // module, so rollup emits shared chunks alongside the entry chunks.
   {
     input: {
+      'resolvers/standard-schema': 'src/resolvers/standard-schema.ts',
       'resolvers/zod': 'src/resolvers/zod.ts',
       'resolvers/yup': 'src/resolvers/yup.ts'
     },
@@ -79,12 +81,14 @@ export default [
       {
         dir: 'dist',
         entryFileNames: '[name].esm.js',
+        chunkFileNames: '[name]-[hash].esm.js',
         sourcemap: true,
         format: 'es'
       },
       {
         dir: 'dist',
         entryFileNames: '[name].cjs.js',
+        chunkFileNames: '[name]-[hash].cjs.js',
         sourcemap: true,
         format: 'cjs'
       }
@@ -94,6 +98,7 @@ export default [
   {
     input: {
       index: 'src/index.ts',
+      'resolvers/standard-schema': 'src/resolvers/standard-schema.ts',
       'resolvers/zod': 'src/resolvers/zod.ts',
       'resolvers/yup': 'src/resolvers/yup.ts'
     },
@@ -102,6 +107,7 @@ export default [
       {
         dir: 'dist',
         entryFileNames: '[name].d.ts',
+        chunkFileNames: '[name]-[hash].d.ts',
         format: 'es'
       }
     ]

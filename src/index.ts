@@ -1,5 +1,6 @@
 export {default as createForm} from './form';
 export * from './form';
+export type {FieldPath, PathValue} from './types';
 
 export * from './context';
 

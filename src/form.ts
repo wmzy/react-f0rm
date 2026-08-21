@@ -1,8 +1,12 @@
 import {create as createEmitter, emit as _emit} from '@for-fun/event-emitter';
 import type {EventEmitter} from '@for-fun/event-emitter';
 import createPath from './path';
-import type {Path} from './path';
-import {get, set, waitUntil} from './util';
+import type {Name, Path, PathSegments} from './path';
+import type {FieldPath, PathValueOf} from './types';
+import {get, normalizePath, setOwned, unset, waitUntil} from './util';
+
+export type {Name};
+export type {FieldPath, PathValue} from './types';
 
 const emit = _emit as (
   emitter: EventEmitter,
@@ -10,21 +14,29 @@ const emit = _emit as (
   ...args: any[]
 ) => void;
 
-export type PathValue = (string | number)[];
-export type Name = string | PathValue;
+/** A field error: `type` identifies the error kind ('custom' for plain
+ * string errors), `message` is the display text. */
+export interface FieldError {
+  type: string;
+  message: string;
+}
+
+/** A flattened entry from {@link getErrors}. */
+export type FieldErrorEntry = {path: string; type: string; message: string};
 
 export interface Form<T extends Record<string, any> = any> {
   emitter: EventEmitter;
   revalidateOnChange: boolean;
   initialValues: T;
   values: Map<string, any>;
-  errors: Map<string, string>;
+  /** Tombstones of unregistered field paths (JSON path keys): reading or
+   * merging values must not fall back to initialValues for these paths. */
+  deleted: Set<string>;
+  errors: Map<string, FieldError>;
   touched: Set<string>;
   validators: Map<string, () => void>;
   validating: Set<string>;
-  validate?: (
-    values: T
-  ) => Record<string, string> | Promise<Record<string, string>>;
+  validate?: (values: T) => Record<string, any> | Promise<Record<string, any>>;
   isSubmitting: boolean;
   submitCount: number;
   isSubmitSuccessful: boolean | undefined;
@@ -37,9 +49,12 @@ export type Options<T extends Record<string, any> = any> = {
   validateOnBlur?: boolean;
   revalidateOnChange?: boolean;
   revalidateOnBlur?: boolean;
-  validate?: (
-    values: T
-  ) => Record<string, string> | Promise<Record<string, string>>;
+  /**
+   * Form-level validator. Returns a record of errors keyed by field path;
+   * nested objects are flattened ('a.b' style) and array values contribute
+   * their first non-empty string (zod `flatten()` formErrors style).
+   */
+  validate?: (values: T) => Record<string, any> | Promise<Record<string, any>>;
 };
 
 /**
@@ -57,6 +72,7 @@ export default function create<T extends Record<string, any> = any>(
     ...options,
     initialValues: (options?.initialValues ?? {}) as T,
     values: new Map(),
+    deleted: new Set(),
     errors: new Map(),
     touched: new Set(),
     validators: new Map(),
@@ -68,14 +84,34 @@ export default function create<T extends Record<string, any> = any>(
 }
 
 /**
- * Get form values
+ * Get form values: the values Map layered over initialValues.
+ *
+ * Merged with copy-on-write ownership tracking ({@link setOwned}): every
+ * distinct container on a written path is allocated once and shared by all
+ * paths through it, instead of re-copying the whole branch for every key.
+ * The result is still a freshly merged tree per call, with untouched
+ * branches sharing references with initialValues exactly like chained
+ * `set` did -- callers may treat it as their own copy.
+ *
  * @param form
  */
 export function getValues(form: Form): any {
-  return Array.from(form.values.keys()).reduce(
-    (v, k) => set(v, JSON.parse(k), form.values.get(k)),
-    form.initialValues
-  );
+  const {initialValues, values, deleted} = form;
+  const owned = new Set<object>();
+  let merged = initialValues;
+  for (const [key, value] of values) {
+    merged = setOwned(merged, JSON.parse(key), value, owned);
+  }
+  // Unregistered fields leave a tombstone in `deleted`; remove those paths
+  // from the merged result so they don't fall back to initialValues. unset
+  // is immutable (set() shares untouched branches with initialValues, so a
+  // mutating delete would corrupt them) and deletes the key outright rather
+  // than writing undefined, which would leave `a: undefined` entries behind
+  // in anything that spreads getValues().
+  for (const key of deleted) {
+    merged = unset(merged, JSON.parse(key));
+  }
+  return merged;
 }
 
 /**
@@ -83,7 +119,10 @@ export function getValues(form: Form): any {
  * @param form
  * @param name
  */
-export function getValue(form: Form, name: Name): any {
+export function getValue<
+  T extends Record<string, any> = any,
+  P extends FieldPath<T> | Name = Name
+>(form: Form<T>, name: P): PathValueOf<T, P> {
   return getValueByPath(form, createPath(name));
 }
 
@@ -92,8 +131,13 @@ export function getValue(form: Form, name: Name): any {
  * @param form
  * @param path
  */
-export function getValueByPath({initialValues, values}: Form, path: Path): any {
+export function getValueByPath(
+  {initialValues, values, deleted}: Form,
+  path: Path
+): any {
   if (values.has(path.key)) return values.get(path.key);
+  // Unregistered path: the tombstone blocks the initialValues fallback.
+  if (deleted.has(path.key)) return undefined;
   return get(initialValues, path.value);
 }
 
@@ -103,7 +147,10 @@ export function getValueByPath({initialValues, values}: Form, path: Path): any {
  * @param name
  * @param value
  */
-export function setValue(form: Form, name: Name, value: any): void {
+export function setValue<
+  T extends Record<string, any> = any,
+  P extends FieldPath<T> | Name = Name
+>(form: Form<T>, name: P, value: PathValueOf<T, P>): void {
   setValueByPath(form, createPath(name), value);
 }
 
@@ -114,11 +161,12 @@ export function setValue(form: Form, name: Name, value: any): void {
  * @param value
  */
 export function setValueByPath(
-  {emitter, values}: Form,
+  {emitter, values, deleted}: Form,
   path: Path,
   value: any
 ): void {
   values.set(path.key, value);
+  reviveBranch(deleted, path);
   emit(emitter, 'change', path);
 }
 
@@ -126,8 +174,12 @@ export function setValueByPath(
  * Get field error
  * @param form
  * @param name
+ * @return FieldError object or undefined
  */
-export function getError(form: Form, name: Name): string | undefined {
+export function getError<
+  T extends Record<string, any> = any,
+  P extends FieldPath<T> | Name = Name
+>(form: Form<T>, name: P): FieldError | undefined {
   return getErrorByPath(form, createPath(name));
 }
 
@@ -135,27 +187,36 @@ export function getError(form: Form, name: Name): string | undefined {
  * Get field error by path
  * @param form
  * @param path
+ * @return FieldError object or undefined
  */
-export function getErrorByPath({errors}: Form, path: Path): string | undefined {
+export function getErrorByPath(
+  {errors}: Form,
+  path: Path
+): FieldError | undefined {
   return errors.get(path.key);
 }
 
 /**
  * Get all errors
  * @param form
- * @return array of error strings
+ * @return array of {path, type, message} entries, in insertion order; path
+ *         is the user-facing dotted field path ('a.b', 'list.0')
  */
-export function getErrors({errors}: Form): string[] {
-  return Array.from(errors.values());
+export function getErrors({errors}: Form): FieldErrorEntry[] {
+  return Array.from(errors, ([key, error]) => ({
+    path: (JSON.parse(key) as PathSegments).join('.'),
+    type: error.type,
+    message: error.message
+  }));
 }
 
 /**
- * Get first error string
+ * Get first error message
  * @param form
- * @return first error string or undefined
+ * @return first error's message string, or undefined when there are no errors
  */
 export function getFirstError({errors}: Form): string | undefined {
-  return errors.values().next().value;
+  return errors.values().next().value?.message;
 }
 
 export function unsetValidatingByPath(
@@ -178,13 +239,13 @@ export function setValidatingByPath(
  * Set field error
  * @param form
  * @param name
- * @param error
+ * @param error string is normalized to {type: 'custom', message};
+ *        a FieldError object is stored as-is; undefined clears the error
  */
-export function setError(
-  form: Form,
-  name: Name,
-  error: string | undefined
-): void {
+export function setError<
+  T extends Record<string, any> = any,
+  P extends FieldPath<T> | Name = Name
+>(form: Form<T>, name: P, error: string | FieldError | undefined): void {
   setErrorByPath(form, createPath(name), error);
 }
 
@@ -192,15 +253,19 @@ export function setError(
  * Set field error
  * @param form
  * @param path
- * @param error
+ * @param error string is normalized to {type: 'custom', message};
+ *        a FieldError object is stored as-is; undefined clears the error
  */
 export function setErrorByPath(
   {emitter, errors}: Form,
   path: Path,
-  error: string | undefined
+  error: string | FieldError | undefined
 ): void {
   if (error) {
-    errors.set(path.key, error);
+    errors.set(
+      path.key,
+      typeof error === 'string' ? {type: 'custom', message: error} : error
+    );
   } else {
     errors.delete(path.key);
   }
@@ -241,7 +306,10 @@ export function setTouchedByPath({emitter, touched}: Form, {key}: Path): void {
  * @param form
  * @param name
  */
-export function hasTouched(form: Form, name: Name): boolean {
+export function hasTouched<
+  T extends Record<string, any> = any,
+  P extends FieldPath<T> | Name = Name
+>(form: Form<T>, name: P): boolean {
   return hasTouchedByPath(form, createPath(name));
 }
 
@@ -258,12 +326,49 @@ export function hasTouchedByPath({touched}: Form, path: Path): boolean {
  * Is dirty -- any value differs from initialValues
  * @param form
  */
-export function isDirty({initialValues, values}: Form): boolean {
+export function isDirty(form: Form): boolean {
+  let dirty = false;
+  forEachDirtyField(form, () => {
+    dirty = true;
+  });
+  return dirty;
+}
+
+function forEachDirtyField(
+  {initialValues, values}: Form,
+  fn: (dottedKey: string) => void
+): void {
   for (const [key, value] of values) {
-    const path = JSON.parse(key);
-    if (get(initialValues, path) !== value) return true;
+    const path = JSON.parse(key) as PathSegments;
+    if (get(initialValues, path) !== value) fn(path.join('.'));
   }
-  return false;
+}
+
+/**
+ * Get dirty fields -- fields whose current value differs from initialValues.
+ * Keys are user-facing dotted paths ('a.b', 'a.0.c'), unlike the JSON array
+ * keys stored in the values Map.
+ * @param form
+ * @return object mapping each dirty field's dotted path to true
+ */
+export function getDirtyFields(form: Form): Record<string, boolean> {
+  const dirtyFields: Record<string, boolean> = {};
+  forEachDirtyField(form, key => {
+    dirtyFields[key] = true;
+  });
+  return dirtyFields;
+}
+
+/**
+ * Get touched fields as user-facing dotted paths ('a.b', 'a.0.c'), unlike
+ * the JSON array keys stored in the touched Set.
+ * @param form
+ * @return array of touched fields' dotted paths
+ */
+export function getTouchedFields({touched}: Form): string[] {
+  return Array.from(touched, key =>
+    (JSON.parse(key) as PathSegments).join('.')
+  );
 }
 
 /**
@@ -288,16 +393,62 @@ export function removeField(form: Form, name: Name): void {
  * @param form
  * @param path
  */
-export function removeFieldByPath(form: Form, {key}: Path): void {
-  const {emitter, values, touched, errors, validating} = form;
+export function removeFieldByPath(
+  form: Form,
+  {key, value: segments}: Path
+): void {
+  const {emitter, values, touched, errors, validating, deleted} = form;
   values.delete(key);
   touched.delete(key);
   errors.delete(key);
   validating.delete(key);
+  // Tombstone the unregistered path so later reads do not fall back to
+  // initialValues and "revive" the field's old initial value. A tombstone
+  // never shadows live values: skip it when the branch is already covered
+  // by a live ancestor key (e.g. a FieldArray rewrite stored the whole
+  // array at the parent path) or a still-mounted descendant key.
+  if (!hasLiveBranch(values, segments)) deleted.add(key);
   emit(emitter, 'change');
   emit(emitter, 'touched');
   emit(emitter, 'errors');
   emit(emitter, 'validating');
+}
+
+/**
+ * Does a live value cover the branch at `segments` -- either at an ancestor
+ * key or below it at a descendant key?
+ */
+function hasLiveBranch(
+  values: Map<string, any>,
+  segments: PathSegments
+): boolean {
+  for (let i = 1; i < segments.length; i++) {
+    if (values.has(JSON.stringify(segments.slice(0, i)))) return true;
+  }
+  const stem = `${JSON.stringify(segments).slice(0, -1)},`;
+  for (const key of values.keys()) {
+    if (key.startsWith(stem)) return true;
+  }
+  return false;
+}
+
+/**
+ * Writing a value revives its whole branch: drop any removal tombstone for
+ * the path itself, its ancestors, or its descendants (a remounted field
+ * overwrites its own tombstone; rewriting a parent array supersedes the
+ * tombstones of shifted child paths).
+ */
+function reviveBranch(deleted: Set<string>, {key}: Path): void {
+  if (!deleted.size) return;
+  for (const tombstone of deleted) {
+    if (
+      tombstone === key ||
+      tombstone.startsWith(`${key.slice(0, -1)},`) ||
+      key.startsWith(`${tombstone.slice(0, -1)},`)
+    ) {
+      deleted.delete(tombstone);
+    }
+  }
 }
 
 /**
@@ -309,6 +460,7 @@ export function setInitialValues(form: Form, initialValues: any): void {
   if (form.initialValues === initialValues) return;
   form.initialValues = initialValues;
   form.values.clear();
+  form.deleted.clear();
   emit(form.emitter, 'change');
 }
 
@@ -320,11 +472,20 @@ export function setInitialValues(form: Form, initialValues: any): void {
 export function reset(form: Form, initialValues?: any): void {
   form.initialValues = initialValues;
   clearErrors(form);
-  const {emitter, touched, values} = form;
+  const {emitter, touched, values, deleted, validating} = form;
   values.clear();
+  deleted.clear();
   touched.clear();
+  validating.clear();
+  form.isSubmitting = false;
+  form.submitCount = 0;
+  form.isSubmitSuccessful = undefined;
   emit(emitter, 'change');
   emit(emitter, 'touched');
+  emit(emitter, 'validating');
+  emit(emitter, 'submitting');
+  emit(emitter, 'submitCount');
+  emit(emitter, 'submitSuccessful');
   emit(emitter, 'reset');
 }
 
@@ -341,6 +502,42 @@ export function hasErrors({errors}: Form): boolean {
  */
 export function trigger(form: Form): void {
   form.validators.forEach(validator => validator());
+}
+
+function isFieldError(value: any): value is FieldError {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    typeof value.type === 'string' &&
+    typeof value.message === 'string'
+  );
+}
+
+/**
+ * Flatten a form-level validate result and write each leaf error through
+ * setError. Nested objects descend into deeper paths ({a: {b: 'msg'}} sets
+ * the 'a.b' error), array values contribute their first non-empty string
+ * (zod flatten() formErrors style), and FieldError-shaped objects are
+ * stored as-is. Falsy values are skipped.
+ */
+function setFormErrors(
+  form: Form,
+  result: Record<string, any>,
+  segments: PathSegments = []
+): void {
+  Object.entries(result).forEach(([key, value]) => {
+    const path: PathSegments = [...segments, ...normalizePath(key)];
+    if (typeof value === 'string') {
+      if (value) setError(form, path, value);
+    } else if (Array.isArray(value)) {
+      const message = value.find(item => typeof item === 'string' && item);
+      if (message) setError(form, path, message);
+    } else if (isFieldError(value)) {
+      setError(form, path, value);
+    } else if (value && typeof value === 'object') {
+      setFormErrors(form, value, path);
+    }
+  });
 }
 
 /**
@@ -362,13 +559,8 @@ export async function ensureValidate(form: Form): Promise<void> {
 
   if (form.validate) {
     const result = await form.validate(getValues(form));
-    const entries = result ? Object.entries(result) : [];
-    if (entries.length) {
-      entries.forEach(([field, error]) => {
-        setError(form, field, error);
-      });
-      throw new Error(getFirstError(form));
-    }
+    if (result) setFormErrors(form, result);
+    if (hasErrors(form)) throw new Error(getFirstError(form));
   }
 }
 

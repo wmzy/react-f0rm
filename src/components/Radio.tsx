@@ -1,6 +1,7 @@
 import * as React from 'react';
 import {CheckboxGroupProvider, useCheckboxGroupContext} from '../context';
 import useField from '../hooks/field';
+import type {Validator} from '../hooks/validate';
 import type {Name} from '../path';
 
 interface GroupProps {
@@ -8,10 +9,7 @@ interface GroupProps {
   name: Name;
   form?: any;
   initialValue?: any;
-  validate?: (
-    value: any,
-    meta: {form: any; path: any}
-  ) => string | undefined | Promise<string | undefined>;
+  validate?: Validator;
   [key: string]: any;
 }
 
@@ -35,10 +33,13 @@ interface ItemProps extends React.InputHTMLAttributes<HTMLInputElement> {
 }
 
 export function Item({value, ...props}: ItemProps) {
-  const {valueSet, onChange, error, ...rest} = useCheckboxGroupContext();
+  const {valueSet, onChange, error, errorObject, ...rest} =
+    useCheckboxGroupContext();
 
   return (
+    // eslint-disable-next-line jsx-a11y/role-supports-aria-props -- aria-invalid is a global ARIA attribute, valid on role=radio
     <input
+      aria-invalid={error ? true : undefined}
       {...rest}
       {...props}
       type="radio"

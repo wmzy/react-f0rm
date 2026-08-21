@@ -1,5 +1,12 @@
 import {describe, it, expect} from 'vitest';
-import {get, set, isEmpty, isPromise} from '../src/util';
+import {
+  get,
+  set,
+  setOwned,
+  isEmpty,
+  isPromise,
+  normalizePath
+} from '../src/util';
 
 describe('get', () => {
   it('gets a value at a simple path', () => {
@@ -89,6 +96,72 @@ describe('isEmpty', () => {
   });
 });
 
+describe('normalizePath', () => {
+  it('parses dot notation', () => {
+    expect(normalizePath('a.b')).toEqual(['a', 'b']);
+  });
+
+  it('parses bare bracket identifier as string', () => {
+    expect(normalizePath('a[b]')).toEqual(['a', 'b']);
+  });
+
+  it('parses bare bracket number as number', () => {
+    expect(normalizePath('a[0]')).toEqual(['a', 0]);
+  });
+
+  it('parses negative bracket number as number', () => {
+    expect(normalizePath('a[-1]')).toEqual(['a', -1]);
+  });
+
+  it('parses consecutive bracket indices', () => {
+    expect(normalizePath('a[0][1]')).toEqual(['a', 0, 1]);
+  });
+
+  it('parses mixed bracket and dot notation', () => {
+    expect(normalizePath('a[0].b')).toEqual(['a', 0, 'b']);
+  });
+
+  it('does not split dots inside double quotes', () => {
+    expect(normalizePath('a["b.c"]')).toEqual(['a', 'b.c']);
+  });
+
+  it('does not split dots inside single quotes', () => {
+    expect(normalizePath("a['b.c']")).toEqual(['a', 'b.c']);
+  });
+
+  it('keeps brackets inside quoted segments verbatim', () => {
+    expect(normalizePath('a["b[0]"]')).toEqual(['a', 'b[0]']);
+  });
+
+  it('returns array input as-is', () => {
+    const arr = ['a', 0];
+    expect(normalizePath(arr)).toBe(arr);
+  });
+
+  it('caches parsed paths by string identity', () => {
+    expect(normalizePath('user.name.first')).toBe(
+      normalizePath('user.name.first')
+    );
+  });
+
+  it('does not confuse cached lookalike paths', () => {
+    expect(normalizePath('a.b')).toEqual(['a', 'b']);
+    expect(normalizePath('a[0]')).toEqual(['a', 0]);
+  });
+
+  it('throws TypeError for unterminated bracket', () => {
+    expect(() => normalizePath('a[0')).toThrow(TypeError);
+  });
+
+  it('throws TypeError for unterminated quote', () => {
+    expect(() => normalizePath('a["b')).toThrow(TypeError);
+  });
+
+  it('throws TypeError for missing bracket after quoted segment', () => {
+    expect(() => normalizePath('a["b"')).toThrow(TypeError);
+  });
+});
+
 describe('isPromise', () => {
   it('returns true for promises', () => {
     expect(isPromise(Promise.resolve())).toBe(true);
@@ -104,5 +177,86 @@ describe('isPromise', () => {
     expect(isPromise(42)).toBeFalsy();
     expect(isPromise('string')).toBeFalsy();
     expect(isPromise({})).toBeFalsy();
+  });
+});
+
+describe('setOwned', () => {
+  it('produces the same tree as chaining set for plain paths', () => {
+    const seed = {a: 1, keep: true};
+    const owned = new Set();
+    let merged = setOwned(seed, ['b', 'c'], 2, owned);
+    merged = setOwned(merged, ['a'], 9, owned);
+    expect(merged).toEqual({a: 9, keep: true, b: {c: 2}});
+    expect(seed).toEqual({a: 1, keep: true}); // borrowed containers untouched
+  });
+
+  it('later ancestor write replaces earlier descendant writes', () => {
+    const owned = new Set();
+    let merged = setOwned({}, ['a', 'b'], 1, owned);
+    merged = setOwned(merged, ['a'], {c: 2}, owned);
+    expect(merged).toEqual({a: {c: 2}});
+  });
+
+  it('later descendant write merges into an earlier ancestor write', () => {
+    const owned = new Set();
+    let merged = setOwned({}, ['a'], {b: 1, keep: true}, owned);
+    merged = setOwned(merged, ['a', 'b'], 2, owned);
+    expect(merged).toEqual({a: {b: 2, keep: true}});
+  });
+
+  it('copies borrowed containers exactly like set', () => {
+    const seed = {items: ['a'], user: {name: 'x'}};
+    const owned = new Set();
+    let merged = setOwned(seed, ['items', 1], 'b', owned);
+    merged = setOwned(merged, ['user', 'name'], 'y', owned);
+    expect(merged).toEqual({items: ['a', 'b'], user: {name: 'y'}});
+    expect(merged.items).not.toBe(seed.items);
+    expect(merged.user).not.toBe(seed.user);
+    expect(seed).toEqual({items: ['a'], user: {name: 'x'}});
+  });
+
+  it('reuses containers the merge already created', () => {
+    const seed = {a: {b: {}}};
+    const owned = new Set();
+    const first = setOwned(seed, ['a', 'b', 'c'], 1, owned);
+    const second = setOwned(first, ['a', 'b', 'd'], 2, owned);
+    expect(second).toBe(first); // root copied once, then mutated in place
+    expect(second).toEqual({a: {b: {c: 1, d: 2}}});
+    expect(seed).toEqual({a: {b: {}}});
+  });
+
+  it('follows set copy rules for numeric and string props', () => {
+    // set() discards a non-array container under a numeric prop and spreads
+    // an array into an object under a string prop; setOwned must match both.
+    expect(setOwned({a: {x: 1}}, ['a', 0, 'b'], 'v', new Set())).toEqual(
+      set({a: {x: 1}}, ['a', 0, 'b'], 'v')
+    );
+    expect(setOwned({arr: ['a']}, ['arr', 'k'], 'v', new Set())).toEqual(
+      set({arr: ['a']}, ['arr', 'k'], 'v')
+    );
+  });
+
+  it('matches chained set over a mixed path list', () => {
+    const entries = [
+      [['a'], {x: 1}],
+      [['a', 'b'], 2],
+      [['list', 0], 'i'],
+      [['list', 2], 'k'],
+      [['list'], ['z']],
+      [['list', 0], 'w'],
+      [['deep', 'p', 'q', 'r'], 3]
+    ];
+    const seed = {a: 1, list: ['a'], deep: {p: 1}};
+    let expected = seed;
+    for (const [p, v] of entries) expected = set(expected, p, v);
+    const owned = new Set();
+    let actual = seed;
+    for (const [p, v] of entries) actual = setOwned(actual, p, v, owned);
+    expect(actual).toEqual(expected);
+    expect(seed).toEqual({a: 1, list: ['a'], deep: {p: 1}});
+  });
+
+  it('returns the value for an empty path', () => {
+    expect(setOwned({a: 1}, [], 'replacement', new Set())).toBe('replacement');
   });
 });
