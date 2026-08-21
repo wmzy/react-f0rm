@@ -20,10 +20,8 @@ const form = useForm({
 |--------|------|-------------|
 | `initialValues` | `T` | Initial form values |
 | `validate` | `(values: T) => Record<string, any> \| Promise<Record<string, any>>` | Form-level validator; nested results are flattened onto field paths (see [Validation](../guides/validation.md)) |
-| `validateOnChange` | `boolean` | Validate on every change |
-| `validateOnBlur` | `boolean` | Validate on blur |
-| `revalidateOnChange` | `boolean` | Re-validate when value changes after first error (default: `true`) |
-| `revalidateOnBlur` | `boolean` | Re-validate on blur after first error |
+| `mode` | `'onSubmit' \| 'onBlur' \| 'onChange' \| 'onTouched' \| 'all'` | When fields are validated (default: `'onSubmit'`) — see [Validation Timing](../guides/validation.md#validation-timing) |
+| `reValidateMode` | `'onChange' \| 'onBlur' \| 'onSubmit'` | When a field is re-validated **after it already has an error** (default: `'onChange'`) |
 
 ## Form Instance API
 

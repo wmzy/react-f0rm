@@ -17,7 +17,11 @@ import createForm, {
   setError,
   setTouched,
   setIsSubmitting,
-  incrementSubmitCount
+  incrementSubmitCount,
+  getValue,
+  getValues,
+  getError,
+  getTouchedFields
 } from '../../src/form';
 
 describe('useForm', () => {
@@ -53,6 +57,72 @@ describe('useForm', () => {
     const form1 = result.current;
     rerender({initialValues});
     expect(result.current).toBe(form1);
+  });
+
+  describe('values sync', () => {
+    it('seeds external values on first render', () => {
+      const {result} = renderHook(() => useForm({values: {name: 'a'}}));
+      expect(getValue(result.current, 'name')).toBe('a');
+    });
+
+    it('syncs external values into the form when the reference changes', () => {
+      const {result, rerender} = renderHook(({values}) => useForm({values}), {
+        initialProps: {values: {name: 'a'}}
+      });
+      expect(getValue(result.current, 'name')).toBe('a');
+      rerender({values: {name: 'b'}});
+      expect(getValue(result.current, 'name')).toBe('b');
+    });
+
+    it('does not clobber user edits while the values reference is unchanged', () => {
+      const values = {name: 'a'};
+      const {result, rerender} = renderHook(({values}) => useForm({values}), {
+        initialProps: {values}
+      });
+      act(() => setValue(result.current, 'name', 'user typed'));
+      // Parent re-renders passing the same reference: the draft survives.
+      rerender({values});
+      expect(getValue(result.current, 'name')).toBe('user typed');
+    });
+
+    it('keeps touched flags when external values change', () => {
+      const {result, rerender} = renderHook(({values}) => useForm({values}), {
+        initialProps: {values: {name: 'a'}}
+      });
+      act(() => setTouched(result.current, 'name'));
+      rerender({values: {name: 'b'}});
+      expect(getTouchedFields(result.current)).toContain('name');
+    });
+
+    it('keeps errors when external values change', () => {
+      const {result, rerender} = renderHook(({values}) => useForm({values}), {
+        initialProps: {values: {name: 'a'}}
+      });
+      act(() => setError(result.current, 'name', 'required'));
+      rerender({values: {name: 'b'}});
+      expect(getError(result.current, 'name')?.message).toBe('required');
+    });
+
+    it('merges getValues with setInitialValues semantics after a sync', () => {
+      const {result, rerender} = renderHook(({values}) => useForm({values}), {
+        initialProps: {values: {name: 'a', nested: {x: 1}}}
+      });
+      act(() => setValue(result.current, 'name', 'draft'));
+      rerender({values: {name: 'b', nested: {x: 1}}});
+      // The uncommitted user edit is discarded and the merged tree equals
+      // the new external object, exactly like setInitialValues.
+      expect(getValues(result.current)).toEqual({name: 'b', nested: {x: 1}});
+    });
+
+    it('leaves initialValues untouched when no values option is given', () => {
+      const initialValues = {name: 'init'};
+      const {result, rerender} = renderHook(
+        ({initialValues}) => useForm({initialValues}),
+        {initialProps: {initialValues}}
+      );
+      rerender({initialValues});
+      expect(getValue(result.current, 'name')).toBe('init');
+    });
   });
 });
 
@@ -166,17 +236,26 @@ describe('useIsDirty', () => {
     expect(result.current.dirty).toBe(false);
   });
 
-  it('returns true when a value changes and touched is triggered', () => {
+  it('flips to true on input without blur', () => {
+    // Regression: useIsDirty used to subscribe to 'touched', so typing
+    // without blurring never updated it.
     const initialValues = {name: 'test'};
     const {result} = renderHook(() => {
       const form = useForm({initialValues});
       return {form, dirty: useIsDirty(form)};
     });
-    act(() => {
-      setValue(result.current.form, 'name', 'changed');
-      setTouched(result.current.form, 'name');
-    });
+    act(() => setValue(result.current.form, 'name', 'changed'));
     expect(result.current.dirty).toBe(true);
+  });
+
+  it('stays false when only touched changes', () => {
+    const initialValues = {name: 'test'};
+    const {result} = renderHook(() => {
+      const form = useForm({initialValues});
+      return {form, dirty: useIsDirty(form)};
+    });
+    act(() => setTouched(result.current.form, 'name'));
+    expect(result.current.dirty).toBe(false);
   });
 });
 
@@ -209,8 +288,8 @@ describe('useDirtyFields', () => {
     const first = result.current.dirtyFields;
     rerender();
     rerender();
-    // getDirtyFields() builds a fresh object per call: useWatch must cache
-    // it between events or useSyncExternalStore loops.
+    // getDirtyFields() memoizes its result object, so the reference stays
+    // stable until the dirty set actually changes.
     expect(result.current.dirtyFields).toBe(first);
     act(() => setValue(result.current.form, 'a', '2'));
     expect(result.current.dirtyFields).toEqual({a: true});

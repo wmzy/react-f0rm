@@ -159,7 +159,9 @@ describe('useField', () => {
   });
 
   it('works with an explicitly passed form and no FormProvider', () => {
-    const form = createForm({validateOnChange: true});
+    // Default mode: no validation until an error exists, then every change
+    // re-validates (onSubmit + reValidateMode 'onChange').
+    const form = createForm();
     let field;
     function CustomField(props) {
       field = useField(props);
@@ -197,6 +199,55 @@ describe('useField', () => {
     act(() => field.onChange('a@b.c'));
     expect(field.error).toBeUndefined();
     expect(getError(form, 'email')).toBeUndefined();
+  });
+
+  it('validates on first blur then on every change with mode onTouched', () => {
+    const form = createForm({initialValues: {name: ''}, mode: 'onTouched'});
+    const validate = vi.fn(value => (value ? undefined : 'required'));
+    const {result} = renderHook(
+      () => useField({form, name: 'name', validate}),
+      {wrapper: ({children}) => <FormProvider value={form}>{children}</FormProvider>}
+    );
+
+    // Untouched: changes do not validate yet.
+    act(() => result.current.onChange('a'));
+    expect(validate).not.toHaveBeenCalled();
+    expect(result.current.error).toBeUndefined();
+
+    // First blur validates (the typed value is still valid).
+    act(() => result.current.onBlur());
+    expect(validate).toHaveBeenCalledTimes(1);
+    expect(result.current.error).toBeUndefined();
+
+    // After touch, every change validates — clearing to empty marks the error.
+    act(() => result.current.onChange(''));
+    expect(validate).toHaveBeenCalledTimes(2);
+    expect(result.current.error).toBe('required');
+
+    // Typing again re-validates on change and clears it.
+    act(() => result.current.onChange('b'));
+    expect(validate).toHaveBeenCalledTimes(3);
+    expect(result.current.error).toBeUndefined();
+  });
+
+  it('validates on both change and blur with mode all', () => {
+    const form = createForm({initialValues: {name: ''}, mode: 'all'});
+    const validate = vi.fn(value => (value ? undefined : 'required'));
+    const {result} = renderHook(
+      () => useField({form, name: 'name', validate}),
+      {wrapper: ({children}) => <FormProvider value={form}>{children}</FormProvider>}
+    );
+
+    act(() => result.current.onChange(''));
+    expect(validate).toHaveBeenCalledTimes(1);
+    expect(result.current.error).toBe('required');
+
+    act(() => result.current.onBlur());
+    expect(validate).toHaveBeenCalledTimes(2);
+
+    act(() => result.current.onChange('ok'));
+    expect(validate).toHaveBeenCalledTimes(3);
+    expect(result.current.error).toBeUndefined();
   });
 
   it('exposes nested form-level errors while keeping error a message string', async () => {

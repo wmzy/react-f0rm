@@ -37,11 +37,14 @@ Pure functions operating on a Form state object with:
 - `validating: Set<string>` — in-flight async validators
 - `emitter` — event emitter for reactive updates
 - `validate` — optional form-level validator
+- `mode: ValidationMode` / `reValidateMode: ReValidateMode` — validation timing (resolved defaults at create: `'onSubmit'` / `'onChange'`)
 - `isSubmitting`, `submitCount`, `isSubmitSuccessful` — submission state
 
-Key exports: `createForm`, `getValues`, `getValue`, `setValue`, `getError`, `getErrors`, `getFirstError`, `setError`, `clearErrors`, `setTouched`, `hasTouched`, `isDirty`, `getDirtyFields`, `getTouchedFields`, `isTouched`, `removeField`, `setInitialValues`, `reset`, `trigger`, `ensureValidate`, `validate`
+Key exports: `createForm`, `getValues`, `getValue`, `setValue` (4th `options?: SetFieldOptions` — `shouldValidate`/`shouldTouch`/`shouldDirty`, `shouldDirty` reserved no-op), `getError`, `getErrors`, `getFirstError`, `setError`, `clearErrors`, `setTouched`, `hasTouched`, `isDirty`, `getDirtyFields`, `getTouchedFields`, `isTouched`, `removeField`, `setInitialValues`, `reset`, `trigger` (optional `name?: Name | Name[]` narrows to specific fields; a segments array mixes numbers, pure string arrays are name lists), `ensureValidate`, `validate`, `handleSubmit` (headless submit handler taking `{onSubmit, onValidSubmit, onInvalidSubmit, shouldFocusError}`), plus types `ValidationMode` (`'onSubmit'|'onBlur'|'onChange'|'onTouched'|'all'`), `ReValidateMode` (`'onChange'|'onBlur'|'onSubmit'`, effective only while the field already has an error), `SetFieldOptions`, `HandleSubmitOptions`, `FieldError`, `FieldErrorEntry`
 
 `getValues` merges the values Map over `initialValues` with copy-on-write ownership tracking (`setOwned` in util.ts): each distinct container on a written path is allocated once and shared by all paths through it, then removes tombstoned paths immutably (`unset`).
+
+`getDirtyFields` is memoized per form through a module-level `dirtyFieldsCaches: WeakMap<Form, DirtyFieldsCache>`: `setValue`/`reset` etc. bump a `version` counter (mutation since last compute) while reads reset it and cache the result — a non-zero version means stale, so the next read recomputes.
 
 ### Path System (`src/path.ts`, `src/util.ts`, `src/types.ts`)
 - `src/path.ts` — `create(name)` returns a `Path` `{value: segments, key: JSON-stringified segments}`; `key` is the Map/Set lookup key
@@ -49,17 +52,18 @@ Key exports: `createForm`, `getValues`, `getValue`, `setValue`, `getError`, `get
 - `src/types.ts` — compile-time path types: `FieldPath<T>` enumerates valid path strings for a values shape, `PathValue<T, P>` resolves the value type at a path; includes self-check types verified by `tsc --noEmit`
 
 ### Hooks Layer (`src/hooks/`)
-- `useForm` — creates the form instance via `useState` lazy initialization (stable across re-renders and StrictMode double renders), syncs `initialValues` through `setInitialValues` in an effect
-- `useField` — combines value, error (`error`: message string, `errorObject`: `FieldError`), touch state + onChange/onBlur handlers; accepts an explicit `form` option (no Provider needed)
+- `useForm` — creates the form instance via `useState` lazy initialization (stable across re-renders and StrictMode double renders), syncs `initialValues` through `setInitialValues` in an effect; an extra `values` option enables controlled usage — a reference change re-syncs (setInitialValues semantics: uncommitted edits discarded, touched/errors kept) while a stable reference never re-syncs, so typing is never clobbered
+- `useField` — combines value, error (`error`: message string, `errorObject`: `FieldError`), touch state + onChange/onBlur handlers; validates per `form.mode`/`form.reValidateMode` (`reValidateMode` only while the field already has an error); returns the bound `form` for direct headless access; accepts an explicit `form` option (no Provider needed)
 - `useFieldArray` — array field operations (append/prepend/insert/remove/swap/move); subscribes to `change` events with path-prefix filtering so only changes touching its branch re-render it
 - `useValidate` — registers the field validator in `form.validators`, with a lock guarding stale async results
 - `useWatch` — built on `use-sync-external-store/shim` (tearing-safe, React ≥ 16.8); caches the getter snapshot per hook instance and invalidates it on the watched event
 - `useValue`, `useError`, `useTouched`, `useIsDirty`, `useDirtyFields`, `useTouchedFields`, `useHasErrors`, `useIsSubmitting`, `useSubmitCount` — state hooks built on `useWatch`
 
 ### Components (`src/components/`)
-- `Form` — context provider, handles submission/validation flow with submission state tracking; native constraint validation gates submission (`checkValidity()` before custom validators, `reportValidity()` bubbles on failure; the element renders `noValidate`)
-- `Field` — controlled input; sets `aria-invalid` on error, and with the `renderError(error, id)` prop renders `<span id role="alert">` and wires `aria-describedby`; mirrors custom errors onto native validity via `setCustomValidity`
+- `Form` — context provider, handles submission/validation flow with submission state tracking; native constraint validation gates submission (`checkValidity()` before custom validators, `reportValidity()` bubbles on failure; the element renders `noValidate`); accepts `values` for controlled external sync and `shouldFocusError` (default true)
+- `Field` — controlled input; sets `aria-invalid` on error, and with the `renderError(error, id)` prop renders `<span id role="alert">` and wires `aria-describedby`; mirrors custom errors onto native validity via `setCustomValidity`; subscribes to the form's `'focusError'` event to focus its input when a failed submit names it as the first error
 - `Checkbox`, `Radio` (`Group`/`Item`) — group/item components for multi-select and single-select
+- `Select` — controlled `<select>` with options as children; single-select stores a string value, `multiple` stores the selected options' values as a string array
 
 ### Context (`src/context.ts`)
 `FormContext` provides the form instance to nested components via `useFormContext()`.
@@ -72,13 +76,14 @@ Schema validation adapters (tree-shakeable, separate entry points):
 
 ## Testing
 
-Tests use Vitest with jsdom environment. Test files are in `test/` directory with `.test.{ts,tsx,js,jsx}` extension. 216 tests across 14 files (per `npx vitest list`). Benchmarks live in `test/bench/*.bench.ts`.
+Tests use Vitest with jsdom environment. Test files are in `test/` directory with `.test.{ts,tsx,js,jsx}` extension. 253 tests across 15 files (per `npx vitest list`). Benchmarks live in `test/bench/*.bench.ts`.
 
 ## Key Patterns
 
 - All form operations are pure functions — hooks add React reactivity via event subscriptions
 - Path objects enable efficient Map-based lookups instead of deep object traversal; `usePath` memoizes with a two-layer `useMemo` keyed on `path.key` so fresh name arrays reuse the cached Path object
 - Validation is async via `ensureValidate`/`validate` with event-driven completion tracking
+- Validation timing is governed by `mode`/`reValidateMode` (useField's onChange/onBlur guards): mode `'onTouched'` validates on first blur then on every change; `reValidateMode` supplements any mode but only while the field currently has an error
 - `ensureValidate` runs field-level validators first, then form-level `validate` if provided; its result is flattened recursively (nested objects descend into deeper paths)
 - `setError` accepts `string | FieldError | undefined`; strings are normalized to `{type: 'custom', message}`
 - `useField` unregisters on unmount by default, leaving a tombstone so the value does not fall back to `initialValues`; pass `shouldUnregister: false` to preserve the value instead

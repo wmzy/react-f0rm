@@ -42,7 +42,7 @@ describe('Field', () => {
   });
 
   it('does not store an error when built-in validation fails', async () => {
-    const form = createForm({initialValues: {name: ''}, validateOnBlur: true});
+    const form = createForm({initialValues: {name: ''}, mode: 'onBlur'});
     const validate = vi.fn(() => 'custom error');
     const user = userEvent.setup();
 
@@ -72,7 +72,7 @@ describe('Field', () => {
   });
 
   it('attaches aria-invalid and aria-describedby pointing at the rendered error', async () => {
-    const form = createForm({initialValues: {name: ''}, validateOnBlur: true});
+    const form = createForm({initialValues: {name: ''}, mode: 'onBlur'});
     const user = userEvent.setup();
     render(
       <Form form={form}>
@@ -133,7 +133,7 @@ describe('Field', () => {
   });
 
   it('stays headless without renderError even when there is an error', async () => {
-    const form = createForm({initialValues: {name: ''}, validateOnBlur: true});
+    const form = createForm({initialValues: {name: ''}, mode: 'onBlur'});
     const user = userEvent.setup();
     render(
       <Form form={form}>

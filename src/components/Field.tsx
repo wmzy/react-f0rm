@@ -1,4 +1,5 @@
 import * as React from 'react';
+import {on} from '@for-fun/event-emitter';
 import useField from '../hooks/field';
 import type {Validator} from '../hooks/validate';
 import type {Name} from '../path';
@@ -67,23 +68,31 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
       },
       [ref]
     );
-    const {as, value, valueToProps, onChange, error, errorObject, ...rest} =
-      useField({
-        ...props,
-        name: name!,
-        initialValue,
-        validate: (...params: [any, any]) => {
-          const el = innerRef.current;
-          if (el && typeof el.checkValidity === 'function') {
-            el.setCustomValidity('');
-            if (el.checkValidity() === false) {
-              setNativeInvalidCount(count => count + 1);
-              return undefined;
-            }
+    const {
+      as,
+      value,
+      valueToProps,
+      onChange,
+      error,
+      errorObject,
+      form,
+      ...rest
+    } = useField({
+      ...props,
+      name: name!,
+      initialValue,
+      validate: (...params: [any, any]) => {
+        const el = innerRef.current;
+        if (el && typeof el.checkValidity === 'function') {
+          el.setCustomValidity('');
+          if (el.checkValidity() === false) {
+            setNativeInvalidCount(count => count + 1);
+            return undefined;
           }
-          if (validate) return validate(...params);
         }
-      });
+        if (validate) return validate(...params);
+      }
+    });
     const Component = as || 'input';
 
     React.useEffect(() => {
@@ -100,6 +109,18 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
     React.useEffect(() => {
       if (nativeInvalidCount > 0) innerRef.current?.reportValidity();
     }, [nativeInvalidCount]);
+
+    // Focus this input when a failed submit names it as the first error:
+    // handleSubmit emits 'focusError' with the first error's path key.
+    React.useEffect(
+      () =>
+        on(form.emitter, 'focusError', (key: string) => {
+          if (key !== rest.name) return;
+          const el = innerRef.current;
+          if (el && typeof el.focus === 'function') el.focus();
+        }),
+      [form, rest.name]
+    );
 
     const toValue = eventToValue ?? ((e: any) => e.target.value);
 
@@ -131,7 +152,7 @@ interface CheckboxProps extends UseFieldOptions {}
 
 export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
   ({name, ...props}, ref) => {
-    const {value, onChange, error, errorObject, ...rest} = useField({
+    const {value, onChange, error, errorObject, form, ...rest} = useField({
       ...props,
       name: name!
     });
@@ -146,6 +167,54 @@ export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
         }
         ref={ref}
       />
+    );
+  }
+);
+
+interface SelectProps extends UseFieldOptions {
+  multiple?: boolean;
+  children?: React.ReactNode;
+}
+
+/**
+ * Controlled <select>. Options are passed as children (<option> elements).
+ * Single-select stores the selected option's value as a string, matching
+ * Field's default event-to-value behavior; a multiple select stores the
+ * values of all selected options as a string array.
+ */
+/** Normalize a field value for a <select>: multiple wants a string array,
+ * single-select wants a string. */
+function toSelectValue(
+  multiple: boolean | undefined,
+  value: any
+): string | string[] {
+  if (multiple) return Array.isArray(value) ? value : [];
+  return value ?? '';
+}
+
+export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
+  ({name, multiple, children, ...props}, ref) => {
+    const {value, onChange, error, errorObject, form, ...rest} = useField({
+      ...props,
+      name: name!
+    });
+    return (
+      <select
+        aria-invalid={error ? true : undefined}
+        {...rest}
+        multiple={multiple}
+        value={toSelectValue(multiple, value)}
+        onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+          onChange(
+            multiple
+              ? Array.from(e.target.selectedOptions, option => option.value)
+              : e.target.value
+          )
+        }
+        ref={ref}
+      >
+        {children}
+      </select>
     );
   }
 );

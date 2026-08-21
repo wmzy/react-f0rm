@@ -28,7 +28,9 @@ import createForm, {
   unsetValidatingByPath,
   setIsSubmitting,
   incrementSubmitCount,
-  setSubmitSuccessful
+  setSubmitSuccessful,
+  handleSubmit,
+  trigger
 } from '../src/form';
 import createPath from '../src/path';
 
@@ -40,12 +42,19 @@ describe('createForm', () => {
     expect(form.touched).toBeInstanceOf(Set);
     expect(form.validators).toBeInstanceOf(Map);
     expect(form.validating).toBeInstanceOf(Set);
-    expect(form.revalidateOnChange).toBe(true);
+    expect(form.mode).toBe('onSubmit');
+    expect(form.reValidateMode).toBe('onChange');
   });
 
   it('merges options', () => {
-    const form = createForm({initialValues: {name: 'test'}});
+    const form = createForm({
+      initialValues: {name: 'test'},
+      mode: 'onTouched',
+      reValidateMode: 'onBlur'
+    });
     expect(form.initialValues).toEqual({name: 'test'});
+    expect(form.mode).toBe('onTouched');
+    expect(form.reValidateMode).toBe('onBlur');
   });
 });
 
@@ -66,6 +75,60 @@ describe('getValue / setValue', () => {
     const path = createPath('user.email');
     setValueByPath(form, path, 'test@example.com');
     expect(getValueByPath(form, path)).toBe('test@example.com');
+  });
+
+  it('does not validate or touch without options', () => {
+    const form = createForm({initialValues: {}});
+    form.validators.set(createPath('name').key, () => {
+      setErrorByPath(form, createPath('name'), 'required');
+    });
+    setValue(form, 'name', '');
+    expect(getValue(form, 'name')).toBe('');
+    expect(getError(form, 'name')).toBeUndefined();
+    expect(hasTouched(form, 'name')).toBe(false);
+  });
+
+  it('runs only the field validator with shouldValidate', () => {
+    const form = createForm({initialValues: {}});
+    const other = vi.fn();
+    form.validators.set(createPath('name').key, () => {
+      setErrorByPath(form, createPath('name'), 'required');
+    });
+    form.validators.set(createPath('email').key, other);
+    setValue(form, 'name', '', {shouldValidate: true});
+    expect(getError(form, 'name')).toEqual({
+      type: 'custom',
+      message: 'required'
+    });
+    expect(other).not.toHaveBeenCalled();
+  });
+
+  it('marks the field touched with shouldTouch', () => {
+    const form = createForm({initialValues: {}});
+    setValue(form, 'name', 'x', {shouldTouch: true});
+    expect(hasTouched(form, 'name')).toBe(true);
+  });
+
+  it('accepts shouldDirty as a no-op without throwing', () => {
+    const form = createForm({initialValues: {}});
+    expect(() =>
+      setValue(form, 'name', 'x', {shouldDirty: true})
+    ).not.toThrow();
+    expect(getValue(form, 'name')).toBe('x');
+  });
+
+  it('applies options through setValueByPath too', () => {
+    const form = createForm({initialValues: {}});
+    const path = createPath('name');
+    form.validators.set(path.key, () => {
+      setErrorByPath(form, path, 'required');
+    });
+    setValueByPath(form, path, '', {shouldValidate: true, shouldTouch: true});
+    expect(getError(form, 'name')).toEqual({
+      type: 'custom',
+      message: 'required'
+    });
+    expect(hasTouched(form, 'name')).toBe(true);
   });
 });
 
@@ -256,6 +319,37 @@ describe('isDirty', () => {
       'list.0': true,
       'list.1': true
     });
+  });
+
+  it('getDirtyFields returns the same reference when nothing changed', () => {
+    const form = createForm({initialValues: {a: '1', b: '2'}});
+    expect(getDirtyFields(form)).toBe(getDirtyFields(form));
+  });
+
+  it('getDirtyFields keeps the cached reference across changes that do not alter the dirty set', () => {
+    const form = createForm({initialValues: {a: '1'}});
+    const first = getDirtyFields(form);
+    setValue(form, 'a', '1');
+    expect(getDirtyFields(form)).toBe(first);
+  });
+
+  it('getDirtyFields returns a new reference with the new dirty set', () => {
+    const form = createForm({initialValues: {a: '1'}});
+    const empty = getDirtyFields(form);
+    setValue(form, 'a', 'changed');
+    const dirty = getDirtyFields(form);
+    expect(dirty).not.toBe(empty);
+    expect(dirty).toEqual({a: true});
+  });
+
+  it('getDirtyFields returns the empty object after values revert to initial', () => {
+    const form = createForm({initialValues: {a: '1'}});
+    setValue(form, 'a', 'changed');
+    expect(getDirtyFields(form)).toEqual({a: true});
+    setValue(form, 'a', '1');
+    const reverted = getDirtyFields(form);
+    expect(reverted).toEqual({});
+    expect(getDirtyFields(form)).toBe(reverted);
   });
 
   it('getTouchedFields returns dotted paths of touched fields', () => {
@@ -630,5 +724,185 @@ describe('submission state', () => {
     expect(form.isSubmitSuccessful).toBe(true);
     setSubmitSuccessful(form, false);
     expect(form.isSubmitSuccessful).toBe(false);
+  });
+});
+
+describe('handleSubmit', () => {
+  it('runs the full state machine without an event object', async () => {
+    const form = createForm({initialValues: {name: 'test'}});
+    const seen = [];
+    const submit = handleSubmit(form, {
+      onSubmit: values => {
+        seen.push(form.isSubmitting, values);
+      }
+    });
+
+    await expect(submit()).resolves.toBeUndefined();
+
+    expect(seen).toEqual([true, {name: 'test'}]);
+    expect(form.isSubmitting).toBe(false);
+    expect(form.submitCount).toBe(1);
+    expect(form.isSubmitSuccessful).toBe(true);
+  });
+
+  it('passes native constraint failures from currentTarget to onInvalidSubmit', async () => {
+    const form = createForm({initialValues: {email: ''}});
+    const onInvalidSubmit = vi.fn();
+    const onValidSubmit = vi.fn();
+    const reportValidity = vi.fn();
+    const preventDefault = vi.fn();
+    const currentTarget = {
+      reportValidity,
+      checkValidity: () => false,
+      elements: [
+        {
+          name: '["email"]',
+          checkValidity: () => false,
+          validationMessage: 'Please fill out this field.'
+        },
+        {
+          name: '["age"]',
+          checkValidity: () => true,
+          validationMessage: ''
+        }
+      ]
+    };
+
+    const submit = handleSubmit(form, {onValidSubmit, onInvalidSubmit});
+    await submit({preventDefault, currentTarget});
+
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(reportValidity).toHaveBeenCalledTimes(1);
+    expect(onInvalidSubmit).toHaveBeenCalledTimes(1);
+    expect(onInvalidSubmit).toHaveBeenCalledWith(
+      [{path: 'email', type: 'native', message: 'Please fill out this field.'}],
+      {email: ''}
+    );
+    expect(onValidSubmit).not.toHaveBeenCalled();
+    expect(form.isSubmitting).toBe(false);
+    expect(form.isSubmitSuccessful).toBe(false);
+    expect(form.submitCount).toBe(1);
+  });
+
+  it('skips native validation when currentTarget has no checkValidity', async () => {
+    const form = createForm({initialValues: {name: 'x'}});
+    const onValidSubmit = vi.fn();
+    const currentTarget = {elements: []};
+
+    const submit = handleSubmit(form, {onValidSubmit});
+    await submit({currentTarget});
+
+    expect(onValidSubmit).toHaveBeenCalledWith({name: 'x'}, expect.anything());
+    expect(form.isSubmitSuccessful).toBe(true);
+  });
+
+  it('passes custom validate errors to onInvalidSubmit', async () => {
+    const form = createForm({
+      initialValues: {name: ''},
+      validate: values => (values.name ? {} : {name: 'name required'})
+    });
+    const onInvalidSubmit = vi.fn();
+    const onValidSubmit = vi.fn();
+
+    const submit = handleSubmit(form, {onValidSubmit, onInvalidSubmit});
+    await submit();
+
+    expect(onInvalidSubmit).toHaveBeenCalledWith(
+      [{path: 'name', type: 'custom', message: 'name required'}],
+      {name: ''}
+    );
+    expect(onValidSubmit).not.toHaveBeenCalled();
+    expect(form.isSubmitting).toBe(false);
+    expect(form.isSubmitSuccessful).toBe(false);
+  });
+
+  it('swallows onSubmit errors into isSubmitSuccessful=false', async () => {
+    const form = createForm();
+    const onValidSubmit = vi.fn();
+    const submit = handleSubmit(form, {
+      onSubmit: () => {
+        throw new Error('boom');
+      },
+      onValidSubmit
+    });
+
+    await expect(submit()).resolves.toBeUndefined();
+
+    expect(onValidSubmit).not.toHaveBeenCalled();
+    expect(form.isSubmitSuccessful).toBe(false);
+    expect(form.isSubmitting).toBe(false);
+  });
+});
+
+describe('trigger', () => {
+  it('runs every validator when called without a name or with undefined', () => {
+    const form = createForm();
+    const nameValidator = vi.fn();
+    const emailValidator = vi.fn();
+    form.validators.set('["name"]', nameValidator);
+    form.validators.set('["email"]', emailValidator);
+
+    trigger(form);
+    trigger(form, undefined);
+
+    expect(nameValidator).toHaveBeenCalledTimes(2);
+    expect(emailValidator).toHaveBeenCalledTimes(2);
+  });
+
+  it('runs only the named field validator', () => {
+    const form = createForm();
+    const nameValidator = vi.fn();
+    const emailValidator = vi.fn();
+    form.validators.set('["name"]', nameValidator);
+    form.validators.set('["email"]', emailValidator);
+
+    trigger(form, 'name');
+
+    expect(nameValidator).toHaveBeenCalledTimes(1);
+    expect(emailValidator).not.toHaveBeenCalled();
+  });
+
+  it('runs each validator for an array of names', () => {
+    const form = createForm();
+    const nameValidator = vi.fn();
+    const emailValidator = vi.fn();
+    const ageValidator = vi.fn();
+    form.validators.set('["name"]', nameValidator);
+    form.validators.set('["email"]', emailValidator);
+    form.validators.set('["age"]', ageValidator);
+
+    trigger(form, ['name', 'age']);
+
+    expect(nameValidator).toHaveBeenCalledTimes(1);
+    expect(ageValidator).toHaveBeenCalledTimes(1);
+    expect(emailValidator).not.toHaveBeenCalled();
+  });
+
+  it('does nothing for an empty name array', () => {
+    const form = createForm();
+    const nameValidator = vi.fn();
+    form.validators.set('["name"]', nameValidator);
+
+    trigger(form, []);
+
+    expect(nameValidator).not.toHaveBeenCalled();
+  });
+
+  it('treats a number-bearing array as a single segments path', () => {
+    const form = createForm();
+    const firstItem = vi.fn();
+    const secondItem = vi.fn();
+    form.validators.set('["items",0,"qty"]', firstItem);
+    form.validators.set('["items",1,"qty"]', secondItem);
+
+    trigger(form, ['items', 0, 'qty']);
+
+    expect(firstItem).toHaveBeenCalledTimes(1);
+    expect(secondItem).not.toHaveBeenCalled();
+  });
+
+  it('ignores names without a registered validator', () => {
+    const form = createForm();
+    expect(() => trigger(form, 'missing')).not.toThrow();
   });
 });

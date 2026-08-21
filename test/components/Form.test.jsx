@@ -92,6 +92,34 @@ describe('Form', () => {
     expect(onValidSubmit).not.toHaveBeenCalled();
   });
 
+  it('passes native constraint failures to onInvalidSubmit with dotted paths', async () => {
+    const onInvalidSubmit = vi.fn();
+    const onValidSubmit = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <Form
+        initialValues={{email: ''}}
+        onValidSubmit={onValidSubmit}
+        onInvalidSubmit={onInvalidSubmit}
+      >
+        <Field name="email" required />
+        <button type="submit">Submit</button>
+      </Form>
+    );
+
+    await user.click(screen.getByRole('button', {name: 'Submit'}));
+    await vi.waitFor(() => {
+      expect(onInvalidSubmit).toHaveBeenCalledTimes(1);
+    });
+    const errors = onInvalidSubmit.mock.calls[0][0];
+    expect(errors).toEqual([
+      {path: 'email', type: 'native', message: expect.any(String)}
+    ]);
+    expect(errors[0].message).not.toBe('');
+    expect(onValidSubmit).not.toHaveBeenCalled();
+  });
+
   it('still passes custom validate errors to onInvalidSubmit', async () => {
     const onInvalidSubmit = vi.fn();
     const onValidSubmit = vi.fn();
@@ -116,5 +144,95 @@ describe('Form', () => {
       );
     });
     expect(onValidSubmit).not.toHaveBeenCalled();
+  });
+
+  it('syncs the values prop into fields when its reference changes', async () => {
+    const user = userEvent.setup();
+    const valuesA = {name: 'a'};
+
+    const {rerender} = render(
+      <Form values={valuesA}>
+        <Field name="name" />
+      </Form>
+    );
+    const input = screen.getByDisplayValue('a');
+
+    // User typing survives a re-render passing the same reference.
+    await user.type(input, '!');
+    rerender(
+      <Form values={valuesA}>
+        <Field name="name" />
+      </Form>
+    );
+    expect(screen.getByDisplayValue('a!')).toBeDefined();
+
+    // A new reference replaces the uncommitted draft (master-detail).
+    rerender(
+      <Form values={{name: 'b'}}>
+        <Field name="name" />
+      </Form>
+    );
+    expect(screen.getByDisplayValue('b')).toBeDefined();
+  });
+
+  it('focuses the first errored field when submit fails custom validation', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{name: '', email: ''}}>
+        <Field name="name" validate={() => 'name required'} />
+        <Field name="email" validate={() => 'email invalid'} />
+        <button type="submit">Submit</button>
+      </Form>
+    );
+
+    const [nameInput, emailInput] = screen.getAllByRole('textbox');
+    await user.click(screen.getByRole('button', {name: 'Submit'}));
+    await vi.waitFor(() => {
+      // First error in insertion (mount) order gets the focus.
+      expect(document.activeElement).toBe(nameInput);
+      expect(document.activeElement).not.toBe(emailInput);
+    });
+  });
+
+  it('does not focus the errored field when shouldFocusError is false', async () => {
+    const onInvalidSubmit = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <Form
+        initialValues={{name: ''}}
+        onInvalidSubmit={onInvalidSubmit}
+        shouldFocusError={false}
+      >
+        <Field name="name" validate={() => 'name required'} />
+        <button type="submit">Submit</button>
+      </Form>
+    );
+
+    const [nameInput] = screen.getAllByRole('textbox');
+    await user.click(screen.getByRole('button', {name: 'Submit'}));
+    // Confirm validation actually failed before asserting no focus move.
+    await vi.waitFor(() => {
+      expect(onInvalidSubmit).toHaveBeenCalledTimes(1);
+    });
+    expect(document.activeElement).not.toBe(nameInput);
+  });
+
+  it('focuses the first :invalid control when native constraints fail', async () => {
+    const user = userEvent.setup();
+
+    render(
+      <Form initialValues={{email: ''}}>
+        <Field name="email" required />
+        <button type="submit">Submit</button>
+      </Form>
+    );
+
+    const [emailInput] = screen.getAllByRole('textbox');
+    await user.click(screen.getByRole('button', {name: 'Submit'}));
+    await vi.waitFor(() => {
+      expect(document.activeElement).toBe(emailInput);
+    });
   });
 });

@@ -115,6 +115,21 @@ function Tags() {
 
 The array only re-renders for changes touching its own branch — typing into unrelated fields does not re-render it.
 
+## Controlled Forms
+
+Pass a `values` prop to `<Form>` (or `values` to `useForm`) to drive the form from outside:
+
+```jsx
+<Form
+  values={selectedRecord}
+  onValidSubmit={values => save(values)}
+>
+  <Field name="email" />
+</Form>
+```
+
+Whenever the `values` reference changes, the new object is synced into the form: uncommitted user edits are discarded — master-detail semantics, where selecting another record replaces the draft — while touched flags and errors are kept. The sync is reference-based: re-renders that pass the same `values` reference never re-sync, so a stable reference never interrupts what the user is typing.
+
 ## Submit Handlers
 
 ```jsx
@@ -137,7 +152,86 @@ The array only re-renders for changes touching its own branch — typing into un
 
 `onSubmit`/`onValidSubmit` only run once both native constraint validation (see [Accessibility](#accessibility)) and your custom validators pass.
 
+### `handleSubmit`
+
+The same submit flow is available as a standalone function — the headless counterpart of `<Form>`'s submit wiring, usable where there is no `<form>` element (React Native, toolbar buttons, …):
+
+```jsx
+import {useForm, handleSubmit} from 'react-f0rm';
+
+function Profile({onSave}) {
+  const form = useForm({initialValues: {email: ''}});
+  const submit = handleSubmit(form, {
+    onSubmit: values => onSave(values),           // runs first on success
+    onValidSubmit: values => console.log(values), // then this
+    onInvalidSubmit: (errors, values) => console.error(errors)
+  });
+  return <Button title="Save" onPress={submit} />;
+}
+```
+
+All callbacks are optional — a missing one is simply skipped. The returned handler runs the full submit state machine (`isSubmitting`, `submitCount`, `isSubmitSuccessful`) around native constraint validation (skipped when the event target has no `checkValidity`) and your validators, and can be invoked with or without an event object.
+
+`onInvalidSubmit` receives an array of `{path, type, message}` entries: custom validation failures carry dotted paths with your validator's type (`'custom'` for plain strings, `'standard'` for the Standard Schema adapter), and native constraint failures carry `type: 'native'` — `path` is the dotted field path and `message` comes from the browser's `validationMessage`. Native failures are read from the DOM and never enter the form's error state.
+
+### Focusing the first error
+
+After a failed submit, the offending field is focused automatically — pass `shouldFocusError: false` (on `<Form>` or `handleSubmit`) to disable; it defaults to `true`. Custom validation failures focus the first errored field through a `'focusError'` event that bound fields (like `Field`) subscribe to; native constraint failures focus the submitted form's first `:invalid` control directly.
+
 ## Validation
+
+### Validation modes
+
+`mode` controls when field validators run; `reValidateMode` controls when a field is re-validated once it already has an error — it supplements `mode` in every mode:
+
+| Option | Values | Default |
+|---|---|---|
+| `mode` | `'onSubmit'` \| `'onBlur'` \| `'onChange'` \| `'onTouched'` \| `'all'` | `'onSubmit'` |
+| `reValidateMode` | `'onChange'` \| `'onBlur'` \| `'onSubmit'` | `'onChange'` |
+
+- `'onSubmit'` — validate only on submit.
+- `'onBlur'` — validate when the field loses focus.
+- `'onChange'` — validate on every change.
+- `'onTouched'` — validate on the first blur, then on every change.
+- `'all'` — validate on both change and blur.
+
+```jsx
+import {createForm} from 'react-f0rm';
+
+const form = createForm({
+  initialValues: {email: ''},
+  mode: 'onBlur',            // validate on blur…
+  reValidateMode: 'onChange' // …then re-validate on every change once errored
+});
+```
+
+### Triggering validation manually
+
+`trigger` runs field validators on demand. Without a name it runs every registered validator; a single name — or an array of names — narrows it to those fields:
+
+```jsx
+import {trigger} from 'react-f0rm';
+
+trigger(form);                               // every registered field validator
+trigger(form, 'email');                      // one field
+trigger(form, ['user.name', 'user.email']);  // several
+```
+
+Validators may be asynchronous — `trigger` kicks them off and returns immediately; errors land once they settle.
+
+### `setValue` options
+
+The fourth argument to `setValue` opts into side effects. Every flag defaults to `false`; omitting the object keeps the plain set-value behavior:
+
+```jsx
+import {setValue} from 'react-f0rm';
+
+setValue(form, 'email', 'a@b.com', {
+  shouldValidate: true, // run the field's registered validator after the value lands
+  shouldTouch: true,    // mark the field as touched
+  shouldDirty: true     // reserved for a manual dirty marker — currently a no-op
+});
+```
 
 ### Field-level validation
 
@@ -266,6 +360,22 @@ function TextArea({value, onChange, ...props}) {
 }
 
 <Field name="bio" as={TextArea} />
+```
+
+`Select` is a controlled `<select>` — pass the options as children. A single select stores the selected option's value as a string; `multiple` stores the values of all selected options as a string array:
+
+```jsx
+import {Select} from 'react-f0rm';
+
+<Select name="country">
+  <option value="cn">China</option>
+  <option value="jp">Japan</option>
+</Select>
+
+<Select name="tags" multiple>
+  <option value="a">Tag A</option>
+  <option value="b">Tag B</option>
+</Select>
 ```
 
 ## Breaking changes in 0.2

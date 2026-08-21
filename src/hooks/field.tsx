@@ -2,6 +2,7 @@ import {useContext, useEffect} from 'react';
 import {FormContext} from '../context';
 import {
   getValueByPath,
+  hasTouchedByPath,
   removeFieldByPath,
   setTouchedByPath,
   setValueByPath
@@ -31,6 +32,9 @@ export interface UseFieldResult<
   TValues extends Record<string, any> = any,
   TPath extends FieldPath<TValues> | Name = Name
 > {
+  /** The form instance this field is bound to (explicit prop or context) —
+   * handy for consumers that need direct access to the headless API. */
+  form: Form<TValues>;
   value: PathValueOf<TValues, TPath>;
   /** Error message string (FieldError#message) for display, or undefined */
   error: string | undefined;
@@ -79,15 +83,22 @@ export default function useField<
   const onChange = useStageFn((v: any) => {
     setValueByPath(form, path, v);
     if (
-      form.validateOnChange ||
-      (form.revalidateOnChange && error && error !== undefined)
+      form.mode === 'onChange' ||
+      form.mode === 'all' ||
+      (form.mode === 'onTouched' && hasTouchedByPath(form, path)) ||
+      (error !== undefined && form.reValidateMode === 'onChange')
     )
       validator();
   });
 
   const onBlur = useStageFn(() => {
     setTouchedByPath(form, path);
-    if (form.validateOnBlur || (form.revalidateOnBlur && error !== undefined))
+    if (
+      form.mode === 'onBlur' ||
+      form.mode === 'onTouched' ||
+      form.mode === 'all' ||
+      (error !== undefined && form.reValidateMode === 'onBlur')
+    )
       validator();
   });
 
@@ -100,5 +111,14 @@ export default function useField<
     [path, form, shouldUnregister]
   );
 
-  return {...rest, value, error, errorObject, onChange, onBlur, name: path.key};
+  return {
+    ...rest,
+    form,
+    value,
+    error,
+    errorObject,
+    onChange,
+    onBlur,
+    name: path.key
+  };
 }

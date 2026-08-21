@@ -17,18 +17,47 @@ import type {FieldPath, PathValueOf} from '../types';
 import createPath from '../path';
 import type {Path} from '../path';
 
+/**
+ * Create a form instance bound to this component.
+ *
+ * Beyond {@link Options}, the optional `values` object enables controlled
+ * usage: whenever its reference changes it is re-synced into the form with
+ * setInitialValues semantics -- uncommitted user edits are discarded
+ * (master-detail semantics: selecting another record replaces the draft),
+ * while touched flags and errors survive. While the reference stays the
+ * same nothing re-syncs, so the user's in-progress typing is never
+ * clobbered by a re-render.
+ */
 export default function useForm<T extends Record<string, any> = any>(
-  options?: Options<T>
+  options?: Options<T> & {values?: T}
 ): Form<T> {
   // Lazy initialization: createForm runs once per mount and the returned
   // instance is stable across re-renders (and StrictMode double renders),
-  // without writing to refs during render.
-  const [form] = useState(() => createForm<T>(options));
+  // without writing to refs during render. A provided `values` object is
+  // seeded synchronously here (createForm does the same for initialValues)
+  // so the first paint and SSR already reflect the controlled values.
+  const [form] = useState(() => {
+    const created = createForm<T>(options);
+    if (options && options.values !== undefined) {
+      setInitialValues(created, options.values);
+    }
+    return created;
+  });
   const initialValues = options && options.initialValues;
+  const values = options && options.values;
 
   useEffect(() => {
     setInitialValues(form, initialValues);
   }, [form, initialValues]);
+
+  // Controlled values: re-sync only when the reference changes, reusing
+  // setInitialValues semantics (values/deleted cleared, touched/errors
+  // kept). setInitialValues itself early-returns on an identical
+  // reference, so unchanged re-renders are a no-op.
+  useEffect(() => {
+    if (values === undefined) return;
+    setInitialValues(form, values);
+  }, [form, values]);
 
   return form;
 }
@@ -160,7 +189,9 @@ export function useErrorByPath(form: Form, path: Path): FieldError | undefined {
 }
 
 export function useIsDirty(form: Form): boolean {
-  return useWatch(form.emitter, 'touched', isDirty.bind(null, form));
+  // Dirty state is driven by value changes, not touch state: subscribe to
+  // 'change' so typing flips this immediately, even before a blur.
+  return useWatch(form.emitter, 'change', isDirty.bind(null, form));
 }
 
 /**

@@ -24,9 +24,31 @@ export interface FieldError {
 /** A flattened entry from {@link getErrors}. */
 export type FieldErrorEntry = {path: string; type: string; message: string};
 
+/** When a field is validated:
+ * - `'onSubmit'` (default): only on submit
+ * - `'onBlur'`: when the field loses focus
+ * - `'onChange'`: on every change
+ * - `'onTouched'`: on first blur, then on every change
+ * - `'all'`: on both change and blur
+ */
+export type ValidationMode =
+  | 'onSubmit'
+  | 'onBlur'
+  | 'onChange'
+  | 'onTouched'
+  | 'all';
+
+/** When a field is re-validated after it already has an error:
+ * - `'onChange'` (default): on every change
+ * - `'onBlur'`: when the field loses focus
+ * - `'onSubmit'`: only on submit (no live re-validation)
+ */
+export type ReValidateMode = 'onChange' | 'onBlur' | 'onSubmit';
+
 export interface Form<T extends Record<string, any> = any> {
   emitter: EventEmitter;
-  revalidateOnChange: boolean;
+  mode: ValidationMode;
+  reValidateMode: ReValidateMode;
   initialValues: T;
   values: Map<string, any>;
   /** Tombstones of unregistered field paths (JSON path keys): reading or
@@ -44,11 +66,13 @@ export interface Form<T extends Record<string, any> = any> {
 
 export type Options<T extends Record<string, any> = any> = {
   initialValues?: T;
-  validateOnSubmit?: boolean;
-  validateOnChange?: boolean;
-  validateOnBlur?: boolean;
-  revalidateOnChange?: boolean;
-  revalidateOnBlur?: boolean;
+  /** When fields are validated. Defaults to `'onSubmit'`. See
+   * {@link ValidationMode}. */
+  mode?: ValidationMode;
+  /** When a field is re-validated after it already has an error — it only
+   * takes effect once the field has an error. Defaults to `'onChange'`. See
+   * {@link ReValidateMode}. */
+  reValidateMode?: ReValidateMode;
   /**
    * Form-level validator. Returns a record of errors keyed by field path;
    * nested objects are flattened ('a.b' style) and array values contribute
@@ -68,8 +92,9 @@ export default function create<T extends Record<string, any> = any>(
   const emitter = createEmitter();
   return {
     emitter,
-    revalidateOnChange: true,
     ...options,
+    mode: options?.mode ?? 'onSubmit',
+    reValidateMode: options?.reValidateMode ?? 'onChange',
     initialValues: (options?.initialValues ?? {}) as T,
     values: new Map(),
     deleted: new Set(),
@@ -141,17 +166,38 @@ export function getValueByPath(
   return get(initialValues, path.value);
 }
 
+/** Options accepted by {@link setValue} / {@link setValueByPath}. Every flag
+ * defaults to `false`; omitting the options object entirely keeps the plain
+ * set-value behavior (no validation, no touched marking). */
+export interface SetFieldOptions {
+  /** Run the field's registered validator (if any) after the value lands,
+   * same as triggering that single field. Defaults to `false`. */
+  shouldValidate?: boolean;
+  /** Mark the field as touched. Defaults to `false`. */
+  shouldTouch?: boolean;
+  /** Reserved for a future manual dirty marker. Dirty state is currently
+   * derived from comparing values against initialValues, so this flag is
+   * accepted but does nothing. Defaults to `false`. */
+  shouldDirty?: boolean;
+}
+
 /**
  * Set field value
  * @param form
  * @param name
  * @param value
+ * @param options
  */
 export function setValue<
   T extends Record<string, any> = any,
   P extends FieldPath<T> | Name = Name
->(form: Form<T>, name: P, value: PathValueOf<T, P>): void {
-  setValueByPath(form, createPath(name), value);
+>(
+  form: Form<T>,
+  name: P,
+  value: PathValueOf<T, P>,
+  options?: SetFieldOptions
+): void {
+  setValueByPath(form, createPath(name), value, options);
 }
 
 /**
@@ -159,14 +205,20 @@ export function setValue<
  * @param form
  * @param path
  * @param value
+ * @param options
  */
 export function setValueByPath(
-  {emitter, values, deleted}: Form,
+  form: Form,
   path: Path,
-  value: any
+  value: any,
+  options?: SetFieldOptions
 ): void {
+  const {emitter, values, deleted} = form;
   values.set(path.key, value);
   reviveBranch(deleted, path);
+  bumpDirtyVersion(form);
+  if (options?.shouldTouch) setTouchedByPath(form, path);
+  if (options?.shouldValidate) form.validators.get(path.key)?.();
   emit(emitter, 'change', path);
 }
 
@@ -344,19 +396,68 @@ function forEachDirtyField(
   }
 }
 
+/** Per-form memoization of {@link getDirtyFields}. `version` counts value
+ * mutations since the cached `result` was computed: bump points increment
+ * it, reads reset it, so a non-zero version means the cache is stale. */
+interface DirtyFieldsCache {
+  version: number;
+  result: Record<string, boolean>;
+}
+
+const dirtyFieldsCaches = new WeakMap<Form, DirtyFieldsCache>();
+
 /**
- * Get dirty fields -- fields whose current value differs from initialValues.
- * Keys are user-facing dotted paths ('a.b', 'a.0.c'), unlike the JSON array
- * keys stored in the values Map.
- * @param form
- * @return object mapping each dirty field's dotted path to true
+ * Invalidate `form`'s cached {@link getDirtyFields} result. Called at every
+ * point that can change values or initialValues (setValueByPath,
+ * removeFieldByPath, setInitialValues, reset) so repeated reads hand out a
+ * stable reference and useWatch's Object.is snapshot check can skip
+ * re-renders.
  */
-export function getDirtyFields(form: Form): Record<string, boolean> {
+function bumpDirtyVersion(form: Form): void {
+  const cache = dirtyFieldsCaches.get(form);
+  if (cache) cache.version++;
+}
+
+function computeDirtyFields(form: Form): Record<string, boolean> {
   const dirtyFields: Record<string, boolean> = {};
   forEachDirtyField(form, key => {
     dirtyFields[key] = true;
   });
   return dirtyFields;
+}
+
+/** Dirty entries only ever map to `true`, so equal key sets mean shallow
+ * equal results. */
+function sameDirtyKeys(
+  a: Record<string, boolean>,
+  b: Record<string, boolean>
+): boolean {
+  const aKeys = Object.keys(a);
+  if (aKeys.length !== Object.keys(b).length) return false;
+  return aKeys.every(key => b[key] === true);
+}
+
+/**
+ * Get dirty fields -- fields whose current value differs from initialValues.
+ * Keys are user-facing dotted paths ('a.b', 'a.0.c'), unlike the JSON array
+ * keys stored in the values Map.
+ * @param form
+ * @return object mapping each dirty field's dotted path to true; the same
+ * reference is returned until the dirty set actually changes
+ */
+export function getDirtyFields(form: Form): Record<string, boolean> {
+  let cache = dirtyFieldsCaches.get(form);
+  if (!cache) {
+    cache = {version: 0, result: computeDirtyFields(form)};
+    dirtyFieldsCaches.set(form, cache);
+  } else if (cache.version > 0) {
+    const result = computeDirtyFields(form);
+    // Keep the old reference when the dirty set is unchanged (values always
+    // map to true) so subscribers see identity-stable snapshots.
+    if (!sameDirtyKeys(cache.result, result)) cache.result = result;
+    cache.version = 0;
+  }
+  return cache.result;
 }
 
 /**
@@ -408,6 +509,7 @@ export function removeFieldByPath(
   // by a live ancestor key (e.g. a FieldArray rewrite stored the whole
   // array at the parent path) or a still-mounted descendant key.
   if (!hasLiveBranch(values, segments)) deleted.add(key);
+  bumpDirtyVersion(form);
   emit(emitter, 'change');
   emit(emitter, 'touched');
   emit(emitter, 'errors');
@@ -461,6 +563,7 @@ export function setInitialValues(form: Form, initialValues: any): void {
   form.initialValues = initialValues;
   form.values.clear();
   form.deleted.clear();
+  bumpDirtyVersion(form);
   emit(form.emitter, 'change');
 }
 
@@ -480,6 +583,7 @@ export function reset(form: Form, initialValues?: any): void {
   form.isSubmitting = false;
   form.submitCount = 0;
   form.isSubmitSuccessful = undefined;
+  bumpDirtyVersion(form);
   emit(emitter, 'change');
   emit(emitter, 'touched');
   emit(emitter, 'validating');
@@ -497,11 +601,40 @@ export function hasErrors({errors}: Form): boolean {
 }
 
 /**
- * Trigger all fields validate.
+ * Trigger field validation.
+ *
+ * Without `name` every registered field validator runs. A single `name` —
+ * dotted string or segments array — runs only that field's validator, and
+ * an array of names runs each one in order. An empty array is a no-op, as
+ * is any name with no registered validator. An array argument counts as
+ * one segments path only when it mixes in numbers (`['items', 0]`); pure
+ * string arrays are name lists, so `['a', 'b']` triggers fields `a` and
+ * `b`, not the nested path `a.b`.
+ *
+ * Field validators may be asynchronous: their errors land asynchronously
+ * once the validator settles. Trigger only kicks validators off — it
+ * returns void and never awaits them.
+ *
  * @param form
+ * @param name field name(s) to trigger, or all fields when omitted
  */
-export function trigger(form: Form): void {
-  form.validators.forEach(validator => validator());
+export function trigger(form: Form, name?: Name | Name[]): void {
+  if (name === undefined) {
+    form.validators.forEach(validator => validator());
+    return;
+  }
+  if (typeof name === 'string' || isSegmentsPath(name)) {
+    form.validators.get(createPath(name).key)?.();
+    return;
+  }
+  name.forEach(one => form.validators.get(createPath(one).key)?.());
+}
+
+/** Numbers only occur inside a segments path (`['a', 0]`), never as
+ * standalone names, so a top-level number marks `name` as one single path
+ * rather than a list of names. */
+function isSegmentsPath(name: PathSegments | Name[]): name is PathSegments {
+  return (name as (number | unknown)[]).some(part => typeof part === 'number');
 }
 
 function isFieldError(value: any): value is FieldError {
@@ -586,4 +719,174 @@ export function incrementSubmitCount(form: Form): void {
 export function setSubmitSuccessful(form: Form, value: boolean): void {
   form.isSubmitSuccessful = value;
   emit(form.emitter, 'submitSuccessful');
+}
+
+/** Structural slice of a <form>-like element: an elements collection whose
+ * controls expose the constraint-validation members we read. Matches the
+ * DOM HTMLFormElement shape without coupling the core to DOM types. */
+interface NativeFormElement {
+  elements: ArrayLike<{
+    name: string;
+    checkValidity: () => boolean;
+    validationMessage: string;
+  }>;
+}
+
+/**
+ * Converts a control's DOM name to the user-visible dotted path. Field
+ * components render the path key (JSON.stringify'd segments, '["a","0"]')
+ * as the name attribute, so JSON keys are parsed back and joined with
+ * dots; any other name value is returned as-is.
+ */
+function nameToPath(name: string): string {
+  if (name.startsWith('[')) {
+    try {
+      const segments = JSON.parse(name);
+      if (Array.isArray(segments)) return segments.join('.');
+    } catch {
+      // Not a JSON path key — fall through and use the raw name.
+    }
+  }
+  return name;
+}
+
+/**
+ * Collects the constraints failing native validation on a <form> as
+ * {@link FieldErrorEntry} entries, in DOM order.
+ *
+ * Design note: native errors are deliberately NOT written into the form's
+ * errors Map. That Map tracks custom validator state, while native
+ * validity is transient DOM state owned by the browser (surfaced through
+ * reportValidity); onInvalidSubmit receives this snapshot directly.
+ */
+function getNativeErrors(formEl: NativeFormElement): FieldErrorEntry[] {
+  const errors: FieldErrorEntry[] = [];
+  const {elements} = formEl;
+  for (let i = 0; i < elements.length; i++) {
+    const el = elements[i];
+    if (
+      el.name &&
+      typeof el.checkValidity === 'function' &&
+      !el.checkValidity()
+    ) {
+      errors.push({
+        path: nameToPath(el.name),
+        type: 'native',
+        message: el.validationMessage
+      });
+    }
+  }
+  return errors;
+}
+
+/** Submit callbacks for {@link handleSubmit}. All optional — a missing
+ * callback is simply skipped, matching the <Form> component semantics. */
+export interface HandleSubmitOptions<T extends Record<string, any> = any> {
+  /** Called after validation passes, before onValidSubmit. */
+  onSubmit?: (values: T, e?: any) => void | Promise<void>;
+  /** Called after validation passes, following a successful onSubmit. */
+  onValidSubmit?: (values: T, e?: any) => void | Promise<void>;
+  /**
+   * Called when validation fails.
+   * @param errors array of {path, type, message} entries in insertion
+   *        order; path is the dotted field path ('a.b', 'list.0'), type is
+   *        the error kind ('custom' for plain string errors, 'native' for
+   *        failed DOM constraint validation), message is the display text
+   * @param values current form values
+   */
+  onInvalidSubmit?: (errors: FieldErrorEntry[], values: T) => void;
+  /**
+   * Focus the first error field after a failed submit. Defaults to true —
+   * only an explicit `false` disables it. When custom validation fails,
+   * a 'focusError' event carrying the first error's path key is emitted
+   * on the form (bound fields such as <Field> subscribe and focus their
+   * input); when native constraint validation fails, the submitted
+   * form's first ':invalid' control is focused directly.
+   */
+  shouldFocusError?: boolean;
+}
+
+/**
+ * Create an async submit handler for `form` — the headless counterpart of
+ * the <Form> component's onSubmit wiring.
+ *
+ * Behavior mirrors <Form> exactly: preventDefault when present, then the
+ * submit state machine (isSubmitting/submitCount/isSubmitSuccessful) runs
+ * around native constraint validation (via `e.currentTarget.checkValidity`,
+ * skipped when the target has no checkValidity — e.g. React Native or
+ * toolbar-button submits) and custom validators. Failed validation fires
+ * onInvalidSubmit with the flattened error entries; a passing submit runs
+ * onSubmit then onValidSubmit. Errors thrown by either are swallowed into
+ * isSubmitSuccessful=false rather than rejecting the returned promise.
+ * Failed validation also focuses the offending field (see
+ * {@link HandleSubmitOptions.shouldFocusError}).
+ *
+ * @param form form instance
+ * @param options submit callbacks
+ * @return async event handler, callable without an event object
+ */
+export function handleSubmit<T extends Record<string, any> = any>(
+  form: Form<T>,
+  options?: HandleSubmitOptions<T>
+): (e?: {preventDefault?: () => void; currentTarget?: any}) => Promise<void> {
+  const {
+    onSubmit,
+    onValidSubmit,
+    onInvalidSubmit,
+    shouldFocusError = true
+  } = options ?? {};
+  return async e => {
+    if (e && typeof e.preventDefault === 'function') {
+      e.preventDefault();
+    }
+    const formEl = e?.currentTarget;
+    setIsSubmitting(form, true);
+    incrementSubmitCount(form);
+    const values = getValues(form) as T;
+
+    if (
+      formEl &&
+      typeof formEl.checkValidity === 'function' &&
+      formEl.checkValidity() === false
+    ) {
+      formEl.reportValidity();
+      // Focus the first natively-invalid control directly off the DOM;
+      // native failures never enter the errors Map (see below).
+      if (shouldFocusError && typeof formEl.querySelector === 'function') {
+        const invalid = formEl.querySelector(':invalid') as HTMLElement | null;
+        if (invalid && typeof invalid.focus === 'function') invalid.focus();
+      }
+      setIsSubmitting(form, false);
+      setSubmitSuccessful(form, false);
+      // Native constraint failures are read from the DOM (not the errors
+      // Map, which only holds custom validation state — see getNativeErrors).
+      if (onInvalidSubmit) onInvalidSubmit(getNativeErrors(formEl), values);
+      return;
+    }
+
+    const error = await validate(form);
+
+    if (error) {
+      setIsSubmitting(form, false);
+      setSubmitSuccessful(form, false);
+      // Notify bound fields (e.g. <Field>) so the first errored one can
+      // focus its input; the payload is the errors Map's first key.
+      if (shouldFocusError) {
+        const firstKey = form.errors.keys().next().value;
+        if (firstKey !== undefined) emit(form.emitter, 'focusError', firstKey);
+      }
+      if (onInvalidSubmit) onInvalidSubmit(getErrors(form), values);
+      return;
+    }
+
+    try {
+      if (onSubmit) await onSubmit(values, e);
+      if (onValidSubmit) await onValidSubmit(values, e);
+      setSubmitSuccessful(form, true);
+    } catch {
+      setSubmitSuccessful(form, false);
+    } finally {
+      setIsSubmitting(form, false);
+    }
+  };
 }

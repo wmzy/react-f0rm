@@ -81,10 +81,24 @@ See [Schema Resolvers](../api/resolvers.md) for details.
 
 ## Validation Timing
 
-- `validateOnChange: true` — validate on every keystroke
-- `validateOnBlur: true` — validate when field loses focus
-- `revalidateOnChange: true` (default) — re-validate when value changes after first error
-- `revalidateOnBlur: true` — re-validate on blur after first error
+`mode` controls when fields are validated (default: `'onSubmit'`):
+
+- `'onSubmit'` — only on submit
+- `'onBlur'` — when the field loses focus
+- `'onChange'` — on every change
+- `'onTouched'` — on first blur, then on every change
+- `'all'` — on both change and blur
+
+```tsx
+useForm({ mode: 'onBlur' });
+```
+
+`reValidateMode` supplements `mode` in any mode, but only takes effect once a field already has an error (default: `'onChange'`): `'onChange'` re-validates on every change, `'onBlur'` when the field loses focus, `'onSubmit'` only on submit (no live re-validation).
+
+```tsx
+useForm({ mode: 'onSubmit', reValidateMode: 'onChange' });
+// validate on submit; after the first error, re-validate live on every keystroke
+```
 
 ## Reading Errors
 
