@@ -14,6 +14,7 @@ A controlled input component with built-in validation support and error accessib
 | `as` | `ComponentType` | Custom component to render |
 | `asProps` | `Record<string, any>` | Props passed directly to the `as` component (use when prop names conflict with Field's own props) |
 | `validate` | `(value, meta) => string \| FieldError \| undefined` | Field-level validator; strings are normalized to `{type: 'custom', message}` |
+| `validateDebounce` | `number` | Milliseconds to debounce this field's validation kicks (default: `0`); while pending, the field counts as validating so `trigger`/submit wait out the window — see [Async Validation](../guides/validation.md#async-validation) |
 | `initialValue` | `any` | Override initial value |
 | `eventToValue` | `(event) => any` | Transform event to value |
 | `valueToProps` | `(value) => object` | Transform value to props |

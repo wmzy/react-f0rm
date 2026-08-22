@@ -83,8 +83,13 @@ export default [
     output: [
       {
         dir: 'dist',
-        entryFileNames: '[name].esm.js',
-        chunkFileNames: '[name]-[hash].esm.js',
+        // .mjs so Node natively treats the ESM chunks as modules —
+        // extensionless packages default every .js to CommonJS, which
+        // forced a reparse (MODULE_TYPELESS_PACKAGE_JSON warning) for
+        // file:linked consumers. CJS keeps .cjs.js (default .js parsing
+        // is already CommonJS, no rename churn).
+        entryFileNames: '[name].mjs',
+        chunkFileNames: '[name]-[hash].mjs',
         sourcemap: true,
         format: 'es'
       },

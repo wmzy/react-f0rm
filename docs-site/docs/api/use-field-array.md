@@ -43,6 +43,18 @@ function TodoList() {
 | `remove` | `(index: number) => void` | Remove item |
 | `swap` | `(from: number, to: number) => void` | Swap two items |
 | `move` | `(from: number, to: number) => void` | Move item |
+| `replace` | `(values: any[]) => void` | Replace the whole list — every row id is regenerated (length may change) |
+| `update` | `(index: number, value: any) => void` | Overwrite one value, keeping that row's id — no key churn |
+
+## `replace` vs `update`
+
+`replace(values)` is the refetch shape — a server response replaces the entire list, ids included:
+
+```tsx
+const {replace, update} = useFieldArray({name: 'todos'});
+replace(await fetchTodos()); // full swap
+update(1, {name: 'Buy milk', done: true}); // rewrite one row in place
+```
 
 ## Subscription Scope
 

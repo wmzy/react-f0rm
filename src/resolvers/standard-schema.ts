@@ -47,7 +47,9 @@ function toFieldError(issue: StandardSchemaIssue | undefined): FieldError {
 
 /**
  * Field-level Standard Schema adapter: validate a single value with any
- * schema implementing '~standard' and map the first issue to a FieldError.
+ * schema implementing '~standard' and map every issue to a FieldError,
+ * so a value breaking several rules surfaces all of them (setErrorByPath
+ * stores the array; error/errorObject readers still see the first).
  *
  * @param schema a Standard Schema v1 (zod v3.24+/v4, valibot v1, arktype...)
  * @return field validator compatible with useField's validate option
@@ -56,16 +58,16 @@ export function standardSchemaResolver(schema: StandardSchemaV1): Validator {
   return async (value: any) => {
     const result = await schema['~standard'].validate(value);
     if (!result.issues?.length) return undefined;
-    return toFieldError(result.issues[0]);
+    return result.issues.map(toFieldError);
   };
 }
 
 /**
  * Form-level Standard Schema adapter: validate the whole values object with
  * any schema implementing '~standard' and map issues into the nested error
- * shape Options.validate expects ({a: {b: FieldError}}; ensureValidate
- * flattens it back to per-field errors). Issues without a path are
- * form-level errors and land on the '_form' key.
+ * shape Options.validate expects ({a: {b: FieldError[]}}; ensureValidate
+ * flattens it back to per-field errors, keeping every issue of a path).
+ * Issues without a path are form-level errors and land on the '_form' key.
  *
  * @param schema a Standard Schema v1 (zod v3.24+/v4, valibot v1, arktype...)
  * @return form-level validator for createForm({validate: ...})
@@ -82,8 +84,12 @@ export function standardSchemaFormValidator<T extends Record<string, any>>(
       const segments = toPathSegments(issue);
       if (segments.length) {
         assignAtPath(errors, segments, toFieldError(issue));
-      } else if (!errors._form) {
-        errors._form = toFieldError(issue);
+      } else {
+        // Pathless issues are all form-level: they accumulate on '_form'
+        // instead of the first shadowing the rest. (A nested path literally
+        // named '_form' would have made the slot a branch — skip then.)
+        const slot = (errors._form ??= []);
+        if (Array.isArray(slot)) slot.push(toFieldError(issue));
       }
     }
     return pruneEmpty(errors) || {};
@@ -107,8 +113,9 @@ function toPathSegments(issue: StandardSchemaIssue): string[] {
 }
 
 /**
- * Set the error at a nested path; the first issue at any path wins — later
- * issues conflicting with an existing leaf or crossing it are skipped.
+ * Append the error at a nested path. Leaves are FieldError[] arrays, so
+ * several issues on one field accumulate in issue order; an issue whose
+ * path conflicts with an existing leaf or crosses it is skipped.
  */
 function assignAtPath(
   root: Record<string, any>,
@@ -126,19 +133,17 @@ function assignAtPath(
     node = next;
   }
   const leaf = segments[segments.length - 1];
-  if (node[leaf] === undefined) node[leaf] = error;
+  const slot = node[leaf];
+  if (slot === undefined) node[leaf] = [error];
+  else if (Array.isArray(slot)) slot.push(error);
 }
 
 /**
- * A branch is a plain container built while nesting, not a FieldError leaf.
+ * A branch is a plain container built while nesting; the leaves it carries
+ * are the FieldError[] arrays assignAtPath appends.
  */
 function isBranch(value: any): value is Record<string, any> {
-  return (
-    !!value &&
-    typeof value === 'object' &&
-    typeof value.type !== 'string' &&
-    typeof value.message !== 'string'
-  );
+  return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
 /**

@@ -18,16 +18,21 @@ describe('zodResolver', () => {
     expect(await resolver('value')).toBeUndefined();
   });
 
-  it('returns a FieldError built from the first issue on failure', async () => {
+  it('returns a FieldError for every issue on failure', async () => {
     const schema = createMockSchema({
       success: false,
-      error: {issues: [{code: 'too_small', message: 'Too short'}]}
+      error: {
+        issues: [
+          {code: 'too_small', message: 'Too short'},
+          {code: 'invalid_format', message: 'Bad characters'}
+        ]
+      }
     });
     const resolver = zodResolver(schema);
-    expect(await resolver('')).toEqual({
-      type: 'too_small',
-      message: 'Too short'
-    });
+    expect(await resolver('')).toEqual([
+      {type: 'too_small', message: 'Too short'},
+      {type: 'invalid_format', message: 'Bad characters'}
+    ]);
   });
 
   it('falls back to a custom type and default message without issues', async () => {
@@ -36,10 +41,9 @@ describe('zodResolver', () => {
       error: {issues: []}
     });
     const resolver = zodResolver(schema);
-    expect(await resolver('')).toEqual({
-      type: 'custom',
-      message: 'Validation failed'
-    });
+    expect(await resolver('')).toEqual([
+      {type: 'custom', message: 'Validation failed'}
+    ]);
   });
 
   it('delegates to the ~standard interface when present (zod v3.24+)', async () => {
@@ -54,10 +58,9 @@ describe('zodResolver', () => {
       }
     };
     const resolver = zodResolver(schema);
-    expect(await resolver('')).toEqual({
-      type: 'standard',
-      message: 'Too short'
-    });
+    expect(await resolver('')).toEqual([
+      {type: 'standard', message: 'Too short'}
+    ]);
     expect(safeParseAsync).not.toHaveBeenCalled();
   });
 

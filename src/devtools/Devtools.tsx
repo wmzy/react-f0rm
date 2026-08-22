@@ -191,8 +191,12 @@ export default function Devtools<T extends Record<string, any> = any>({
           (errors.length === 0 ? (
             <p className="rf0-dt-empty">no errors</p>
           ) : (
-            errors.map(({path, type, message}) => (
-              <div key={path} className="rf0-dt-item">
+            errors.map(({path, type, message}, index) => (
+              // Same path can hold several errors now; index keeps keys
+              // unique without changing what is rendered (messages may
+              // legitimately repeat for one path).
+              // eslint-disable-next-line react/no-array-index-key
+              <div key={`${path}:${index}`} className="rf0-dt-item">
                 <span className="rf0-dt-item-path">{path}</span>
                 <span className="rf0-dt-item-msg">{message}</span>
                 <span className="rf0-dt-item-tag">{type}</span>

@@ -213,4 +213,54 @@ describe('useFieldArray', () => {
     act(() => api.append('c'));
     expect(api.fields).toHaveLength(2);
   });
+
+  it('replace swaps the whole array and regenerates ids', () => {
+    const form = createForm({initialValues: {items: ['a', 'b', 'c']}});
+    const {result} = renderHook(() => useFieldArray({name: 'items', form}));
+    const idsBefore = result.current.fields.map(f => f.id);
+    act(() => result.current.replace(['x', 'y']));
+    expect(result.current.fields).toHaveLength(2);
+    expect(result.current.fields.map(f => f.index)).toEqual([0, 1]);
+    expect(getValues(form).items).toEqual(['x', 'y']);
+    // Full replacement remounts every row: all ids are new.
+    result.current.fields.forEach(f => {
+      expect(idsBefore).not.toContain(f.id);
+    });
+  });
+
+  it('replace re-renders rows for the new values without errors', () => {
+    const form = createForm({initialValues: {tags: ['a', 'b']}});
+    let api;
+    function TagsArray() {
+      api = useFieldArray({name: 'tags', form});
+      const values = getValues(form).tags;
+      return (
+        <div>{api.fields.map(f => <span key={f.id}>{values[f.index]}</span>)}</div>
+      );
+    }
+    const {container} = render(<TagsArray />);
+    expect(container.textContent).toBe('ab');
+    act(() => api.replace(['x', 'y', 'z']));
+    expect(container.textContent).toBe('xyz');
+  });
+
+  it('update replaces a value while keeping the item id', () => {
+    const form = createForm({initialValues: {items: ['a', 'b']}});
+    const {result} = renderHook(() => useFieldArray({name: 'items', form}));
+    const idsBefore = result.current.fields.map(f => f.id);
+    act(() => result.current.update(1, 'B'));
+    expect(getValues(form).items).toEqual(['a', 'B']);
+    expect(result.current.fields).toHaveLength(2);
+    // Same id at the same index: the row is not remounted.
+    expect(result.current.fields.map(f => f.id)).toEqual(idsBefore);
+  });
+
+  it('update ignores out-of-bounds indices', () => {
+    const form = createForm({initialValues: {items: ['a']}});
+    const {result} = renderHook(() => useFieldArray({name: 'items', form}));
+    act(() => result.current.update(3, 'x'));
+    act(() => result.current.update(-1, 'x'));
+    expect(getValues(form).items).toEqual(['a']);
+    expect(result.current.fields).toHaveLength(1);
+  });
 });

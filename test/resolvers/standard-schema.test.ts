@@ -10,7 +10,11 @@ import {
   standardSchemaResolver,
   standardSchemaFormValidator
 } from '../../src/resolvers/standard-schema';
-import createForm, {ensureValidate, getError} from '../../src/form';
+import createForm, {
+  ensureValidate,
+  getError,
+  getFieldErrors
+} from '../../src/form';
 
 type MockIssue = {message: string; path?: (PropertyKey | {key: PropertyKey})[]};
 
@@ -38,13 +42,26 @@ describe('standardSchemaResolver', () => {
     expect(await resolver('value')).toBeUndefined();
   });
 
-  it('returns a FieldError built from the first issue on failure', async () => {
+  it('returns a FieldError for every issue on failure', async () => {
     const schema = mockSchema([
       {message: 'First', path: ['a']},
       {message: 'Second', path: ['b']}
     ]);
     const resolver = standardSchemaResolver(schema);
-    expect(await resolver('')).toEqual({type: 'standard', message: 'First'});
+    expect(await resolver('')).toEqual([
+      {type: 'standard', message: 'First'},
+      {type: 'standard', message: 'Second'}
+    ]);
+  });
+
+  it('surfaces every rule a value breaks (min + regex style)', async () => {
+    // z.string().min(2).regex(/^[a-z]+$/) against '!' violates both rules.
+    const schema = mockSchema([{message: 'Too short'}, {message: 'Invalid'}]);
+    const resolver = standardSchemaResolver(schema);
+    expect(await resolver('!')).toEqual([
+      {type: 'standard', message: 'Too short'},
+      {type: 'standard', message: 'Invalid'}
+    ]);
   });
 
   it('supports sync validate implementations', async () => {
@@ -62,10 +79,9 @@ describe('standardSchemaResolver', () => {
   it('falls back to a default message when the issue has none', async () => {
     const schema = mockSchema([{path: ['a']} as MockIssue]);
     const resolver = standardSchemaResolver(schema);
-    expect(await resolver('')).toEqual({
-      type: 'standard',
-      message: 'Validation failed'
-    });
+    expect(await resolver('')).toEqual([
+      {type: 'standard', message: 'Validation failed'}
+    ]);
   });
 });
 
@@ -75,12 +91,12 @@ describe('standardSchemaFormValidator', () => {
     expect(await validator({a: 1})).toEqual({});
   });
 
-  it('nests issues by path (issue.path=["a","b"] → {a: {b: FieldError}})', async () => {
+  it('nests issues by path (issue.path=["a","b"] → {a: {b: FieldError[]}})', async () => {
     const validator = standardSchemaFormValidator(
       mockSchema([{message: 'required', path: ['a', 'b']}])
     );
     expect(await validator({})).toEqual({
-      a: {b: {type: 'standard', message: 'required'}}
+      a: {b: [{type: 'standard', message: 'required'}]}
     });
   });
 
@@ -89,20 +105,23 @@ describe('standardSchemaFormValidator', () => {
       mockSchema([{message: 'required', path: [{key: 'items'}, 0, 'name']}])
     );
     expect(await validator({})).toEqual({
-      items: {'0': {name: {type: 'standard', message: 'required'}}}
+      items: {'0': {name: [{type: 'standard', message: 'required'}]}}
     });
   });
 
-  it('puts pathless issues on the _form key (first one wins)', async () => {
+  it('puts every pathless issue on the _form key', async () => {
     const validator = standardSchemaFormValidator(
       mockSchema([{message: 'form broken'}, {message: 'later'}])
     );
     expect(await validator({})).toEqual({
-      _form: {type: 'standard', message: 'form broken'}
+      _form: [
+        {type: 'standard', message: 'form broken'},
+        {type: 'standard', message: 'later'}
+      ]
     });
   });
 
-  it('keeps the first issue when paths collide', async () => {
+  it('collects every issue when paths collide', async () => {
     const validator = standardSchemaFormValidator(
       mockSchema([
         {message: 'first', path: ['a', 'b']},
@@ -110,7 +129,12 @@ describe('standardSchemaFormValidator', () => {
       ])
     );
     expect(await validator({})).toEqual({
-      a: {b: {type: 'standard', message: 'first'}}
+      a: {
+        b: [
+          {type: 'standard', message: 'first'},
+          {type: 'standard', message: 'second'}
+        ]
+      }
     });
   });
 
@@ -122,7 +146,7 @@ describe('standardSchemaFormValidator', () => {
       ])
     );
     expect(await validator({})).toEqual({
-      a: {b: {type: 'standard', message: 'child'}}
+      a: {b: [{type: 'standard', message: 'child'}]}
     });
   });
 
@@ -140,6 +164,29 @@ describe('standardSchemaFormValidator', () => {
     expect(getError(form, ['a', 'b'])).toEqual({
       type: 'standard',
       message: 'required'
+    });
+  });
+
+  it('delivers every issue of one field via ensureValidate', async () => {
+    // z.string().min(2).regex(/^[a-z]+$/) against '!': both rules are
+    // violated, and both errors must reach the form (getFieldErrors
+    // returns them all; getError keeps returning the first).
+    const schema = mockSchema([
+      {message: 'Too short', path: ['code']},
+      {message: 'Invalid characters', path: ['code']}
+    ]);
+    const form = createForm({
+      initialValues: {code: '!'},
+      validate: standardSchemaFormValidator(schema)
+    });
+    await expect(ensureValidate(form)).rejects.toThrow('Too short');
+    expect(getFieldErrors(form, 'code')).toEqual([
+      {type: 'standard', message: 'Too short'},
+      {type: 'standard', message: 'Invalid characters'}
+    ]);
+    expect(getError(form, 'code')).toEqual({
+      type: 'standard',
+      message: 'Too short'
     });
   });
 

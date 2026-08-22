@@ -84,6 +84,23 @@ describe('Devtools', () => {
     expect(screen.getByText('name')).toBeTruthy();
   });
 
+  it('renders every error of a field holding several', async () => {
+    const user = userEvent.setup();
+    const form = createForm({initialValues: {name: ''}});
+    renderDevtools(form);
+
+    act(() => setError(form, 'name', ['required', 'too short']));
+
+    // Both errors count towards the tab badge...
+    const errorsTab = screen.getByRole('tab', {name: /errors/i});
+    expect(errorsTab.textContent).toMatch(/2/);
+    // ...and both render as separate rows in the panel.
+    await user.click(errorsTab);
+    expect(screen.getByText('required')).toBeTruthy();
+    expect(screen.getByText('too short')).toBeTruthy();
+    expect(screen.getAllByText('name').length).toBe(2);
+  });
+
   it('collapses to a badge and expands back', async () => {
     const user = userEvent.setup();
     const form = createForm({initialValues: {name: 'a'}});

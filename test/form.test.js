@@ -7,6 +7,8 @@ import createForm, {
   setValueByPath,
   getError,
   getErrorByPath,
+  getFieldErrors,
+  getFieldErrorsByPath,
   setError,
   setErrorByPath,
   getErrors,
@@ -30,7 +32,8 @@ import createForm, {
   incrementSubmitCount,
   setSubmitSuccessful,
   handleSubmit,
-  trigger
+  trigger,
+  setFocus
 } from '../src/form';
 import createPath from '../src/path';
 
@@ -211,6 +214,40 @@ describe('getError / setError', () => {
     setError(form, 'name', undefined);
     expect(getError(form, 'name')).toBeUndefined();
   });
+
+  it('stores an array of errors; getError returns the first, getFieldErrors all', () => {
+    const form = createForm();
+    setError(form, 'name', ['too short', {type: 'required', message: 'nope'}]);
+    expect(getError(form, 'name')).toEqual({
+      type: 'custom',
+      message: 'too short'
+    });
+    expect(getFieldErrors(form, 'name')).toEqual([
+      {type: 'custom', message: 'too short'},
+      {type: 'required', message: 'nope'}
+    ]);
+  });
+
+  it('drops falsy items when storing an array of errors', () => {
+    const form = createForm();
+    setErrorByPath(form, createPath('name'), ['', undefined, 'required']);
+    expect(getFieldErrors(form, 'name')).toEqual([
+      {type: 'custom', message: 'required'}
+    ]);
+  });
+
+  it('clears error when set to an empty array', () => {
+    const form = createForm();
+    setError(form, 'name', 'required');
+    setError(form, 'name', []);
+    expect(getError(form, 'name')).toBeUndefined();
+    expect(hasErrors(form)).toBe(false);
+  });
+
+  it('getFieldErrorsByPath returns an empty array when no error', () => {
+    const form = createForm();
+    expect(getFieldErrorsByPath(form, createPath('name'))).toEqual([]);
+  });
 });
 
 describe('getErrors / getFirstError / clearErrors / hasErrors', () => {
@@ -237,6 +274,23 @@ describe('getErrors / getFirstError / clearErrors / hasErrors', () => {
   it('getFirstError returns the first error message', () => {
     const form = createForm();
     setError(form, 'a', 'first');
+    expect(getFirstError(form)).toBe('first');
+  });
+
+  it('getErrors emits one entry per error of the same path, in order', () => {
+    const form = createForm();
+    setError(form, 'a', ['first', 'second']);
+    setError(form, 'b', 'error b');
+    expect(getErrors(form)).toEqual([
+      {path: 'a', type: 'custom', message: 'first'},
+      {path: 'a', type: 'custom', message: 'second'},
+      {path: 'b', type: 'custom', message: 'error b'}
+    ]);
+  });
+
+  it('getFirstError returns the first error of the first key', () => {
+    const form = createForm();
+    setError(form, 'a', ['first', 'second']);
     expect(getFirstError(form)).toBe('first');
   });
 
@@ -514,6 +568,58 @@ describe('reset', () => {
     expect(getValue(form, 'a')).toBe('fresh');
     expect(getValues(form)).toEqual({a: 'fresh'});
   });
+
+  it('keeps dirty values with keepDirtyValues', () => {
+    const form = createForm({initialValues: {a: 1, b: 2}});
+    setValue(form, 'a', 9);
+    reset(form, {a: 1, b: 3}, {keepDirtyValues: true});
+    // `a` was dirty against the pre-reset initialValues, so its live value
+    // survives; clean `b` falls back to the new initialValues.
+    expect(getValue(form, 'a')).toBe(9);
+    expect(getValue(form, 'b')).toBe(3);
+    expect(getValues(form)).toEqual({a: 9, b: 3});
+    expect(getDirtyFields(form)).toEqual({a: true});
+  });
+
+  it('keepDirtyValues leaves clean fields on the new initialValues', () => {
+    const form = createForm({initialValues: {a: 1}});
+    setValue(form, 'a', 1); // stored, but equal → not dirty
+    reset(form, {a: 2}, {keepDirtyValues: true});
+    expect(getValue(form, 'a')).toBe(2);
+    expect(isDirty(form)).toBe(false);
+  });
+
+  it('keeps touched state with keepTouched', () => {
+    const form = createForm();
+    setTouched(form, 'name');
+    reset(form, undefined, {keepTouched: true});
+    expect(hasTouched(form, 'name')).toBe(true);
+    expect(isTouched(form)).toBe(true);
+  });
+
+  it('keeps errors with keepErrors', () => {
+    const form = createForm();
+    setError(form, 'name', 'error');
+    reset(form, undefined, {keepErrors: true});
+    expect(getError(form, 'name')).toEqual({type: 'custom', message: 'error'});
+    expect(hasErrors(form)).toBe(true);
+  });
+
+  it('keeps submission state with keepIsSubmitted, keepSubmitCount and keepIsSubmitting', () => {
+    const form = createForm();
+    setIsSubmitting(form, true);
+    incrementSubmitCount(form);
+    incrementSubmitCount(form);
+    setSubmitSuccessful(form, true);
+    reset(form, undefined, {
+      keepIsSubmitted: true,
+      keepSubmitCount: true,
+      keepIsSubmitting: true
+    });
+    expect(form.isSubmitting).toBe(true);
+    expect(form.submitCount).toBe(2);
+    expect(form.isSubmitSuccessful).toBe(true);
+  });
 });
 
 describe('ensureValidate', () => {
@@ -622,16 +728,20 @@ describe('form-level validation', () => {
     });
   });
 
-  it('takes the first non-empty string from array values (zod formErrors style)', async () => {
+  it('collects every non-empty string from array values (zod formErrors style)', async () => {
     const form = createForm({
       initialValues: {name: ''},
-      validate: () => ({name: ['', 'required']})
+      validate: () => ({name: ['', 'required', 'too short']})
     });
     await expect(ensureValidate(form)).rejects.toThrow('required');
     expect(getError(form, 'name')).toEqual({
       type: 'custom',
       message: 'required'
     });
+    expect(getFieldErrors(form, 'name')).toEqual([
+      {type: 'custom', message: 'required'},
+      {type: 'custom', message: 'too short'}
+    ]);
   });
 
   it('stores FieldError-shaped values without descending into them', async () => {
@@ -904,5 +1014,213 @@ describe('trigger', () => {
   it('ignores names without a registered validator', () => {
     const form = createForm();
     expect(() => trigger(form, 'missing')).not.toThrow();
+  });
+
+  it('resolves true immediately when no validators are registered', async () => {
+    const form = createForm();
+    await expect(trigger(form)).resolves.toBe(true);
+    await expect(trigger(form, 'name')).resolves.toBe(true);
+    await expect(trigger(form, [])).resolves.toBe(true);
+  });
+
+  it('resolves false once an async validator has landed its error', async () => {
+    const form = createForm();
+    const path = createPath('name');
+    form.validators.set(path.key, () => {
+      setValidatingByPath(form, path);
+      setTimeout(() => {
+        setErrorByPath(form, path, 'async error');
+        unsetValidatingByPath(form, path);
+      }, 10);
+    });
+
+    await expect(trigger(form, 'name')).resolves.toBe(false);
+    expect(getError(form, 'name')).toEqual({
+      type: 'custom',
+      message: 'async error'
+    });
+  });
+
+  it('resolves true after an async passing validator clears its error', async () => {
+    const form = createForm();
+    const path = createPath('name');
+    setError(form, 'name', 'stale error');
+    form.validators.set(path.key, () => {
+      setValidatingByPath(form, path);
+      setTimeout(() => {
+        setErrorByPath(form, path, undefined);
+        unsetValidatingByPath(form, path);
+      }, 10);
+    });
+
+    await expect(trigger(form, 'name')).resolves.toBe(true);
+    expect(getError(form, 'name')).toBeUndefined();
+  });
+
+  it('resolves false for a sync validator that sets an error', async () => {
+    const form = createForm();
+    form.validators.set('["name"]', () => {
+      setError(form, 'name', 'required');
+    });
+
+    await expect(trigger(form, 'name')).resolves.toBe(false);
+  });
+
+  it('scopes the result to the triggered names only', async () => {
+    const form = createForm();
+    form.validators.set('["good"]', () => {
+      setErrorByPath(form, createPath('good'), undefined);
+    });
+    form.validators.set('["bad"]', () => {
+      setErrorByPath(form, createPath('bad'), 'nope');
+    });
+    setError(form, 'other', 'error on an untriggered field');
+
+    await expect(trigger(form, 'good')).resolves.toBe(true);
+    await expect(trigger(form, ['good'])).resolves.toBe(true);
+    // `other`'s error is out of scope; triggering `bad` fails the scope.
+    await expect(trigger(form, ['good', 'bad'])).resolves.toBe(false);
+    await expect(trigger(form, 'bad')).resolves.toBe(false);
+  });
+
+  it('waits for async validators when called without a name', async () => {
+    const form = createForm();
+    const path = createPath('name');
+    form.validators.set(path.key, () => {
+      setValidatingByPath(form, path);
+      setTimeout(() => {
+        setErrorByPath(form, path, 'async error');
+        unsetValidatingByPath(form, path);
+      }, 10);
+    });
+
+    await expect(trigger(form)).resolves.toBe(false);
+    expect(getError(form, 'name')).toEqual({
+      type: 'custom',
+      message: 'async error'
+    });
+  });
+
+  it('runs form-level validate without a name and flattens its errors', async () => {
+    const form = createForm({
+      initialValues: {a: 1},
+      validate: () => ({a: 'form-level error'})
+    });
+
+    await expect(trigger(form)).resolves.toBe(false);
+    expect(getError(form, 'a')).toEqual({
+      type: 'custom',
+      message: 'form-level error'
+    });
+  });
+
+  it('resolves true without a name when fields and form-level pass', async () => {
+    const form = createForm({
+      initialValues: {a: 1},
+      validate: () => ({})
+    });
+    form.validators.set('["a"]', () => {
+      setErrorByPath(form, createPath('a'), undefined);
+    });
+
+    await expect(trigger(form)).resolves.toBe(true);
+    expect(hasErrors(form)).toBe(false);
+  });
+
+  it('skips form-level validate when triggered with a name', async () => {
+    const spy = vi.fn(() => ({b: 'form-level error'}));
+    const form = createForm({initialValues: {a: 1}, validate: spy});
+    form.validators.set('["a"]', () => {
+      setErrorByPath(form, createPath('a'), undefined);
+    });
+
+    await expect(trigger(form, 'a')).resolves.toBe(true);
+    expect(spy).not.toHaveBeenCalled();
+    expect(hasErrors(form)).toBe(false);
+  });
+
+  it('waits out a pending debounce window before resolving', async () => {
+    const form = createForm();
+    const path = createPath('name');
+    // Hand-rolled stand-in for useValidate's debounce contract: the field
+    // counts as validating while the timer is pending and settles inside
+    // it, which is exactly what trigger's validating-set wait rides on.
+    form.validators.set(path.key, () => {
+      setValidatingByPath(form, path);
+      setTimeout(() => {
+        setErrorByPath(form, path, 'late');
+        unsetValidatingByPath(form, path);
+      }, 20);
+    });
+
+    const pending = trigger(form);
+    expect(form.validating.size).toBe(1);
+    await expect(pending).resolves.toBe(false);
+    expect(getError(form, 'name')).toEqual({type: 'custom', message: 'late'});
+  });
+
+  it('resolves true once a debounced validator settles clean', async () => {
+    const form = createForm();
+    const path = createPath('name');
+    form.validators.set(path.key, () => {
+      setValidatingByPath(form, path);
+      setTimeout(() => {
+        setErrorByPath(form, path, undefined);
+        unsetValidatingByPath(form, path);
+      }, 20);
+    });
+
+    const pending = trigger(form, 'name');
+    expect(form.validating.size).toBe(1);
+    await expect(pending).resolves.toBe(true);
+    expect(getError(form, 'name')).toBeUndefined();
+  });
+});
+
+describe('setFocus', () => {
+  it('emits focusError with the field path key', () => {
+    const form = createForm();
+    const listener = vi.fn();
+    on(form.emitter, 'focusError', listener);
+
+    setFocus(form, 'email');
+
+    expect(listener).toHaveBeenCalledWith('["email"]');
+  });
+
+  it('normalizes segments paths to the same key shape as bound fields', () => {
+    const form = createForm();
+    const listener = vi.fn();
+    on(form.emitter, 'focusError', listener);
+
+    setFocus(form, ['items', 0, 'qty']);
+
+    expect(listener).toHaveBeenCalledWith('["items",0,"qty"]');
+  });
+
+  it('passes options as a backward-compatible second argument', () => {
+    const form = createForm();
+    const listener = vi.fn();
+    on(form.emitter, 'focusError', listener);
+
+    setFocus(form, 'email', {shouldSelect: true});
+
+    expect(listener).toHaveBeenCalledWith('["email"]', {shouldSelect: true});
+  });
+
+  it('still reaches single-argument subscribers when no options are given', () => {
+    const form = createForm();
+    // The pre-setFocus subscriber shape: only the path key is declared.
+    const calls = [];
+    on(form.emitter, 'focusError', key => calls.push(key));
+
+    setFocus(form, 'name');
+
+    expect(calls).toEqual(['["name"]']);
+  });
+
+  it('does not throw for names with no subscriber', () => {
+    const form = createForm();
+    expect(() => setFocus(form, 'missing')).not.toThrow();
   });
 });

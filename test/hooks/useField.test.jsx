@@ -8,6 +8,7 @@ import createForm, {
   getValues,
   setValue,
   getError,
+  setError,
   trigger,
   ensureValidate
 } from '../../src/form';
@@ -158,7 +159,7 @@ describe('useField', () => {
     expect(getValues(form)).toEqual({name: 'retyped'});
   });
 
-  it('works with an explicitly passed form and no FormProvider', () => {
+  it('works with an explicitly passed form and no FormProvider', async () => {
     // Default mode: no validation until an error exists, then every change
     // re-validates (onSubmit + reValidateMode 'onChange').
     const form = createForm();
@@ -190,8 +191,9 @@ describe('useField', () => {
     expect(form.validators.has('["email"]')).toBe(true);
 
     // Triggering validation through the form marks the error, and the
-    // subscribed field re-renders with it.
-    act(() => trigger(form));
+    // subscribed field re-renders with it. trigger resolves once validation
+    // settles, so await it inside act to flush the re-render.
+    await act(() => trigger(form));
     expect(getError(form, 'email')).toEqual({type: 'custom', message: 'required'});
     expect(field.error).toBe('required');
 
@@ -269,5 +271,114 @@ describe('useField', () => {
 
     expect(result.current.error).toBe('msg');
     expect(result.current.errorObject).toEqual({type: 'custom', message: 'msg'});
+  });
+
+  it('debounces validation through validateDebounce', () => {
+    vi.useFakeTimers();
+    try {
+      const form = createForm({initialValues: {name: ''}, mode: 'all'});
+      const validate = vi.fn(value => (value ? undefined : 'required'));
+      const {result} = renderHook(
+        () => useField({form, name: 'name', validate, validateDebounce: 30}),
+        {
+          wrapper: ({children}) => (
+            <FormProvider value={form}>{children}</FormProvider>
+          )
+        }
+      );
+      act(() => result.current.onChange('a'));
+      act(() => result.current.onChange('ab'));
+      expect(validate).not.toHaveBeenCalled();
+      act(() => vi.advanceTimersByTime(30));
+      expect(validate).toHaveBeenCalledTimes(1);
+      expect(validate.mock.calls[0][0]).toBe('ab');
+      expect(result.current.error).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps validateDebounce out of the spread rest props', () => {
+    const {result} = renderHook(
+      () => useField({name: 'name', validateDebounce: 30}),
+      {wrapper}
+    );
+    // It must not leak through `rest` onto DOM elements.
+    expect('validateDebounce' in result.current).toBe(false);
+  });
+
+  it('exposes every registered error while error/errorObject keep the first', () => {
+    const form = createForm({initialValues: {name: ''}});
+    const {result} = renderHook(() => useField({form, name: 'name'}), {
+      wrapper: ({children}) => (
+        <FormProvider value={form}>{children}</FormProvider>
+      )
+    });
+    expect(result.current.errors).toEqual([]);
+
+    act(() =>
+      setError(form, 'name', ['required', {type: 'min', message: 'too short'}])
+    );
+    expect(result.current.errors).toEqual([
+      {type: 'custom', message: 'required'},
+      {type: 'min', message: 'too short'}
+    ]);
+    // The single-error surface still points at the first entry.
+    expect(result.current.error).toBe('required');
+    expect(result.current.errorObject).toEqual({
+      type: 'custom',
+      message: 'required'
+    });
+
+    act(() => setError(form, 'name', undefined));
+    expect(result.current.errors).toEqual([]);
+    expect(result.current.error).toBeUndefined();
+  });
+
+  it('keeps the errors array reference-stable across unrelated renders', () => {
+    const form = createForm({initialValues: {name: ''}});
+    const {result, rerender} = renderHook(
+      () => useField({form, name: 'name'}),
+      {
+        wrapper: ({children}) => (
+          <FormProvider value={form}>{children}</FormProvider>
+        )
+      }
+    );
+    // No errors: the shared empty-array constant, same reference always.
+    const empty = result.current.errors;
+    rerender();
+    expect(result.current.errors).toBe(empty);
+    // With errors stored, the Map's own array is handed out by reference.
+    act(() => setError(form, 'name', ['a', 'b']));
+    const stored = result.current.errors;
+    rerender();
+    expect(result.current.errors).toBe(stored);
+  });
+
+  it('stores every error a validate function returns as an array', async () => {
+    const form = createForm({initialValues: {name: ''}});
+    const {result} = renderHook(
+      () =>
+        useField({
+          form,
+          name: 'name',
+          validate: value =>
+            value
+              ? undefined
+              : ['required', {type: 'min', message: 'too short'}]
+        }),
+      {
+        wrapper: ({children}) => (
+          <FormProvider value={form}>{children}</FormProvider>
+        )
+      }
+    );
+    await act(() => trigger(form));
+    expect(result.current.errors).toEqual([
+      {type: 'custom', message: 'required'},
+      {type: 'min', message: 'too short'}
+    ]);
+    expect(result.current.error).toBe('required');
   });
 });

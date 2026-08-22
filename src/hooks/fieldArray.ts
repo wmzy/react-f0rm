@@ -6,6 +6,7 @@ import {
   useReducer,
   useRef
 } from 'react';
+import type {Context} from 'react';
 import {FormContext} from '../context';
 import {getValueByPath, setValueByPath} from '../form';
 import type {Form, Name} from '../form';
@@ -23,7 +24,7 @@ interface FieldArrayItem {
   index: number;
 }
 
-export default function useFieldArray(options: {name: Name; form?: Form}): {
+export interface UseFieldArrayResult {
   fields: FieldArrayItem[];
   append: (value: any) => void;
   prepend: (value: any) => void;
@@ -31,10 +32,22 @@ export default function useFieldArray(options: {name: Name; form?: Form}): {
   remove: (index: number) => void;
   swap: (from: number, to: number) => void;
   move: (from: number, to: number) => void;
-} {
+  replace: (values: any[]) => void;
+  update: (index: number, value: any) => void;
+}
+
+/**
+ * Shared core of {@link useFieldArray} and the per-instance hook returned by
+ * `createFormContext()`: identical behavior, but the form is resolved from
+ * whichever Context instance is passed in instead of the module-level one.
+ */
+export function useFieldArrayCore(
+  options: {name: Name; form?: Form},
+  Context: Context<any>
+): UseFieldArrayResult {
   // Read the context unconditionally (hook call order must be stable), then
   // let an explicitly passed form win — works without a <FormProvider>.
-  const contextForm = useContext(FormContext);
+  const contextForm = useContext(Context);
   const form = options.form || contextForm;
   if (!form) throw new Error('no form provided');
   const path = usePath(options.name);
@@ -127,5 +140,30 @@ export default function useFieldArray(options: {name: Name; form?: Form}): {
     setArray(newArr);
   });
 
-  return {fields, append, prepend, insert, remove, swap, move};
+  // replace is a full swap (length may change), so every row is conceptually
+  // a new row: regenerate all ids to remount them, mirroring how reset works.
+  const replace = useStageFn((values: any[]) => {
+    idsRef.current = values.map(() => generateId());
+    setArray([...values]);
+  });
+
+  // update only overwrites one value, so the id at that index is kept and the
+  // row does not remount. Out-of-bounds indices are a silent no-op — plain
+  // assignment would instead punch sparse-array holes into the form state.
+  const update = useStageFn((index: number, value: any) => {
+    const arr = getArray();
+    if (index < 0 || index >= arr.length) return;
+    const newArr = [...arr];
+    newArr[index] = value;
+    setArray(newArr);
+  });
+
+  return {fields, append, prepend, insert, remove, swap, move, replace, update};
+}
+
+export default function useFieldArray(options: {
+  name: Name;
+  form?: Form;
+}): UseFieldArrayResult {
+  return useFieldArrayCore(options, FormContext);
 }

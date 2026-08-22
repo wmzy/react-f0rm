@@ -5,6 +5,7 @@ import type {EventEmitter} from '@for-fun/event-emitter';
 import {onKeyEvent, onPathEvent} from '../subscribe';
 import createForm, {
   getErrorByPath,
+  getFieldErrorsByPath,
   getValueByPath,
   hasTouchedByPath,
   hasErrors,
@@ -22,12 +23,13 @@ import type {Path} from '../path';
  * Create a form instance bound to this component.
  *
  * Beyond {@link Options}, the optional `values` object enables controlled
- * usage: whenever its reference changes it is re-synced into the form with
+ * usage: when it genuinely changes it is re-synced into the form with
  * setInitialValues semantics -- uncommitted user edits are discarded
  * (master-detail semantics: selecting another record replaces the draft),
- * while touched flags and errors survive. While the reference stays the
- * same nothing re-syncs, so the user's in-progress typing is never
- * clobbered by a re-render.
+ * while touched flags and errors survive. Change detection is
+ * reference-first with a structural fallback, so re-renders that pass an
+ * inline literal with equal content never re-sync -- the user's
+ * in-progress typing is never clobbered.
  */
 export default function useForm<T extends Record<string, any> = any>(
   options?: Options<T> & {values?: T}
@@ -47,16 +49,54 @@ export default function useForm<T extends Record<string, any> = any>(
   const initialValues = options && options.initialValues;
   const values = options && options.values;
 
+  // Track which initialValues source object the form was last seeded from.
+  // Inline options create a fresh object every render, and re-seeding
+  // clears the values Map (setInitialValues semantics), which would revert
+  // every committed edit right after each re-render -- on the client and
+  // after hydration alike. Memoized callers are covered by the reference
+  // check; inline literals by the structural one, so only genuinely new
+  // content re-seeds.
+  const seededRef = useRef<{done: boolean; source: any} | null>(null);
+  if (seededRef.current === null)
+    seededRef.current = {done: false, source: undefined};
+
   useEffect(() => {
+    const seeded = seededRef.current!;
+    if (
+      seeded.done &&
+      (seeded.source === initialValues || isEqual(seeded.source, initialValues))
+    ) {
+      return;
+    }
+    seeded.done = true;
+    seeded.source = initialValues;
     setInitialValues(form, initialValues);
   }, [form, initialValues]);
 
-  // Controlled values: re-sync only when the reference changes, reusing
-  // setInitialValues semantics (values/deleted cleared, touched/errors
-  // kept). setInitialValues itself early-returns on an identical
-  // reference, so unchanged re-renders are a no-op.
+  // Controlled values: re-sync only when the incoming object genuinely
+  // differs from what the form was last seeded from. The reference check
+  // is the fast path (memoized callers); inline literals get a fresh
+  // object identity every render, so without the structural comparison
+  // each re-render would clear the values Map (setInitialValues
+  // semantics) and revert the user's uncommitted edits -- same hazard the
+  // initialValues seed guard above protects against. Master-detail
+  // semantics still apply whenever the content actually changed.
+  const controlledRef = useRef<{done: boolean; source: any} | null>(null);
+  if (controlledRef.current === null) {
+    controlledRef.current = {done: false, source: undefined};
+  }
+
   useEffect(() => {
     if (values === undefined) return;
+    const seeded = controlledRef.current!;
+    if (
+      seeded.done &&
+      (seeded.source === values || isEqual(seeded.source, values))
+    ) {
+      return;
+    }
+    seeded.done = true;
+    seeded.source = values;
     setInitialValues(form, values);
   }, [form, values]);
 
@@ -119,8 +159,12 @@ function useWatchCore<T>(
     [subscribeFactory, cache]
   );
 
-  // getServerSnapshot is deliberately omitted: this is a client-only library.
-  return useSyncExternalStore(subscribe, getSnapshot);
+  // Form state lives entirely in synchronously readable Map/Set structures
+  // seeded from initialValues/values during the lazy useState initializer,
+  // so the server snapshot is computed exactly like the client's first
+  // render -- pass getSnapshot itself as getServerSnapshot and hydration
+  // matches.
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
 /**
@@ -230,6 +274,40 @@ export function useErrorByPath(form: Form, path: Path): FieldError | undefined {
   return useWatchCore(subscribeFactory, getErrorByPath.bind(null, form, path));
 }
 
+/**
+ * Get all field errors
+ * @return every error registered for the field (insertion order); an empty
+ *         array when the field has none
+ */
+export function useFieldErrors<
+  T extends Record<string, any> = any,
+  P extends FieldPath<T> | Name = Name
+>(form: Form<T>, name: P): FieldError[] {
+  return useFieldErrorsByPath(form, createPath(name));
+}
+
+/**
+ * Get all field errors by path
+ * @return every error registered for the field (insertion order); an empty
+ *         array when the field has none
+ */
+export function useFieldErrorsByPath(form: Form, path: Path): FieldError[] {
+  const {emitter} = form;
+  const {key} = path;
+  // Same exact-key subscription and snapshot rules as useErrorByPath: the
+  // getter returns the shared empty constant when clean and the stored
+  // array by reference otherwise, so the useSyncExternalStore snapshot is
+  // reference-stable between unrelated events.
+  const subscribeFactory = useCallback(
+    (invalidate: () => void) => onKeyEvent(emitter, 'errors', key, invalidate),
+    [emitter, key]
+  );
+  return useWatchCore(
+    subscribeFactory,
+    getFieldErrorsByPath.bind(null, form, path)
+  );
+}
+
 export function useIsDirty(form: Form): boolean {
   // Dirty state is driven by value changes, not touch state: subscribe to
   // 'change' so typing flips this immediately, even before a blur.
@@ -262,4 +340,37 @@ export function useIsSubmitting(form: Form): boolean {
 
 export function useSubmitCount(form: Form): number {
   return useWatch(form.emitter, 'submitCount', () => form.submitCount);
+}
+
+/**
+ * Structural equality for form default data (primitives, arrays, plain
+ * objects, Dates). Used by {@link useForm} to tell a re-rendered inline
+ * initialValues literal from genuinely changed content: class instances
+ * and other exotic objects compare as unequal, which errs on the side of
+ * re-seeding (the pre-guard behavior).
+ */
+function isEqual(a: any, b: any): boolean {
+  if (Object.is(a, b)) return true;
+  if (a instanceof Date && b instanceof Date)
+    return a.getTime() === b.getTime();
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
+  const isArray = Array.isArray(a);
+  if (isArray !== Array.isArray(b)) return false;
+  if (isArray) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!isEqual(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  const proto = Object.getPrototypeOf(a);
+  if (proto !== Object.prototype && proto !== null) return false;
+  if (Object.getPrototypeOf(b) !== proto) return false;
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  for (const key of keysA) {
+    if (!isEqual(a[key], b[key])) return false;
+  }
+  return true;
 }

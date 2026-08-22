@@ -8,12 +8,12 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Guides',
-      items: ['guides/validation', 'guides/field-arrays', 'guides/submission', 'guides/typescript', 'guides/custom-components'],
+      items: ['guides/validation', 'guides/field-arrays', 'guides/submission', 'guides/react19-server-actions', 'guides/ssr', 'guides/typescript', 'guides/custom-components'],
     },
     {
       type: 'category',
       label: 'API',
-      items: ['api/form', 'api/field', 'api/use-form', 'api/use-field', 'api/use-field-array', 'api/resolvers'],
+      items: ['api/form', 'api/field', 'api/use-form', 'api/use-field', 'api/use-field-array', 'api/create-form-context', 'api/resolvers'],
     },
     {
       type: 'category',

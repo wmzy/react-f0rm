@@ -29,13 +29,30 @@ describe('yupResolver', () => {
   it('returns a FieldError with a custom type when the error has no type', async () => {
     const schema = createMockSchema(true, 'Too short');
     const resolver = yupResolver(schema);
-    expect(await resolver('')).toEqual({type: 'custom', message: 'Too short'});
+    expect(await resolver('')).toEqual([
+      {type: 'custom', message: 'Too short'}
+    ]);
   });
 
   it('uses the yup error type when present', async () => {
     const schema = createMockSchema(true, 'Too short', 'min');
     const resolver = yupResolver(schema);
-    expect(await resolver('')).toEqual({type: 'min', message: 'Too short'});
+    expect(await resolver('')).toEqual([{type: 'min', message: 'Too short'}]);
+  });
+
+  it('returns every aggregated error from err.inner (abortEarly off)', async () => {
+    // abortEarly:false makes yup collect all failures into err.inner.
+    const err: any = new Error('combined');
+    err.inner = [
+      {type: 'min', message: 'Too short'},
+      {type: 'matches', message: 'Bad characters'}
+    ];
+    const schema = {validate: () => Promise.reject(err)};
+    const resolver = yupResolver(schema);
+    expect(await resolver('!')).toEqual([
+      {type: 'min', message: 'Too short'},
+      {type: 'matches', message: 'Bad characters'}
+    ]);
   });
 
   it('delegates to the ~standard interface when present (recent yup)', async () => {
@@ -49,10 +66,9 @@ describe('yupResolver', () => {
       }
     };
     const resolver = yupResolver(schema);
-    expect(await resolver('')).toEqual({
-      type: 'standard',
-      message: 'Too short'
-    });
+    expect(await resolver('')).toEqual([
+      {type: 'standard', message: 'Too short'}
+    ]);
     expect(validate).not.toHaveBeenCalled();
   });
 });

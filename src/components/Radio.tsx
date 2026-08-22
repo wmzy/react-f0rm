@@ -33,7 +33,7 @@ interface ItemProps extends React.InputHTMLAttributes<HTMLInputElement> {
 }
 
 export function Item({value, ...props}: ItemProps) {
-  const {valueSet, onChange, error, errorObject, ...rest} =
+  const {valueSet, onChange, error, errorObject, errors, ...rest} =
     useCheckboxGroupContext();
 
   return (

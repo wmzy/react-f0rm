@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import React from 'react';
 import Form from '../../src/components/Form';
 import {Field, Checkbox} from '../../src/components/Field';
-import createForm, {getErrors, setError} from '../../src/form';
+import createForm, {getErrors, setError, setFocus, handleSubmit} from '../../src/form';
 
 describe('Field', () => {
   it('renders an input with value', () => {
@@ -215,5 +215,101 @@ describe('Field', () => {
     await vi.waitFor(() => {
       expect(checkbox.getAttribute('aria-invalid')).toBe('true');
     });
+  });
+
+  it('focuses the input when setFocus names the field', () => {
+    const form = createForm({initialValues: {name: 'a', email: 'b'}});
+    render(
+      <Form form={form}>
+        <Field name="name" data-testid="name-input" />
+        <Field name="email" data-testid="email-input" />
+      </Form>
+    );
+    const nameInput = screen.getByTestId('name-input');
+    const emailInput = screen.getByTestId('email-input');
+
+    act(() => {
+      setFocus(form, 'name');
+    });
+
+    expect(document.activeElement).toBe(nameInput);
+    expect(document.activeElement).not.toBe(emailInput);
+  });
+
+  it('selects the whole value when setFocus passes shouldSelect', () => {
+    const form = createForm({initialValues: {name: 'hello'}});
+    render(
+      <Form form={form}>
+        <Field name="name" data-testid="name-input" />
+      </Form>
+    );
+    const input = screen.getByTestId('name-input');
+
+    act(() => {
+      setFocus(form, 'name', {shouldSelect: true});
+    });
+
+    expect(document.activeElement).toBe(input);
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe(input.value.length);
+    expect(input.value).toBe('hello');
+  });
+
+  it('focuses without selecting when setFocus omits shouldSelect', () => {
+    const form = createForm({initialValues: {name: 'hello'}});
+    render(
+      <Form form={form}>
+        <Field name="name" data-testid="name-input" />
+      </Form>
+    );
+    const input = screen.getByTestId('name-input');
+
+    act(() => {
+      setFocus(form, 'name');
+    });
+
+    expect(document.activeElement).toBe(input);
+    // Plain focus collapses the caret (jsdom parks it at the end) instead
+    // of selecting the value.
+    expect(input.selectionStart).toBe(input.selectionEnd);
+  });
+
+  it('does not throw when setFocus names a field that is not mounted', () => {
+    const form = createForm({initialValues: {name: ''}});
+    render(
+      <Form form={form}>
+        <Field name="name" data-testid="name-input" />
+      </Form>
+    );
+
+    expect(() => {
+      act(() => {
+        setFocus(form, 'missing');
+      });
+    }).not.toThrow();
+    expect(screen.getByTestId('name-input')).toBeDefined();
+  });
+
+  it('keeps failed-submit auto-focus working without selecting', async () => {
+    const form = createForm({
+      initialValues: {name: 'abc'},
+      validate: values => (values.name.length >= 8 ? {} : {name: 'too short'})
+    });
+    render(
+      <Form form={form}>
+        <Field name="name" data-testid="name-input" />
+      </Form>
+    );
+    const input = screen.getByTestId('name-input');
+
+    await act(async () => {
+      await handleSubmit(form)();
+    });
+
+    // handleSubmit's own focusError emit only focuses — the caret stays
+    // collapsed instead of selecting the value, exactly as before setFocus
+    // extended the channel.
+    expect(document.activeElement).toBe(input);
+    expect(input.selectionStart).toBe(input.selectionEnd);
   });
 });

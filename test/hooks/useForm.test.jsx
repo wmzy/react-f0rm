@@ -4,6 +4,7 @@ import React from 'react';
 import useForm, {
   useValue,
   useError,
+  useFieldErrors,
   useTouched,
   useIsDirty,
   useDirtyFields,
@@ -118,6 +119,28 @@ describe('useForm', () => {
       // The uncommitted user edit is discarded and the merged tree equals
       // the new external object, exactly like setInitialValues.
       expect(getValues(result.current)).toEqual({name: 'b', nested: {x: 1}});
+    });
+
+    it('does not clobber user edits on re-renders with an equal inline literal', () => {
+      // Inline literals get a fresh object identity every render; without
+      // the structural fallback in the controlled-values effect each
+      // re-render would clear the values Map and revert the draft.
+      const {result, rerender} = renderHook(({values}) => useForm({values}), {
+        initialProps: {values: {name: 'a'}}
+      });
+      act(() => setValue(result.current, 'name', 'user typed'));
+      rerender({values: {name: 'a'}}); // new reference, equal content
+      expect(getValue(result.current, 'name')).toBe('user typed');
+    });
+
+    it('still re-syncs an inline literal when the content changed', () => {
+      const {result, rerender} = renderHook(({values}) => useForm({values}), {
+        initialProps: {values: {name: 'a'}}
+      });
+      act(() => setValue(result.current, 'name', 'user typed'));
+      rerender({values: {name: 'a', extra: 1}}); // structural difference
+      expect(getValue(result.current, 'name')).toBe('a');
+      expect(getValue(result.current, 'extra')).toBe(1);
     });
 
     it('leaves initialValues untouched when no values option is given', () => {
@@ -296,6 +319,44 @@ describe('useError', () => {
     expect(result.current.error).toBe('required');
     act(() => reset(result.current.form));
     expect(result.current.error).toBeUndefined();
+  });
+});
+
+describe('useFieldErrors', () => {
+  it('returns every error of the field and stays empty without one', () => {
+    const {result} = renderHook(() => {
+      const form = useForm({initialValues: {}});
+      return {form, errors: useFieldErrors(form, 'name')};
+    });
+    expect(result.current.errors).toEqual([]);
+    act(() =>
+      setError(result.current.form, 'name', ['required', 'too short'])
+    );
+    expect(result.current.errors).toEqual([
+      {type: 'custom', message: 'required'},
+      {type: 'custom', message: 'too short'}
+    ]);
+    // clearErrors emits 'errors' without a payload: full sync.
+    act(() => clearErrors(result.current.form));
+    expect(result.current.errors).toEqual([]);
+  });
+
+  it('does not re-render when another field gets errors', () => {
+    // Same exact-key subscription as useError: only this field's writes
+    // wake the hook.
+    let renders = 0;
+    const {result} = renderHook(() => {
+      renders++;
+      const form = useForm({initialValues: {}});
+      return {form, errors: useFieldErrors(form, 'name')};
+    });
+    const before = renders;
+    act(() => setError(result.current.form, 'other', 'boom'));
+    expect(renders).toBe(before);
+    expect(result.current.errors).toEqual([]);
+    act(() => setError(result.current.form, 'name', ['a', 'b']));
+    expect(renders).toBe(before + 1);
+    expect(result.current.errors.length).toBe(2);
   });
 });
 

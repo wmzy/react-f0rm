@@ -54,7 +54,12 @@ export interface Form<T extends Record<string, any> = any> {
   /** Tombstones of unregistered field paths (JSON path keys): reading or
    * merging values must not fall back to initialValues for these paths. */
   deleted: Set<string>;
-  errors: Map<string, FieldError>;
+  /** Every error registered for a field, as a non-empty array (the
+   * write-side {@link setErrorByPath} normalizes to this invariant, so
+   * readers never need to guard against an empty list). Readers wanting
+   * the display error take the first entry ({@link getError}); readers
+   * wanting all of them use {@link getFieldErrors}. */
+  errors: Map<string, FieldError[]>;
   touched: Set<string>;
   validators: Map<string, () => void>;
   validating: Set<string>;
@@ -76,7 +81,8 @@ export type Options<T extends Record<string, any> = any> = {
   /**
    * Form-level validator. Returns a record of errors keyed by field path;
    * nested objects are flattened ('a.b' style) and array values contribute
-   * their first non-empty string (zod `flatten()` formErrors style).
+   * every non-empty string they hold as separate errors (zod `flatten()`
+   * formErrors style).
    */
   validate?: (values: T) => Record<string, any> | Promise<Record<string, any>>;
 };
@@ -239,27 +245,59 @@ export function getError<
  * Get field error by path
  * @param form
  * @param path
- * @return FieldError object or undefined
+ * @return first FieldError of the field, or undefined
  */
 export function getErrorByPath(
   {errors}: Form,
   path: Path
 ): FieldError | undefined {
-  return errors.get(path.key);
+  return errors.get(path.key)?.[0];
+}
+
+/** Shared empty result for {@link getFieldErrorsByPath}: a fresh `[]` per
+ * call would allocate on the hot no-error path, and the stored arrays are
+ * handed out by reference too, so callers must treat results as read-only. */
+const NO_ERRORS: FieldError[] = [];
+
+/**
+ * Get all errors of a field
+ * @param form
+ * @param name
+ * @return every error registered for the field (insertion order); an empty
+ *         array when the field has none
+ */
+export function getFieldErrors<
+  T extends Record<string, any> = any,
+  P extends FieldPath<T> | Name = Name
+>(form: Form<T>, name: P): FieldError[] {
+  return getFieldErrorsByPath(form, createPath(name));
+}
+
+/**
+ * Get all errors of a field by path
+ * @param form
+ * @param path
+ * @return every error registered for the field (insertion order); an empty
+ *         array when the field has none
+ */
+export function getFieldErrorsByPath({errors}: Form, path: Path): FieldError[] {
+  return errors.get(path.key) ?? NO_ERRORS;
 }
 
 /**
  * Get all errors
  * @param form
  * @return array of {path, type, message} entries, in insertion order; path
- *         is the user-facing dotted field path ('a.b', 'list.0')
+ *         is the user-facing dotted field path ('a.b', 'list.0'), and a
+ *         field holding several errors contributes one entry per error
  */
 export function getErrors({errors}: Form): FieldErrorEntry[] {
-  return Array.from(errors, ([key, error]) => ({
-    path: (JSON.parse(key) as PathSegments).join('.'),
-    type: error.type,
-    message: error.message
-  }));
+  const entries: FieldErrorEntry[] = [];
+  for (const [key, list] of errors) {
+    const path = (JSON.parse(key) as PathSegments).join('.');
+    for (const {type, message} of list) entries.push({path, type, message});
+  }
+  return entries;
 }
 
 /**
@@ -268,7 +306,7 @@ export function getErrors({errors}: Form): FieldErrorEntry[] {
  * @return first error's message string, or undefined when there are no errors
  */
 export function getFirstError({errors}: Form): string | undefined {
-  return errors.values().next().value?.message;
+  return errors.values().next().value?.[0]?.message;
 }
 
 export function unsetValidatingByPath(
@@ -293,13 +331,18 @@ export function setValidatingByPath(
  * Set field error
  * @param form
  * @param name
- * @param error string is normalized to {type: 'custom', message};
- *        a FieldError object is stored as-is; undefined clears the error
+ * @param error string is normalized to {type: 'custom', message}; a
+ *        FieldError object is stored as-is; an array holds several errors
+ *        (falsy items dropped, strings normalized); undefined clears
  */
 export function setError<
   T extends Record<string, any> = any,
   P extends FieldPath<T> | Name = Name
->(form: Form<T>, name: P, error: string | FieldError | undefined): void {
+>(
+  form: Form<T>,
+  name: P,
+  error: string | FieldError | (string | FieldError)[] | undefined
+): void {
   setErrorByPath(form, createPath(name), error);
 }
 
@@ -307,25 +350,47 @@ export function setError<
  * Set field error
  * @param form
  * @param path
- * @param error string is normalized to {type: 'custom', message};
- *        a FieldError object is stored as-is; undefined clears the error
+ * @param error string is normalized to {type: 'custom', message}; a
+ *        FieldError object is stored as-is; an array holds several errors
+ *        (falsy items dropped, strings normalized); undefined clears
  */
 export function setErrorByPath(
   {emitter, errors}: Form,
   path: Path,
-  error: string | FieldError | undefined
+  error: string | FieldError | (string | FieldError)[] | undefined
 ): void {
-  if (error) {
-    errors.set(
-      path.key,
-      typeof error === 'string' ? {type: 'custom', message: error} : error
-    );
-  } else {
-    errors.delete(path.key);
-  }
+  const list = normalizeErrors(error);
+  // An empty result (undefined, '', or an array of only falsy items) clears
+  // the key: the errors Map never stores an empty list, so hasErrors stays
+  // a plain size check and readers can index [0] unguarded.
+  if (list) errors.set(path.key, list);
+  else errors.delete(path.key);
   // Path payload lets key-scoped subscribers (onKeyEvent) skip unrelated
   // fields; payload-less listeners ignore it.
   emit(emitter, 'errors', path);
+}
+
+/** Normalize any {@link setErrorByPath} input into the stored non-empty
+ * FieldError[] shape, or undefined when there is nothing to store. */
+function normalizeErrors(
+  error: string | FieldError | (string | FieldError)[] | undefined
+): FieldError[] | undefined {
+  if (typeof error === 'string') {
+    return error ? [{type: 'custom', message: error}] : undefined;
+  }
+  if (isFieldError(error)) return [error];
+  if (!error) return undefined;
+  // Falsy items drop out before normalization, so '' never becomes a
+  // stored {type: 'custom', message: ''} placeholder.
+  const list: FieldError[] = [];
+  error.forEach(item => {
+    if (typeof item === 'string' && item) {
+      list.push({type: 'custom', message: item});
+    } else if (isFieldError(item)) {
+      list.push(item);
+    }
+  });
+  return list.length ? list : undefined;
 }
 
 /**
@@ -573,23 +638,63 @@ export function setInitialValues(form: Form, initialValues: any): void {
   emit(form.emitter, 'change');
 }
 
+/** Options accepted by {@link reset}. Every flag defaults to `false` —
+ * omitting the object (or any flag) keeps the plain full-reset behavior.
+ * Names mirror react-hook-form's reset options to ease migration. */
+export interface ResetOptions {
+  /** Keep the current values of fields that are dirty — differ from the
+   * pre-reset initialValues (the same rule {@link getDirtyFields} applies).
+   * Clean fields fall back to the new initialValues as usual. */
+  keepDirtyValues?: boolean;
+  /** Keep the touched set instead of clearing it. */
+  keepTouched?: boolean;
+  /** Keep field errors instead of clearing them. */
+  keepErrors?: boolean;
+  /** Keep the submitted flag (`isSubmitSuccessful`) instead of clearing
+   * it. */
+  keepIsSubmitted?: boolean;
+  /** Keep `submitCount` instead of resetting it to 0. */
+  keepSubmitCount?: boolean;
+  /** Keep `isSubmitting` instead of resetting it to false. */
+  keepIsSubmitting?: boolean;
+}
+
 /**
  * Reset form
  * @param form
  * @param initialValues
+ * @param options keep-flags to preserve slices of state through the reset
  */
-export function reset(form: Form, initialValues?: any): void {
+export function reset(
+  form: Form,
+  initialValues?: any,
+  options?: ResetOptions
+): void {
+  // Snapshot dirty fields' live values before the wipe: dirtiness is
+  // measured against the pre-reset initialValues, so capture must happen
+  // before form.values and form.initialValues are touched.
+  const dirtyValues = options?.keepDirtyValues
+    ? Object.keys(getDirtyFields(form)).map(key => ({
+        key,
+        value: getValue(form, key)
+      }))
+    : [];
   form.initialValues = initialValues;
-  clearErrors(form);
+  if (!options?.keepErrors) clearErrors(form);
   const {emitter, touched, values, deleted, validating} = form;
   values.clear();
   deleted.clear();
-  touched.clear();
+  if (!options?.keepTouched) touched.clear();
   validating.clear();
-  form.isSubmitting = false;
-  form.submitCount = 0;
-  form.isSubmitSuccessful = undefined;
+  if (!options?.keepIsSubmitting) form.isSubmitting = false;
+  if (!options?.keepSubmitCount) form.submitCount = 0;
+  if (!options?.keepIsSubmitted) form.isSubmitSuccessful = undefined;
   bumpDirtyVersion(form);
+  // Write the kept dirty values back over the fresh baseline: plain
+  // setValueByPath, so no validation fires and nothing is marked touched.
+  for (const {key, value} of dirtyValues) {
+    setValueByPath(form, createPath(key), value);
+  }
   emit(emitter, 'change');
   emit(emitter, 'touched');
   emit(emitter, 'validating');
@@ -617,23 +722,56 @@ export function hasErrors({errors}: Form): boolean {
  * string arrays are name lists, so `['a', 'b']` triggers fields `a` and
  * `b`, not the nested path `a.b`.
  *
- * Field validators may be asynchronous: their errors land asynchronously
- * once the validator settles. Trigger only kicks validators off — it
- * returns void and never awaits them.
+ * The returned promise waits for the triggered validation to settle —
+ * async validators included — so their errors have already landed in
+ * `form.errors` when it resolves. It never rejects: landing errors is the
+ * expected outcome here, not a failure. Resolves `true` when the triggered
+ * scope is error-free, `false` otherwise. Without `name` the scope is all
+ * fields plus the form-level `validate` result (which runs after field
+ * validators settle, same pipeline as {@link ensureValidate}); with `name`
+ * only those fields' own errors count and form-level `validate` is
+ * skipped (RHF semantics).
+ *
+ * Fire-and-forget callers may ignore the promise: the validator kicks
+ * still happen synchronously, matching the pre-promise behavior.
  *
  * @param form
  * @param name field name(s) to trigger, or all fields when omitted
+ * @return whether the triggered scope is error-free once validation settles
  */
-export function trigger(form: Form, name?: Name | Name[]): void {
+export async function trigger(
+  form: Form,
+  name?: Name | Name[]
+): Promise<boolean> {
+  // Never reject (an error landing is a normal outcome, not a failure), so
+  // waitUntil's isReject is permanently false. Waiting on the whole
+  // `validating` set is deliberately conservative: it also rides out
+  // unrelated in-flight validators rather than racing them.
+  const settle = () =>
+    waitUntil(
+      form.emitter,
+      'validating',
+      () => !form.validating.size,
+      () => false
+    );
+
   if (name === undefined) {
     form.validators.forEach(validator => validator());
-    return;
+    await settle();
+    if (form.validate) {
+      const result = await form.validate(getValues(form));
+      if (result) setFormErrors(form, result);
+    }
+    return !hasErrors(form);
   }
-  if (typeof name === 'string' || isSegmentsPath(name)) {
-    form.validators.get(createPath(name).key)?.();
-    return;
-  }
-  name.forEach(one => form.validators.get(createPath(one).key)?.());
+
+  const keys: string[] =
+    typeof name === 'string' || isSegmentsPath(name)
+      ? [createPath(name).key]
+      : name.map(one => createPath(one).key);
+  keys.forEach(key => form.validators.get(key)?.());
+  await settle();
+  return keys.every(key => !form.errors.has(key));
 }
 
 /** Numbers only occur inside a segments path (`['a', 0]`), never as
@@ -655,9 +793,9 @@ function isFieldError(value: any): value is FieldError {
 /**
  * Flatten a form-level validate result and write each leaf error through
  * setError. Nested objects descend into deeper paths ({a: {b: 'msg'}} sets
- * the 'a.b' error), array values contribute their first non-empty string
- * (zod flatten() formErrors style), and FieldError-shaped objects are
- * stored as-is. Falsy values are skipped.
+ * the 'a.b' error), array values contribute every non-empty string they
+ * hold as separate errors (zod flatten() formErrors style), and
+ * FieldError-shaped objects are stored as-is. Falsy values are skipped.
  */
 function setFormErrors(
   form: Form,
@@ -669,8 +807,7 @@ function setFormErrors(
     if (typeof value === 'string') {
       if (value) setError(form, path, value);
     } else if (Array.isArray(value)) {
-      const message = value.find(item => typeof item === 'string' && item);
-      if (message) setError(form, path, message);
+      setError(form, path, value);
     } else if (isFieldError(value)) {
       setError(form, path, value);
     } else if (value && typeof value === 'object') {
@@ -895,4 +1032,39 @@ export function handleSubmit<T extends Record<string, any> = any>(
       setIsSubmitting(form, false);
     }
   };
+}
+
+/** Options accepted by {@link setFocus}. All flags default to `false`. */
+export interface SetFocusOptions {
+  /** Select the field's text after focusing it. Bound fields call
+   * `select()` on their element; elements without one (custom `as`
+   * components) just focus. */
+  shouldSelect?: boolean;
+}
+
+/**
+ * Programmatically focus a bound field's element (e.g. the <Field>'s
+ * input).
+ *
+ * Rides the same 'focusError' event channel a failed handleSubmit uses to
+ * focus the first errored field: the payload is the target's path key,
+ * with the focus options as a second, backward-compatible argument (older
+ * subscribers declared with a single `key` parameter simply ignore it).
+ * Being event-driven, it is a silent no-op when the field is unmounted or
+ * nothing subscribes — unknown names never throw.
+ *
+ * @param form form instance
+ * @param name field name (dot path or segments path)
+ * @param options focus options
+ */
+export function setFocus(
+  form: Form,
+  name: Name,
+  options?: SetFocusOptions
+): void {
+  const {key} = createPath(name);
+  // Omit the options argument when absent so the payload is exactly the
+  // shape handleSubmit emits after a failed submit.
+  if (options) emit(form.emitter, 'focusError', key, options);
+  else emit(form.emitter, 'focusError', key);
 }

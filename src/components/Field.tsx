@@ -9,6 +9,13 @@ interface UseFieldOptions {
   name?: Name;
   initialValue?: any;
   validate?: Validator;
+  /**
+   * Milliseconds to debounce this field's validation kicks. Defaults to 0
+   * (validate immediately); only the last kick inside the window runs the
+   * validator, and `trigger` waits the window out. Passed through to
+   * useField/useValidate.
+   */
+  validateDebounce?: number;
   [key: string]: any;
 }
 
@@ -75,6 +82,7 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
       onChange,
       error,
       errorObject,
+      errors,
       form,
       ...rest
     } = useField({
@@ -112,13 +120,23 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
 
     // Focus this input when a failed submit names it as the first error:
     // handleSubmit emits 'focusError' with the first error's path key.
+    // setFocus rides the same channel and may pass {shouldSelect} as a
+    // second, optional argument to select the text after focusing.
     React.useEffect(
       () =>
-        on(form.emitter, 'focusError', (key: string) => {
-          if (key !== rest.name) return;
-          const el = innerRef.current;
-          if (el && typeof el.focus === 'function') el.focus();
-        }),
+        on(
+          form.emitter,
+          'focusError',
+          (key: string, options?: {shouldSelect?: boolean}) => {
+            if (key !== rest.name) return;
+            const el = innerRef.current;
+            if (!el || typeof el.focus !== 'function') return;
+            el.focus();
+            if (options?.shouldSelect && typeof el.select === 'function') {
+              el.select();
+            }
+          }
+        ),
       [form, rest.name]
     );
 
@@ -152,10 +170,11 @@ interface CheckboxProps extends UseFieldOptions {}
 
 export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
   ({name, ...props}, ref) => {
-    const {value, onChange, error, errorObject, form, ...rest} = useField({
-      ...props,
-      name: name!
-    });
+    const {value, onChange, error, errorObject, errors, form, ...rest} =
+      useField({
+        ...props,
+        name: name!
+      });
     return (
       <input
         aria-invalid={error ? true : undefined}
@@ -194,10 +213,11 @@ function toSelectValue(
 
 export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
   ({name, multiple, children, ...props}, ref) => {
-    const {value, onChange, error, errorObject, form, ...rest} = useField({
-      ...props,
-      name: name!
-    });
+    const {value, onChange, error, errorObject, errors, form, ...rest} =
+      useField({
+        ...props,
+        name: name!
+      });
     return (
       <select
         aria-invalid={error ? true : undefined}

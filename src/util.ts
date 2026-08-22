@@ -187,7 +187,10 @@ export function waitUntil(
         reject();
         return;
       }
-      if (isResolve()) return;
+      // Condition not reached yet — stay subscribed and keep waiting. (The
+      // previous `if (isResolve()) return` was inverted: it hung forever
+      // once the condition held and resolved prematurely while it didn't.)
+      if (!isResolve()) return;
       off();
       resolve();
     });
