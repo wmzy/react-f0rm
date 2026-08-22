@@ -1,4 +1,5 @@
-import type {FieldError} from '../form';
+import {VALIDATION_OUTCOME} from '../form';
+import type {FieldError, ValidationOutcome} from '../form';
 import type {Validator} from '../hooks/validate';
 
 /**
@@ -64,21 +65,33 @@ export function standardSchemaResolver(schema: StandardSchemaV1): Validator {
 
 /**
  * Form-level Standard Schema adapter: validate the whole values object with
- * any schema implementing '~standard' and map issues into the nested error
- * shape Options.validate expects ({a: {b: FieldError[]}}; ensureValidate
- * flattens it back to per-field errors, keeping every issue of a path).
- * Issues without a path are form-level errors and land on the '_form' key.
+ * any schema implementing '~standard' and return a ValidationOutcome. On
+ * failure `errors` carries the nested shape Options.validate expects
+ * ({a: {b: FieldError[]}}; ensureValidate flattens it back to per-field
+ * errors, keeping every issue of a path). Issues without a path are
+ * form-level errors and land on the '_form' key. On success `values`
+ * carries the schema's parsed output (coerce/transform results included),
+ * which the form stores as its parsedValues baseline — the layer getValues
+ * reads above initialValues, mirroring how react-hook-form's zodResolver
+ * and TanStack's standardSchemaValidators use the parsed value.
  *
  * @param schema a Standard Schema v1 (zod v3.24+/v4, valibot v1, arktype...)
  * @return form-level validator for createForm({validate: ...})
  */
 export function standardSchemaFormValidator<T extends Record<string, any>>(
   schema: StandardSchemaV1<T, any>
-): (values: T) => Promise<Record<string, any>> {
+): (values: T) => Promise<ValidationOutcome<T>> {
   return async (values: T) => {
     const result = await schema['~standard'].validate(values);
     const {issues} = result;
-    if (!issues?.length) return {};
+    if (!issues?.length) {
+      // Success: expose the schema's parsed output. `in` keeps the union
+      // narrowed (the success variant is the one carrying `value`).
+      return {
+        [VALIDATION_OUTCOME]: true,
+        values: 'value' in result ? result.value : undefined
+      };
+    }
     const errors: Record<string, any> = {};
     for (const issue of issues) {
       const segments = toPathSegments(issue);
@@ -92,7 +105,7 @@ export function standardSchemaFormValidator<T extends Record<string, any>>(
         if (Array.isArray(slot)) slot.push(toFieldError(issue));
       }
     }
-    return pruneEmpty(errors) || {};
+    return {[VALIDATION_OUTCOME]: true, errors: pruneEmpty(errors) || {}};
   };
 }
 

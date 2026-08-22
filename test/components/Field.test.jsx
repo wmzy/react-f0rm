@@ -1,10 +1,16 @@
 import {describe, it, expect, vi} from 'vitest';
-import {render, screen, act} from '@testing-library/react';
+import {render, screen, act, fireEvent} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import Form from '../../src/components/Form';
-import {Field, Checkbox} from '../../src/components/Field';
-import createForm, {getErrors, setError, setFocus, handleSubmit} from '../../src/form';
+import {Field, Checkbox, Select} from '../../src/components/Field';
+import createForm, {
+  getErrors,
+  setError,
+  setFocus,
+  setDisabled,
+  handleSubmit
+} from '../../src/form';
 
 describe('Field', () => {
   it('renders an input with value', () => {
@@ -311,5 +317,145 @@ describe('Field', () => {
     // extended the channel.
     expect(document.activeElement).toBe(input);
     expect(input.selectionStart).toBe(input.selectionEnd);
+  });
+
+  it('stores rule failures in form state and keeps rules off the DOM', async () => {
+    const form = createForm({initialValues: {age: ''}, mode: 'onBlur'});
+    const user = userEvent.setup();
+
+    render(
+      <Form form={form}>
+        <Field
+          name="age"
+          rules={{required: 'Age is required', min: 18}}
+          data-testid="age-input"
+        />
+      </Form>
+    );
+    const input = screen.getByTestId('age-input');
+
+    // rules is an option, not a DOM attribute.
+    expect(input.hasAttribute('rules')).toBe(false);
+
+    // Blurring empty reports only the required error in state (not a
+    // browser-only bubble), with the given message.
+    await user.click(input);
+    await user.tab();
+    expect(getErrors(form)).toEqual([
+      {path: 'age', type: 'required', message: 'Age is required'}
+    ]);
+
+    // Typing re-validates (reValidateMode) and switches to the min error.
+    await user.type(input, '10');
+    expect(getErrors(form)).toEqual([
+      {path: 'age', type: 'min', message: 'Must be at least 18'}
+    ]);
+  });
+
+  it('renders every input disabled from a form-level disabled flag', () => {
+    const form = createForm({
+      initialValues: {name: '', email: ''},
+      disabled: true
+    });
+    render(
+      <Form form={form}>
+        <Field name="name" data-testid="name-input" />
+        <Field name="email" data-testid="email-input" />
+      </Form>
+    );
+    expect(screen.getByTestId('name-input').disabled).toBe(true);
+    expect(screen.getByTestId('email-input').disabled).toBe(true);
+  });
+
+  it('re-renders inputs when setDisabled toggles', () => {
+    const form = createForm({initialValues: {name: ''}});
+    render(
+      <Form form={form}>
+        <Field name="name" data-testid="name-input" />
+      </Form>
+    );
+    const input = screen.getByTestId('name-input');
+    expect(input.disabled).toBe(false);
+
+    act(() => setDisabled(form, true));
+    expect(input.disabled).toBe(true);
+
+    act(() => setDisabled(form, false));
+    expect(input.disabled).toBe(false);
+  });
+
+  it('disables a single field through the disabled prop', () => {
+    const form = createForm({initialValues: {a: '', b: ''}});
+    render(
+      <Form form={form}>
+        <Field name="a" disabled data-testid="a-input" />
+        <Field name="b" data-testid="b-input" />
+      </Form>
+    );
+    expect(screen.getByTestId('a-input').disabled).toBe(true);
+    expect(screen.getByTestId('b-input').disabled).toBe(false);
+  });
+
+  it('a disabled form wins over a field disabled={false}', () => {
+    const form = createForm({initialValues: {a: ''}, disabled: true});
+    render(
+      <Form form={form}>
+        <Field name="a" disabled={false} data-testid="a-input" />
+      </Form>
+    );
+    // OR semantics: the field cannot opt out of a disabled form.
+    expect(screen.getByTestId('a-input').disabled).toBe(true);
+  });
+
+  it('applies the merged disabled flag on Checkbox and Select', () => {
+    const form = createForm({initialValues: {terms: false, color: 'red'}});
+    render(
+      <Form form={form}>
+        <Checkbox name="terms" data-testid="terms" />
+        <Select name="color" data-testid="color">
+          <option value="red">Red</option>
+          <option value="blue">Blue</option>
+        </Select>
+      </Form>
+    );
+    expect(screen.getByTestId('terms').disabled).toBe(false);
+    expect(screen.getByTestId('color').disabled).toBe(false);
+
+    act(() => setDisabled(form, true));
+    expect(screen.getByTestId('terms').disabled).toBe(true);
+    expect(screen.getByTestId('color').disabled).toBe(true);
+  });
+
+  it('delays the rendered error by delayError while state stays immediate', () => {
+    vi.useFakeTimers();
+    try {
+      const form = createForm({initialValues: {name: ''}, mode: 'onBlur'});
+      render(
+        <Form form={form}>
+          <Field
+            name="name"
+            validate={() => 'oops'}
+            delayError={100}
+            renderError={error => error}
+            data-testid="name-input"
+          />
+        </Form>
+      );
+      const input = screen.getByTestId('name-input');
+
+      fireEvent.blur(input);
+      // State carries the error at once; the DOM does not yet.
+      expect(getErrors(form)).toEqual([
+        {path: 'name', type: 'custom', message: 'oops'}
+      ]);
+      expect(input.getAttribute('aria-invalid')).toBeNull();
+      expect(document.querySelector('[role="alert"]')).toBeNull();
+
+      act(() => vi.advanceTimersByTime(100));
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+      expect(document.querySelector('[role="alert"]').textContent).toBe('oops');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

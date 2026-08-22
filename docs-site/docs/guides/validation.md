@@ -16,6 +16,41 @@ Pass a `validate` function to `<Field>`. It may return a plain message string (n
 
 The validator receives `(value, meta)` where `meta` is `{form, path, signal}`. Async validators (returning a Promise) are supported; `meta.signal` aborts as soon as the round is superseded (see [Async Validation](#async-validation)).
 
+## Rules
+
+For declarative constraints, pass `rules` to `Field` (or any bound component — `Checkbox`, `Select` — or `useField`) instead of hand-writing a `validate` function. Rule failures land in the form's error state as `FieldError`s (`type` is the rule name) carrying your message, so any design system can render them uniformly instead of the browser's validity bubble:
+
+```tsx
+<Field
+  name='age'
+  rules={{
+    required: 'Age is required',
+    min: 18,
+    messages: {min: 'Must be an adult'}
+  }}
+/>
+```
+
+| Rule | Value | Fails when | Default message |
+|------|-------|------------|-----------------|
+| `required` | `string \| true` | value is `''`, `undefined` or `null` (`0` and `false` count as filled) | `'This field is required'` |
+| `min` | `number` | `Number(value) < min` — values converting to `NaN` skip the rule | `` `Must be at least ${min}` `` |
+| `max` | `number` | `Number(value) > max` — `NaN` skips | `` `Must be at most ${max}` `` |
+| `minLength` | `number` | a string value is shorter — non-strings skip | `` `Must be at least ${n} characters` `` |
+| `maxLength` | `number` | a string value is longer — non-strings skip | `` `Must be at most ${n} characters` `` |
+| `pattern` | `{value: RegExp, message: string}` | `pattern.value.test(value)` is false | the given `message` |
+
+The optional top-level `messages` record overrides messages per rule type (`min`, `max`, `minLength`, `maxLength`, `pattern`) — useful for centralizing or localizing them.
+
+Semantics:
+
+- A failing `required` short-circuits the rest — an empty value reports only its `required` error, not a full panel.
+- Every other failing rule collects into one ordered `FieldError[]` (see [Multiple Errors per Field](#multiple-errors-per-field)).
+- `rules` composes with `validate`: rules run first, then `validate` (awaited when async), merging both sources' errors with rules ahead.
+- Rules ride the exact same pipeline as `validate` — `mode`, `reValidateMode`, `validateDebounce` and `meta.signal` all apply unchanged.
+
+Rules vs native constraints: HTML attributes (`required`, `type='email'`, `min`, …) keep running through the browser's `checkValidity`, whose bubble remains the pre-submit fallback. `rules` is the state-side alternative — failures are queryable (`getErrors`, `error`, `errors`), renderable by any UI, and carry your own messages. Prefer `rules` whenever the error text must be controlled.
+
 ## Form-level Validation
 
 Pass a `validate` function to `<Form>` (or `useForm`). The result may be **nested** — nested objects are flattened onto field paths, so `{user: {name: 'Required'}}` sets the error on `'user.name'`. Array values contribute their first non-empty string (zod `flatten()` formErrors style). Falsy leaves are skipped:
@@ -78,6 +113,31 @@ function Example() {
 `standardSchemaFormValidator` maps issue paths onto field names automatically (nested paths become nested errors that the form-level flattening resolves per field); issues without a path are form-level errors on the `_form` key. Errors carry `type: 'standard'`.
 
 See [Schema Resolvers](../api/resolvers.md) for details.
+
+## Parsed Values
+
+When a form-level schema validation succeeds, `standardSchemaFormValidator` returns the schema's parsed output, and the form stores it as its **parsed baseline** — the layer `getValues()` reads above `initialValues`:
+
+```tsx
+import {useForm, getValues, trigger} from 'react-f0rm';
+import {standardSchemaFormValidator} from 'react-f0rm/resolvers/standard-schema';
+import {z} from 'zod';
+
+const schema = z.object({age: z.coerce.number().min(18)});
+
+const form = useForm({
+  initialValues: {age: ''},
+  validate: standardSchemaFormValidator(schema)
+});
+
+await trigger(form);
+getValues(form); // {age: 42} — a real number, not the raw string
+```
+
+- **When it is written back:** each successful form-level validation replaces the baseline with the schema's complete output tree — `getValues()` and the submit callbacks (`onSubmit` / `onValidSubmit`) read coerced/transformed values from then on (`z.coerce.number()` hands back a real `number`; fields the schema dropped disappear from reads).
+- **Live edits win:** the baseline sits between `initialValues` and live edits — a field the user changes afterwards still reads its edited value.
+- **Parsing is not an edit:** dirty state keeps comparing live edits against `initialValues` only, so a successful parse never marks a field dirty.
+- **Reset clears it:** `reset()` and `setInitialValues()` drop the whole baseline; `resetField(form, name)` removes the field's path from it so the initial value is pinned back.
 
 ## Async Validation
 
@@ -165,6 +225,18 @@ useForm({ mode: 'onBlur' });
 useForm({ mode: 'onSubmit', reValidateMode: 'onChange' });
 // validate on submit; after the first error, re-validate live on every keystroke
 ```
+
+## Delaying Error Display
+
+`delayError` (milliseconds) holds a **newly appearing** error back from the render for a short window — users typing through a field are not interrupted by an error the next keystroke may already fix:
+
+```tsx
+<Field name='username' rules={{minLength: 3}} delayError={300} />
+```
+
+Pass it to `Field`, `useField` or any bound component (`Checkbox`, `Select`), like `validateDebounce`.
+
+The delay is render-layer only: `error`/`errorObject`/`errors` from `useField` (and everything `Field` derives from them — `aria-invalid`, `renderError`) stay `undefined`/empty until the window passes. The form's error state is never delayed — `trigger`, submit and `getError(form, name)` read the error immediately, unlike react-hook-form's formState-level delay. An error that clears inside the window never shows at all; once an error is visible, later changes (a new message, entries added or removed) apply immediately — only the none → some transition waits.
 
 ## Reading Errors
 

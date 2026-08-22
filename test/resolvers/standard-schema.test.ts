@@ -13,14 +13,17 @@ import {
 import createForm, {
   ensureValidate,
   getError,
-  getFieldErrors
+  getFieldErrors,
+  getValues
 } from '../../src/form';
 
 type MockIssue = {message: string; path?: (PropertyKey | {key: PropertyKey})[]};
 
 // Mock Standard Schema v1 schema (zod/valibot/arktype style): records every
-// validate call in `calls` and returns the given `issues` when non-empty.
-function mockSchema(issues: MockIssue[]) {
+// validate call in `calls`, returns the given `issues` when non-empty, and
+// otherwise succeeds — echoing the input, or `parsed` when given (to
+// emulate z.coerce.number()/transform whose output differs from the input).
+function mockSchema(issues: MockIssue[], parsed?: unknown) {
   const calls: unknown[] = [];
   return {
     calls,
@@ -29,7 +32,9 @@ function mockSchema(issues: MockIssue[]) {
       vendor: 'mock',
       validate: (value: unknown) => {
         calls.push(value);
-        return Promise.resolve(issues.length ? {issues} : {value});
+        return Promise.resolve(
+          issues.length ? {issues} : {value: parsed ?? value}
+        );
       }
     }
   };
@@ -86,16 +91,18 @@ describe('standardSchemaResolver', () => {
 });
 
 describe('standardSchemaFormValidator', () => {
-  it('returns an empty object on success', async () => {
+  it('returns the parsed values on success', async () => {
     const validator = standardSchemaFormValidator(mockSchema([]));
-    expect(await validator({a: 1})).toEqual({});
+    const outcome = await validator({a: 1});
+    expect(outcome.values).toEqual({a: 1});
+    expect(outcome.errors).toBeUndefined();
   });
 
   it('nests issues by path (issue.path=["a","b"] → {a: {b: FieldError[]}})', async () => {
     const validator = standardSchemaFormValidator(
       mockSchema([{message: 'required', path: ['a', 'b']}])
     );
-    expect(await validator({})).toEqual({
+    expect((await validator({})).errors).toEqual({
       a: {b: [{type: 'standard', message: 'required'}]}
     });
   });
@@ -104,7 +111,7 @@ describe('standardSchemaFormValidator', () => {
     const validator = standardSchemaFormValidator(
       mockSchema([{message: 'required', path: [{key: 'items'}, 0, 'name']}])
     );
-    expect(await validator({})).toEqual({
+    expect((await validator({})).errors).toEqual({
       items: {'0': {name: [{type: 'standard', message: 'required'}]}}
     });
   });
@@ -113,7 +120,7 @@ describe('standardSchemaFormValidator', () => {
     const validator = standardSchemaFormValidator(
       mockSchema([{message: 'form broken'}, {message: 'later'}])
     );
-    expect(await validator({})).toEqual({
+    expect((await validator({})).errors).toEqual({
       _form: [
         {type: 'standard', message: 'form broken'},
         {type: 'standard', message: 'later'}
@@ -128,7 +135,7 @@ describe('standardSchemaFormValidator', () => {
         {message: 'second', path: ['a', 'b']}
       ])
     );
-    expect(await validator({})).toEqual({
+    expect((await validator({})).errors).toEqual({
       a: {
         b: [
           {type: 'standard', message: 'first'},
@@ -145,7 +152,7 @@ describe('standardSchemaFormValidator', () => {
         {message: 'parent', path: ['a']}
       ])
     );
-    expect(await validator({})).toEqual({
+    expect((await validator({})).errors).toEqual({
       a: {b: [{type: 'standard', message: 'child'}]}
     });
   });
@@ -210,6 +217,42 @@ describe('standardSchemaFormValidator', () => {
       validate: standardSchemaFormValidator(schema)
     });
     await expect(ensureValidate(form)).resolves.toBeUndefined();
+  });
+
+  it('reads the coerced value (z.coerce.number() style) from getValues', async () => {
+    // z.object({age: z.coerce.number()}) parses the raw string '25' into
+    // the number 25: after a passing validation the form's values are the
+    // schema's output, not the pre-coerce input.
+    const schema = mockSchema([], {age: 25});
+    const form = createForm({
+      initialValues: {age: '25'},
+      validate: standardSchemaFormValidator(schema)
+    });
+    await expect(ensureValidate(form)).resolves.toBeUndefined();
+    const {age} = getValues(form);
+    expect(typeof age).toBe('number');
+    expect(age).toBe(25);
+  });
+
+  it('reads transformed schema output (z.string().trim() style)', async () => {
+    const schema = mockSchema([], {name: 'ann'});
+    const form = createForm({
+      initialValues: {name: '  ann '},
+      validate: standardSchemaFormValidator(schema)
+    });
+    await expect(ensureValidate(form)).resolves.toBeUndefined();
+    expect(getValues(form)).toEqual({name: 'ann'});
+  });
+
+  it('keeps raw values and sets no parsedValues when validation fails', async () => {
+    const schema = mockSchema([{message: 'required', path: ['age']}]);
+    const form = createForm({
+      initialValues: {age: '25'},
+      validate: standardSchemaFormValidator(schema)
+    });
+    await expect(ensureValidate(form)).rejects.toThrow('required');
+    expect(form.parsedValues).toBeUndefined();
+    expect(getValues(form)).toEqual({age: '25'});
   });
 
   it('receives the current form values', async () => {

@@ -31,10 +31,15 @@ import createForm, {
   setIsSubmitting,
   incrementSubmitCount,
   setSubmitSuccessful,
+  setDisabled,
   handleSubmit,
   trigger,
-  setFocus
+  setFocus,
+  resetField,
+  getFieldState,
+  VALIDATION_OUTCOME
 } from '../src/form';
+import {subscribe} from '../src/subscribe';
 import createPath from '../src/path';
 
 describe('createForm', () => {
@@ -47,17 +52,20 @@ describe('createForm', () => {
     expect(form.validating).toBeInstanceOf(Set);
     expect(form.mode).toBe('onSubmit');
     expect(form.reValidateMode).toBe('onChange');
+    expect(form.disabled).toBe(false);
   });
 
   it('merges options', () => {
     const form = createForm({
       initialValues: {name: 'test'},
       mode: 'onTouched',
-      reValidateMode: 'onBlur'
+      reValidateMode: 'onBlur',
+      disabled: true
     });
     expect(form.initialValues).toEqual({name: 'test'});
     expect(form.mode).toBe('onTouched');
     expect(form.reValidateMode).toBe('onBlur');
+    expect(form.disabled).toBe(true);
   });
 });
 
@@ -173,6 +181,15 @@ describe('getValues', () => {
     first.b = 'mutated';
     expect(getValues(form)).toEqual({a: 1, b: 2});
     expect(form.initialValues).toEqual({a: 1});
+  });
+
+  it('flows the form type to the returned record (typed context)', () => {
+    // Type context, checked by tsc in TS consumers: createForm infers
+    // Form<{a: string}>, so getValues(form) is that record and .a is a
+    // string — the generic threads T through instead of returning any.
+    const form = createForm({initialValues: {a: 'initial'}});
+    setValue(form, 'a', 'typed');
+    expect(getValues(form).a).toBe('typed');
   });
 });
 
@@ -306,6 +323,45 @@ describe('getErrors / getFirstError / clearErrors / hasErrors', () => {
     expect(hasErrors(form)).toBe(false);
     setError(form, 'a', 'error');
     expect(hasErrors(form)).toBe(true);
+  });
+
+  it('clearErrors(name) clears only that field', () => {
+    const form = createForm();
+    setError(form, 'a', 'error a');
+    setError(form, 'b', 'error b');
+    clearErrors(form, 'a');
+    expect(getError(form, 'a')).toBeUndefined();
+    expect(getError(form, 'b')).toEqual({type: 'custom', message: 'error b'});
+    expect(hasErrors(form)).toBe(true);
+  });
+
+  it('clearErrors accepts segment-array paths and name lists', () => {
+    const form = createForm();
+    setError(form, 'a', 'error a');
+    setError(form, ['user', 'name'], 'required');
+    setError(form, 'c', 'error c');
+    clearErrors(form, [['user', 'name'], 'c']);
+    expect(getError(form, ['user', 'name'])).toBeUndefined();
+    expect(getError(form, 'c')).toBeUndefined();
+    expect(getError(form, 'a')).toEqual({type: 'custom', message: 'error a'});
+    // A segment array containing a number is one path, not a list.
+    setError(form, ['list', 0], 'required');
+    clearErrors(form, ['list', 0]);
+    expect(getError(form, ['list', 0])).toBeUndefined();
+    expect(getError(form, 'a')).toEqual({type: 'custom', message: 'error a'});
+  });
+
+  it('clearErrors(name) emits errors scoped to the path; no-arg stays global', () => {
+    const form = createForm();
+    setError(form, 'a', 'error a');
+    setError(form, 'b', 'error b');
+    const seen = [];
+    on(form.emitter, 'errors', path => seen.push(path?.key ?? null));
+    clearErrors(form, 'a');
+    expect(seen).toEqual(['["a"]']);
+    clearErrors(form);
+    expect(seen).toEqual(['["a"]', null]);
+    expect(hasErrors(form)).toBe(false);
   });
 });
 
@@ -622,6 +678,159 @@ describe('reset', () => {
   });
 });
 
+describe('resetField', () => {
+  it('resets the field to initialValues and leaves siblings alone', () => {
+    const form = createForm({initialValues: {a: 'initial', b: 'keep'}});
+    setValue(form, 'a', 'changed');
+    setValue(form, 'b', 'edited');
+    resetField(form, 'a');
+    expect(getValue(form, 'a')).toBe('initial');
+    expect(getValue(form, 'b')).toBe('edited');
+    expect(form.values.size).toBe(1);
+  });
+
+  it('clears the reset field dirtiness', () => {
+    const form = createForm({initialValues: {a: 1}});
+    setValue(form, 'a', 2);
+    expect(getDirtyFields(form)).toEqual({a: true});
+    resetField(form, 'a');
+    expect(isDirty(form)).toBe(false);
+    expect(getDirtyFields(form)).toEqual({});
+  });
+
+  it('value option writes an explicit value without falling back', () => {
+    const form = createForm({initialValues: {a: 'initial'}});
+    setValue(form, 'a', 'changed');
+    resetField(form, 'a', {value: 'explicit'});
+    expect(getValue(form, 'a')).toBe('explicit');
+    expect(getDirtyFields(form)).toEqual({a: true});
+  });
+
+  it('value option wins over parsedValues', async () => {
+    const form = createForm({
+      initialValues: {a: 1},
+      validate: () => ({[VALIDATION_OUTCOME]: true, values: {a: 2}})
+    });
+    await ensureValidate(form);
+    resetField(form, 'a', {value: 3});
+    expect(getValue(form, 'a')).toBe(3);
+  });
+
+  it('keepTouched preserves the touched flag', () => {
+    const form = createForm({initialValues: {a: 1}});
+    setTouched(form, 'a');
+    resetField(form, 'a', {keepTouched: true});
+    expect(hasTouched(form, 'a')).toBe(true);
+    resetField(form, 'a');
+    expect(hasTouched(form, 'a')).toBe(false);
+  });
+
+  it('keepErrors preserves the field errors', () => {
+    const form = createForm({initialValues: {a: 1}});
+    setError(form, 'a', 'bad');
+    resetField(form, 'a', {keepErrors: true});
+    expect(getError(form, 'a')).toEqual({type: 'custom', message: 'bad'});
+    resetField(form, 'a');
+    expect(getError(form, 'a')).toBeUndefined();
+  });
+
+  it('removes the path from parsedValues so it falls back to initialValues', async () => {
+    const form = createForm({
+      initialValues: {a: 1, b: 1},
+      validate: () => ({[VALIDATION_OUTCOME]: true, values: {a: 2, b: 2}})
+    });
+    await ensureValidate(form);
+    expect(getValue(form, 'a')).toBe(2);
+    resetField(form, 'a');
+    expect(form.parsedValues).toEqual({b: 2}); // path removed, not shadowed
+    expect(getValue(form, 'a')).toBe(1); // falls back to initialValues
+    expect(getValue(form, 'b')).toBe(2); // sibling keeps its parsed value
+    expect(getValues(form)).toEqual({a: 1, b: 2});
+  });
+
+  it('revives removal tombstones (inverse of removeField)', () => {
+    const form = createForm({initialValues: {a: 'initial'}});
+    setValue(form, 'a', 'changed');
+    removeField(form, 'a');
+    expect(getValue(form, 'a')).toBeUndefined(); // tombstone blocks fallback
+    resetField(form, 'a');
+    expect(getValue(form, 'a')).toBe('initial'); // tombstone revived
+  });
+
+  it('emits change payload-less like removeField', () => {
+    const form = createForm({initialValues: {a: 1}});
+    setValue(form, 'a', 2);
+    const changes = [];
+    on(form.emitter, 'change', path => changes.push(path ?? null));
+    resetField(form, 'a');
+    expect(changes).toEqual([null]);
+  });
+
+  it('emits touched and errors with the field path when that state drops', () => {
+    const form = createForm({initialValues: {a: 1}});
+    setValue(form, 'a', 2);
+    setTouched(form, 'a');
+    setError(form, 'a', 'bad');
+    const events = [];
+    on(form.emitter, 'touched', path => events.push(['touched', path?.key]));
+    on(form.emitter, 'errors', path => events.push(['errors', path?.key]));
+    resetField(form, 'a');
+    expect(events).toEqual([
+      ['touched', '["a"]'],
+      ['errors', '["a"]']
+    ]);
+  });
+});
+
+describe('getFieldState', () => {
+  it('aggregates value, error, errors, dirty, touched and validating', () => {
+    const form = createForm({initialValues: {a: 'initial'}});
+    setValue(form, 'a', 'changed');
+    setError(form, 'a', ['first', 'second']);
+    setTouched(form, 'a');
+    setValidatingByPath(form, createPath('a'));
+    expect(getFieldState(form, 'a')).toEqual({
+      value: 'changed',
+      error: {type: 'custom', message: 'first'},
+      errors: [
+        {type: 'custom', message: 'first'},
+        {type: 'custom', message: 'second'}
+      ],
+      isDirty: true,
+      isTouched: true,
+      isValidating: true
+    });
+  });
+
+  it('isDirty follows the getDirtyFields rule per field', () => {
+    const form = createForm({initialValues: {a: 1, b: 2}});
+    setValue(form, 'a', 1); // live value equal to initial: clean
+    setValue(form, 'b', 3); // differs: dirty
+    expect(getFieldState(form, 'a').isDirty).toBe(false);
+    expect(getFieldState(form, 'b').isDirty).toBe(true);
+    expect(getFieldState(form, 'missing').isDirty).toBe(false);
+    expect(getDirtyFields(form)).toEqual({b: true});
+  });
+
+  it('isDirty compares against initialValues even when parsedValues differ', async () => {
+    const form = createForm({
+      initialValues: {a: 1},
+      validate: () => ({[VALIDATION_OUTCOME]: true, values: {a: 2}})
+    });
+    await ensureValidate(form);
+    const state = getFieldState(form, 'a');
+    expect(state.value).toBe(2); // layered read sees the parsed value
+    expect(state.isDirty).toBe(false); // parsing is not an edit
+  });
+
+  it('errors is the shared stored array, read-only by contract', () => {
+    const form = createForm();
+    setError(form, 'a', 'bad');
+    expect(getFieldState(form, 'a').errors).toBe(getFieldErrors(form, 'a'));
+    expect(getFieldState(form, 'missing').errors).toEqual([]);
+  });
+});
+
 describe('ensureValidate', () => {
   it('resolves when no validators', async () => {
     const form = createForm();
@@ -806,6 +1015,84 @@ describe('form-level validation', () => {
     await expect(ensureValidate(form)).rejects.toThrow('field error');
     expect(spy).not.toHaveBeenCalled();
   });
+
+  it('stores branded values as the baseline above initialValues', async () => {
+    const form = createForm({
+      initialValues: {a: 1, b: 'raw'},
+      validate: () => ({
+        [VALIDATION_OUTCOME]: true,
+        values: {a: 2, b: 'parsed'}
+      })
+    });
+    await expect(ensureValidate(form)).resolves.toBeUndefined();
+    expect(form.parsedValues).toEqual({a: 2, b: 'parsed'});
+    expect(getValue(form, 'a')).toBe(2);
+    expect(getValues(form)).toEqual({a: 2, b: 'parsed'});
+    // Parsing is not a user edit: dirty stays measured against
+    // initialValues only.
+    expect(isDirty(form)).toBe(false);
+  });
+
+  it('lets live edits override the parsed baseline', async () => {
+    const form = createForm({
+      initialValues: {a: 1},
+      validate: () => ({
+        [VALIDATION_OUTCOME]: true,
+        values: {a: 2, b: 'parsed'}
+      })
+    });
+    await ensureValidate(form);
+    setValue(form, 'a', 99);
+    expect(getValue(form, 'a')).toBe(99);
+    expect(getValue(form, 'b')).toBe('parsed');
+    expect(getValues(form)).toEqual({a: 99, b: 'parsed'});
+  });
+
+  it('clears parsedValues on reset and setInitialValues', async () => {
+    const form = createForm({
+      initialValues: {a: 1},
+      validate: () => ({[VALIDATION_OUTCOME]: true, values: {a: 2}})
+    });
+    await ensureValidate(form);
+    expect(form.parsedValues).toEqual({a: 2});
+    reset(form, {a: 1});
+    expect(form.parsedValues).toBeUndefined();
+    expect(getValues(form)).toEqual({a: 1});
+
+    await ensureValidate(form);
+    expect(form.parsedValues).toEqual({a: 2});
+    setInitialValues(form, {a: 3});
+    expect(form.parsedValues).toBeUndefined();
+    expect(getValues(form)).toEqual({a: 3});
+  });
+
+  it('keeps plain (non-branded) validate results error-only', async () => {
+    const failing = createForm({
+      initialValues: {a: 1},
+      validate: () => ({a: 'a is bad'})
+    });
+    await expect(ensureValidate(failing)).rejects.toThrow('a is bad');
+    expect(failing.parsedValues).toBeUndefined();
+    expect(getValues(failing)).toEqual({a: 1});
+
+    const passing = createForm({
+      initialValues: {a: 1},
+      validate: () => ({})
+    });
+    await expect(ensureValidate(passing)).resolves.toBeUndefined();
+    expect(passing.parsedValues).toBeUndefined();
+    expect(getValues(passing)).toEqual({a: 1});
+  });
+
+  it('handles branded outcomes in trigger without bogus field errors', async () => {
+    const form = createForm({
+      initialValues: {a: 1},
+      validate: () => ({[VALIDATION_OUTCOME]: true, values: {a: 2}})
+    });
+    await expect(trigger(form)).resolves.toBe(true);
+    expect(getErrors(form)).toEqual([]);
+    expect(form.parsedValues).toEqual({a: 2});
+  });
 });
 
 describe('submission state', () => {
@@ -834,6 +1121,32 @@ describe('submission state', () => {
     expect(form.isSubmitSuccessful).toBe(true);
     setSubmitSuccessful(form, false);
     expect(form.isSubmitSuccessful).toBe(false);
+  });
+});
+
+describe('setDisabled', () => {
+  it('writes the flag and emits a payload-less disabled event', () => {
+    const form = createForm();
+    const listener = vi.fn();
+    on(form.emitter, 'disabled', listener);
+
+    setDisabled(form, true);
+    expect(form.disabled).toBe(true);
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    setDisabled(form, false);
+    expect(form.disabled).toBe(false);
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  it('emits on every call, like the other submission setters', () => {
+    const form = createForm({disabled: true});
+    const listener = vi.fn();
+    on(form.emitter, 'disabled', listener);
+
+    setDisabled(form, true);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(form.disabled).toBe(true);
   });
 });
 
@@ -1222,5 +1535,107 @@ describe('setFocus', () => {
   it('does not throw for names with no subscriber', () => {
     const form = createForm();
     expect(() => setFocus(form, 'missing')).not.toThrow();
+  });
+});
+
+describe('subscribe', () => {
+  it('invokes the callback when the watched path is written', () => {
+    const form = createForm();
+    const callback = vi.fn();
+    subscribe(form, {name: 'city', callback});
+    setValue(form, 'city', 'Hangzhou');
+    expect(callback).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores writes at unrelated paths', () => {
+    const form = createForm();
+    const callback = vi.fn();
+    subscribe(form, {name: 'city', callback});
+    setValue(form, 'province', 'Zhejiang');
+    expect(callback).not.toHaveBeenCalled();
+  });
+
+  it('wakes a branch subscription on descendant writes', () => {
+    const form = createForm();
+    const callback = vi.fn();
+    // Default scope is 'branch': subscribing to 'tags' covers 'tags.*'.
+    subscribe(form, {name: 'tags', callback});
+    setValue(form, ['tags', 0], 'a');
+    setValue(form, 'tags', ['a', 'b']);
+    expect(callback).toHaveBeenCalledTimes(2);
+  });
+
+  it('leaf scope ignores descendant writes but not ancestor ones', () => {
+    const form = createForm();
+    const callback = vi.fn();
+    subscribe(form, {name: ['tags', 0], scope: 'leaf', callback});
+    setValue(form, ['tags', 1], 'b');
+    expect(callback).not.toHaveBeenCalled();
+    setValue(form, 'tags', ['a', 'b']);
+    expect(callback).toHaveBeenCalledTimes(1);
+  });
+
+  it('errors subscriptions match exact keys only', () => {
+    const form = createForm();
+    const callback = vi.fn();
+    subscribe(form, {name: 'email', event: 'errors', callback});
+    setError(form, 'name', 'Required');
+    expect(callback).not.toHaveBeenCalled();
+    setError(form, 'email', 'Invalid email');
+    expect(callback).toHaveBeenCalledTimes(1);
+  });
+
+  it('subscribes to every path in a name array', () => {
+    const form = createForm();
+    const callback = vi.fn();
+    subscribe(form, {name: ['province', 'city'], callback});
+    setValue(form, 'province', 'Zhejiang');
+    setValue(form, 'city', 'Hangzhou');
+    setValue(form, 'zip', '310000');
+    expect(callback).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops notifying once the unsubscribe function runs', () => {
+    const form = createForm();
+    const callback = vi.fn();
+    const unsubscribe = subscribe(form, {
+      name: ['province', 'city'],
+      callback
+    });
+    setValue(form, 'province', 'Zhejiang');
+    unsubscribe();
+    setValue(form, 'city', 'Hangzhou');
+    setValue(form, 'province', 'Jiangsu');
+    expect(callback).toHaveBeenCalledTimes(1);
+  });
+
+  it('fires on payload-less broadcasts (reset)', () => {
+    const form = createForm({initialValues: {province: 'Zhejiang'}});
+    const named = vi.fn();
+    const unnamed = vi.fn();
+    subscribe(form, {name: 'province', callback: named});
+    subscribe(form, {callback: unnamed});
+    reset(form);
+    expect(named).toHaveBeenCalledTimes(1);
+    expect(unnamed).toHaveBeenCalledTimes(1);
+  });
+
+  it('notifies named subscribers on payload-less submit events', () => {
+    const form = createForm();
+    const callback = vi.fn();
+    subscribe(form, {name: 'email', event: 'submitting', callback});
+    setIsSubmitting(form, true);
+    expect(callback).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats a number-bearing array as one segments path, not a name list', () => {
+    const form = createForm();
+    const callback = vi.fn();
+    subscribe(form, {name: ['user', 0], event: 'errors', callback});
+    // Would match a 'user' entry if the array were misread as name list.
+    setError(form, 'user', 'Required');
+    expect(callback).not.toHaveBeenCalled();
+    setError(form, ['user', 0], 'Required');
+    expect(callback).toHaveBeenCalledTimes(1);
   });
 });

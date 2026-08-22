@@ -1,6 +1,8 @@
 import {on} from '@for-fun/event-emitter';
 import type {EventEmitter} from '@for-fun/event-emitter';
-import type {Path} from './path';
+import createPath from './path';
+import type {Name, Path} from './path';
+import type {Form} from './form';
 
 /** Subscription granularity for {@link onPathEvent}.
  * - `'leaf'`: the subscriber reads exactly one key ({@link
@@ -86,4 +88,80 @@ export function onKeyEvent(
   return on(emitter, event, (changed?: Path) => {
     if (changed === undefined || changed.key === key) cb();
   });
+}
+
+/** Events {@link subscribe} can watch. `'errors'` and `'touched'` are
+ * stored per exact key, so they match exact keys ({@link onKeyEvent});
+ * `'change'`, `'submitting'` and `'submitCount'` carry paths and go
+ * through {@link onPathEvent}. */
+export type SubscribeEvent =
+  | 'change'
+  | 'errors'
+  | 'touched'
+  | 'submitting'
+  | 'submitCount';
+
+/** Options accepted by {@link subscribe}. */
+export type SubscribeOptions = {
+  /** Path (or list of paths) to watch. Omit to receive every emission of
+   * `event`, payload-less broadcasts included. A single segments path
+   * (`['tags', 0]`) and a list of names (`['tags', 'user.name']`) are told
+   * apart by the same rule `trigger` uses: only a segments path can hold
+   * a number. */
+  name?: Name | Name[];
+  /** Event to watch. Defaults to `'change'`. */
+  event?: SubscribeEvent;
+  /** Which writes around `name` are relevant — `'leaf'` or `'branch'`.
+   * Only meaningful for `'change'`: `'errors'`/`'touched'` match exact
+   * keys and `'submitting'`/`'submitCount'` are payload-less. Defaults to
+   * `'branch'` — the intuitive linkage semantics, where subscribing to
+   * `'tags'` means the whole branch. */
+  scope?: WatchScope;
+  /** Invoked with no arguments after each matching emission. Read fresh
+   * state through the `get*` readers inside it. */
+  callback: () => void;
+};
+
+/** Is `name` a list of names rather than one segments path? Numbers only
+ * occur inside a segments path (`['a', 0]`), never as standalone names —
+ * the same disambiguation `trigger` applies to its name argument. */
+function isNameList(name: Name | Name[]): name is Name[] {
+  return (
+    Array.isArray(name) &&
+    (name as (number | unknown)[]).every(part => typeof part !== 'number')
+  );
+}
+
+/**
+ * Subscribe to form events imperatively — the non-render counterpart of
+ * the `use*` hooks: linkages and side effects (province changed → clear
+ * city, autosave, analytics) run without mounting a watching component.
+ *
+ * Without `name`, `callback` fires on every `event` emission, payload-less
+ * broadcasts (reset, setInitialValues) included. With `name`, matching
+ * follows the event's shape: `'errors'`/`'touched'` match the exact key
+ * ({@link onKeyEvent}) — another field's error never wakes this
+ * subscriber — while `'change'`/`'submitting'`/`'submitCount'` go through
+ * {@link onPathEvent}, so the default `'branch'` scope wakes a `'tags'`
+ * subscriber when any `tags.*` descendant is written. A `name` array
+ * builds one subscription per path and the returned function unsubscribes
+ * them all.
+ *
+ * @param form the form to watch
+ * @param options event, name(s), scope and callback
+ * @return unsubscribe function
+ */
+export function subscribe(form: Form, options: SubscribeOptions): () => void {
+  const {name, event = 'change', scope = 'branch', callback} = options;
+  if (name === undefined) return on(form.emitter, event, callback);
+  const names = isNameList(name) ? name : [name];
+  const unsubscribes = names.map(one => {
+    const path = createPath(one);
+    return event === 'errors' || event === 'touched'
+      ? onKeyEvent(form.emitter, event, path.key, callback)
+      : onPathEvent(form.emitter, event, path, scope, callback);
+  });
+  return unsubscribes.length === 1
+    ? unsubscribes[0]
+    : () => unsubscribes.forEach(unsubscribe => unsubscribe());
 }

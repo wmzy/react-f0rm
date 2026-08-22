@@ -23,6 +23,7 @@ const form = useForm({
 | `validate` | `(values: T) => Record<string, any> \| Promise<Record<string, any>>` | Form-level validator; nested results are flattened onto field paths (see [Validation](../guides/validation.md)) |
 | `mode` | `'onSubmit' \| 'onBlur' \| 'onChange' \| 'onTouched' \| 'all'` | When fields are validated (default: `'onSubmit'`) — see [Validation Timing](../guides/validation.md#validation-timing) |
 | `reValidateMode` | `'onChange' \| 'onBlur' \| 'onSubmit'` | When a field is re-validated **after it already has an error** (default: `'onChange'`) |
+| `disabled` | `boolean` | Start the form with every bound field disabled (default: `false`) — bound fields OR this flag with their own `disabled` option (a field cannot opt out); toggle at runtime with `setDisabled` |
 
 ## Form Instance API
 
@@ -32,10 +33,12 @@ The returned instance (also created by `createForm`) is passed to the plain func
 
 | Function | Returns | Description |
 |----------|---------|-------------|
-| `getValues(form)` | `T` | All values — the written values layered over `initialValues`; unregistered (tombstoned) paths are omitted |
+| `getValues(form)` | `T` | All values — the written values layered over the parsed baseline (a schema's output, when form-level schema validation succeeded) layered over `initialValues`; unregistered (tombstoned) paths are omitted. The result is a freshly merged tree per call — callers may treat it as their own copy |
 | `getValue(form, name)` | value | Field value at `name` |
 | `setValue(form, name, value)` | | Write a field value |
-| `setInitialValues(form, values)` | | Replace initialValues and clear written values |
+| `setInitialValues(form, values)` | | Replace initialValues, clear written values **and** the parsed baseline |
+
+The readers are generic over the values shape: a typed form instance (`useForm<Values>(…)`, `createForm<Values>(…)`) checks every `name` against `FieldPath<Values>` — a typo'd path is a compile error — and resolves the value type at each path. When the form itself is untyped, annotate the call: `getValues<Values>(form)`.
 
 ### Errors
 
@@ -49,7 +52,7 @@ Errors are stored as `FieldError` objects — `{type: string, message: string}` 
 | `getFirstError(form)` | `string \| undefined` | First error's **message** string |
 | `hasErrors(form)` | `boolean` | Any error present |
 | `setError(form, name, error)` | | Set errors — accepts a `string` (normalized to `{type: 'custom', message}`), a `FieldError`, an array mixing both (several errors on one field), or `undefined` to clear |
-| `clearErrors(form)` | | Clear all errors |
+| `clearErrors(form, name?)` | | Clear errors — omit `name` to wipe every error, or pass one name (or an array of names) to clear only those fields |
 
 ### Dirty / touched state
 
@@ -70,7 +73,10 @@ Errors are stored as `FieldError` objects — `{type: string, message: string}` 
 | `validate(form)` | Validate everything; resolves to the first error **message** string or `void` |
 | `ensureValidate(form)` | Like `validate`, but rejects (throws) when any error exists |
 | `removeField(form, name)` | Unregister a field — the path is tombstoned, so `getValues()` omits it and does not fall back to `initialValues` |
+| `resetField(form, name, options?)` | Reset a single field without touching the rest of the form — see below |
+| `getFieldState(form, name)` | `FieldState` — one field's aggregated snapshot; see below |
 | `setFocus(form, name, options?)` | Focus a bound field's element programmatically — see below |
+| `setDisabled(form, value)` | Set the form-level disabled flag and emit a payload-less `'disabled'` event — every subscribed field re-renders with the merged state: the form flag OR-ed with its own `disabled` option |
 | `reset(form, initialValues?, options?)` | Full reset — see below |
 
 `reset` clears values, errors, touched state, validating state **and** the submission flags: `isSubmitting` → `false`, `submitCount` → `0`, `isSubmitSuccessful` → `undefined`. Pass `initialValues` to start from a fresh baseline; the omitted-fields tombstones are cleared too.
@@ -97,6 +103,43 @@ useEffect(() => {
   if (data) reset(form, data, {keepDirtyValues: true});
 }, [data]);
 ```
+
+#### Resetting a single field
+
+`resetField(form, name, options?)` resets one field and leaves the rest of the form alone — other fields and the submission flags are untouched. The field's live value is dropped (reads fall back to `initialValues`; when a schema's parsed baseline exists, its path is removed from it so the coerced output stops shadowing the initial value), and the field's touched flag and errors are cleared. Resetting also revives the path's removal tombstones — the inverse of `removeField`:
+
+```tsx
+import {resetField} from 'react-f0rm';
+
+resetField(form, 'email');                      // back to initialValues
+resetField(form, 'email', {keepTouched: true}); // keep the touched flag
+resetField(form, 'email', {value: ''});         // explicit value, no fallback
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `keepTouched` | `boolean` | `false` | Keep the field's touched flag |
+| `keepErrors` | `boolean` | `false` | Keep the field's errors |
+| `value` | `any` | — | Explicit post-reset value; never falls back to `initialValues` |
+
+#### `getFieldState`
+
+The read-side sibling of the resetters: `getFieldState(form, name)` returns one field's aggregated state in a single snapshot.
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `value` | `any` | The layered value (`getValue`) |
+| `error` | `FieldError \| undefined` | The first error (`getError`) |
+| `errors` | `FieldError[]` | Every error (`getFieldErrors`), insertion order |
+| `isDirty` | `boolean` | A live value exists and differs from `initialValues` — the same rule `getDirtyFields` applies; parsing never counts |
+| `isTouched` | `boolean` | The field's touched flag |
+| `isValidating` | `boolean` | A validator (or a pending debounce window) is in flight |
+
+```tsx
+const {value, error, isDirty} = getFieldState(form, 'email');
+```
+
+`errors` is the stored array shared with `getFieldErrors` — treat it as read-only, like every `getFieldErrors` result.
 
 #### `setFocus`
 

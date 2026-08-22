@@ -45,6 +45,30 @@ export type ValidationMode =
  */
 export type ReValidateMode = 'onChange' | 'onBlur' | 'onSubmit';
 
+/** Brand marking a form-level validate result as a structured
+ * {@link ValidationOutcome} (parsed values and/or errors) rather than a
+ * plain nested error record. Symbols cannot collide with user error
+ * records, so detection is an exact `VALIDATION_OUTCOME in result`. */
+export const VALIDATION_OUTCOME: unique symbol = Symbol('validation-outcome');
+
+/** Structured form-level validate result: `errors` uses the same nested
+ * shape a plain error record uses, `values` is the schema's parsed output
+ * (coerce/transform results included). Either side may be omitted. */
+export type ValidationOutcome<T> = {
+  [VALIDATION_OUTCOME]: true;
+  errors?: Record<string, any>;
+  values?: T;
+};
+
+/** What a form-level validate function may return: a plain nested error
+ * record (flattened into field errors — the long-standing shape), or a
+ * branded {@link ValidationOutcome} whose `values` become the form's
+ * parsedValues baseline. */
+export type ValidateResult<T> =
+  | Record<string, any>
+  | ValidationOutcome<T>
+  | Promise<Record<string, any> | ValidationOutcome<T>>;
+
 export interface Form<T extends Record<string, any> = any> {
   emitter: EventEmitter;
   mode: ValidationMode;
@@ -63,10 +87,22 @@ export interface Form<T extends Record<string, any> = any> {
   touched: Set<string>;
   validators: Map<string, () => void>;
   validating: Set<string>;
-  validate?: (values: T) => Record<string, any> | Promise<Record<string, any>>;
+  /** Parsed values from the last successful schema validation: the
+   * schema's complete output tree (coerced/transformed values included).
+   * Sits between initialValues and the values Map in {@link getValues}
+   * until `reset`/`setInitialValues` clears it. Never affects dirty
+   * state — that compares live edits against initialValues only. */
+  parsedValues: T | undefined;
+  validate?: (values: T) => ValidateResult<T>;
   isSubmitting: boolean;
   submitCount: number;
   isSubmitSuccessful: boolean | undefined;
+  /** Form-level disabled flag, OR-ed into every bound field's `disabled`
+   * (form flag || the field's own option). Seeded from
+   * {@link Options}.disabled at create time and toggled at runtime with
+   * {@link setDisabled}, which emits a payload-less 'disabled' event so
+   * subscribed fields re-render. */
+  disabled: boolean;
 }
 
 export type Options<T extends Record<string, any> = any> = {
@@ -82,9 +118,17 @@ export type Options<T extends Record<string, any> = any> = {
    * Form-level validator. Returns a record of errors keyed by field path;
    * nested objects are flattened ('a.b' style) and array values contribute
    * every non-empty string they hold as separate errors (zod `flatten()`
-   * formErrors style).
+   * formErrors style). Schema adapters instead return a branded
+   * {@link ValidationOutcome}: `errors` flattens the same way, `values`
+   * (the schema's parsed output) becomes the form's parsedValues baseline
+   * that {@link getValues} layers over initialValues.
    */
-  validate?: (values: T) => Record<string, any> | Promise<Record<string, any>>;
+  validate?: (values: T) => ValidateResult<T>;
+  /** Start the form with every bound field disabled — the flag bound
+   * fields OR with their own `disabled` option (a field cannot opt out
+   * of a disabled form). Toggle later with {@link setDisabled}.
+   * Defaults to `false`. */
+  disabled?: boolean;
 };
 
 /**
@@ -101,6 +145,7 @@ export default function create<T extends Record<string, any> = any>(
     ...options,
     mode: options?.mode ?? 'onSubmit',
     reValidateMode: options?.reValidateMode ?? 'onChange',
+    disabled: options?.disabled ?? false,
     initialValues: (options?.initialValues ?? {}) as T,
     values: new Map(),
     deleted: new Set(),
@@ -108,6 +153,7 @@ export default function create<T extends Record<string, any> = any>(
     touched: new Set(),
     validators: new Map(),
     validating: new Set(),
+    parsedValues: undefined,
     isSubmitting: false,
     submitCount: 0,
     isSubmitSuccessful: undefined
@@ -115,21 +161,33 @@ export default function create<T extends Record<string, any> = any>(
 }
 
 /**
- * Get form values: the values Map layered over initialValues.
+ * Get form values: the values Map layered over parsedValues (when a schema
+ * validation produced them) layered over initialValues.
  *
  * Merged with copy-on-write ownership tracking ({@link setOwned}): every
  * distinct container on a written path is allocated once and shared by all
  * paths through it, instead of re-copying the whole branch for every key.
- * The result is still a freshly merged tree per call, with untouched
- * branches sharing references with initialValues exactly like chained
+ * One owned set spans the whole merge, so containers borrowed from the
+ * parsedValues tree are copied before mutation exactly like initialValues
+ * ones. The result is still a freshly merged tree per call, with untouched
+ * branches sharing references with the baseline exactly like chained
  * `set` did -- callers may treat it as their own copy.
+ *
+ * parsedValues is the schema's complete output tree: once validation
+ * succeeds it replaces the initialValues baseline (fields the schema
+ * dropped disappear), while live edits in the values Map still win over
+ * both. It never affects dirty state — {@link isDirty} and
+ * {@link getDirtyFields} compare live edits against initialValues only,
+ * because parsing is not a user edit.
  *
  * @param form
  */
-export function getValues(form: Form): any {
-  const {initialValues, values, deleted} = form;
+export function getValues<T extends Record<string, any> = any>(
+  form: Form<T>
+): T {
+  const {initialValues, parsedValues, values, deleted} = form;
   const owned = new Set<object>();
-  let merged = initialValues;
+  let merged = parsedValues ?? initialValues;
   for (const [key, value] of values) {
     merged = setOwned(merged, JSON.parse(key), value, owned);
   }
@@ -163,13 +221,15 @@ export function getValue<
  * @param path
  */
 export function getValueByPath(
-  {initialValues, values, deleted}: Form,
+  {initialValues, parsedValues, values, deleted}: Form,
   path: Path
 ): any {
   if (values.has(path.key)) return values.get(path.key);
   // Unregistered path: the tombstone blocks the initialValues fallback.
   if (deleted.has(path.key)) return undefined;
-  return get(initialValues, path.value);
+  // Same layering as getValues: parsed values (when present) are the
+  // baseline above initialValues.
+  return get(parsedValues ?? initialValues, path.value);
 }
 
 /** Options accepted by {@link setValue} / {@link setValueByPath}. Every flag
@@ -309,6 +369,46 @@ export function getFirstError({errors}: Form): string | undefined {
   return errors.values().next().value?.[0]?.message;
 }
 
+/** Snapshot of one field's aggregated state, as {@link getFieldState}
+ * returns it. `errors` is the stored array shared with the form — treat it
+ * as read-only, like every {@link getFieldErrors} result. */
+export interface FieldState<T = any> {
+  value: T;
+  error: FieldError | undefined;
+  errors: FieldError[];
+  isDirty: boolean;
+  isTouched: boolean;
+  isValidating: boolean;
+}
+
+/**
+ * Get one field's aggregated state: the layered value ({@link getValue}),
+ * the first error ({@link getError}) and every error ({@link
+ * getFieldErrors}), dirtiness, the touched flag, and whether a validator
+ * is in flight. `isDirty` applies the same per-field rule as {@link
+ * getDirtyFields}: a live value exists and differs from initialValues at
+ * that path (parsedValues never counts — parsing is not an edit).
+ *
+ * @param form
+ * @param name
+ */
+export function getFieldState<
+  T extends Record<string, any> = any,
+  P extends FieldPath<T> | Name = Name
+>(form: Form<T>, name: P): FieldState<PathValueOf<T, P>> {
+  const path = createPath(name);
+  const {initialValues, values, touched, validating} = form;
+  const live = values.get(path.key);
+  return {
+    value: getValueByPath(form, path),
+    error: getErrorByPath(form, path),
+    errors: getFieldErrorsByPath(form, path),
+    isDirty: values.has(path.key) && get(initialValues, path.value) !== live,
+    isTouched: touched.has(path.key),
+    isValidating: validating.has(path.key)
+  };
+}
+
 export function unsetValidatingByPath(
   {emitter, validating}: Form,
   path: Path
@@ -396,10 +496,26 @@ function normalizeErrors(
 /**
  * Clear errors
  * @param form
+ * @param name a single path or a list of paths; omit to clear every error
  */
-export function clearErrors({emitter, errors}: Form): void {
-  errors.clear();
-  emit(emitter, 'errors');
+export function clearErrors(form: Form, name?: Name | Name[]): void {
+  const {emitter, errors} = form;
+  if (name === undefined) {
+    errors.clear();
+    // Payload-less broadcast: every error subscriber re-syncs.
+    emit(emitter, 'errors');
+    return;
+  }
+  // Same single-path vs list discrimination as trigger: a segment array
+  // holding a number is one path ('a.0' shape), not a list of names.
+  const paths =
+    typeof name === 'string' || isSegmentsPath(name)
+      ? [createPath(name)]
+      : name.map(one => createPath(one));
+  for (const {key} of paths) errors.delete(key);
+  // Path-payload emits — the setErrorByPath scoping — wake exactly the
+  // affected fields' subscribers.
+  for (const path of paths) emit(emitter, 'errors', path);
 }
 
 /**
@@ -632,6 +748,8 @@ function reviveBranch(deleted: Set<string>, {key}: Path): void {
 export function setInitialValues(form: Form, initialValues: any): void {
   if (form.initialValues === initialValues) return;
   form.initialValues = initialValues;
+  // A new baseline invalidates the previous schema parse.
+  form.parsedValues = undefined;
   form.values.clear();
   form.deleted.clear();
   bumpDirtyVersion(form);
@@ -680,6 +798,8 @@ export function reset(
       }))
     : [];
   form.initialValues = initialValues;
+  // The fresh baseline drops any schema parse from the previous cycle.
+  form.parsedValues = undefined;
   if (!options?.keepErrors) clearErrors(form);
   const {emitter, touched, values, deleted, validating} = form;
   values.clear();
@@ -702,6 +822,70 @@ export function reset(
   emit(emitter, 'submitCount');
   emit(emitter, 'submitSuccessful');
   emit(emitter, 'reset');
+}
+
+/** Options accepted by {@link resetField}. The flags default to `false`;
+ * `value` has no default — omitted, the field falls back to initialValues;
+ * provided, the explicit value becomes the live value with no fallback at
+ * all. Mirrors react-hook-form's resetField options (`value` plays their
+ * `defaultValue`'s role) to ease migration. */
+export interface ResetFieldOptions {
+  /** Keep the field's touched flag instead of clearing it. */
+  keepTouched?: boolean;
+  /** Keep the field's errors instead of clearing them. */
+  keepErrors?: boolean;
+  /** Explicit post-reset value for the field — never falls back to
+   * initialValues. */
+  value?: any;
+}
+
+/**
+ * Reset a single field: drop its live value (reads fall back to the
+ * baseline — initialValues, or the schema's parsed output when one
+ * exists, in which case the path is removed from parsedValues and the
+ * initial value pinned back so the field reads initialValues again),
+ * clear its touched flag and errors, and revive the path's removal
+ * tombstones — the inverse of {@link removeFieldByPath}. Other fields
+ * and the submission flags are untouched; see {@link reset} for the
+ * form-wide counterpart.
+ *
+ * @param form
+ * @param name
+ * @param options
+ */
+export function resetField<
+  T extends Record<string, any> = any,
+  P extends FieldPath<T> | Name = Name
+>(form: Form<T>, name: P, options?: ResetFieldOptions): void {
+  const path = createPath(name);
+  const {emitter, values, touched, errors, deleted} = form;
+  values.delete(path.key);
+  // A parse baseline wholesale-shadows initialValues in reads (see
+  // getValues), so unset alone would read the path as undefined. Remove
+  // the path from the tree (immutable — parsedValues shares branches with
+  // the schema's own output) and pin the initial value back as the live
+  // value: equal to initialValues, so the field stays clean.
+  if (form.parsedValues !== undefined) {
+    form.parsedValues = unset(form.parsedValues, path.value);
+    const initial = get(form.initialValues, path.value);
+    if (initial !== undefined) values.set(path.key, initial);
+  }
+  if (options && 'value' in options) {
+    values.set(path.key, options.value);
+  }
+  // A reset re-registers the branch, same as a write: tombstones on the
+  // path or around it stop applying.
+  reviveBranch(deleted, path);
+  // Payload-less like removeFieldByPath: reviveBranch can un-tombstone
+  // ancestor or descendant paths, whose readers must re-sync too.
+  emit(emitter, 'change');
+  if (!options?.keepTouched && touched.delete(path.key)) {
+    emit(emitter, 'touched', path);
+  }
+  if (!options?.keepErrors && errors.delete(path.key)) {
+    emit(emitter, 'errors', path);
+  }
+  bumpDirtyVersion(form);
 }
 
 /**
@@ -760,7 +944,7 @@ export async function trigger(
     await settle();
     if (form.validate) {
       const result = await form.validate(getValues(form));
-      if (result) setFormErrors(form, result);
+      applyValidateResult(form, result);
     }
     return !hasErrors(form);
   }
@@ -816,6 +1000,40 @@ function setFormErrors(
   });
 }
 
+/** Store a schema validator's parsed output as the getValues baseline
+ * layer above initialValues. Payload-less 'change' notifies value
+ * watchers (useValue, useDirtyFields, ...); dirty state is untouched —
+ * it only compares live edits against initialValues, and parsing is not
+ * an edit. */
+function setParsedValues(form: Form, values: any): void {
+  if (values === undefined || values === form.parsedValues) return;
+  form.parsedValues = values;
+  emit(form.emitter, 'change');
+}
+
+/**
+ * Land a form-level validate result. A plain record keeps the
+ * long-standing behavior — flattened into field errors by
+ * {@link setFormErrors}. A branded {@link ValidationOutcome} splits
+ * instead: `errors` flattens exactly like a plain record, and `values`
+ * (the schema's parsed output — coerced/transformed values included)
+ * becomes the form's parsedValues baseline. Falsy results are skipped,
+ * branded or not.
+ */
+function applyValidateResult(
+  form: Form,
+  result: ValidateResult<any> | undefined
+): void {
+  if (!result) return;
+  if (typeof result === 'object' && VALIDATION_OUTCOME in result) {
+    const outcome = result as ValidationOutcome<any>;
+    if (outcome.errors) setFormErrors(form, outcome.errors);
+    setParsedValues(form, outcome.values);
+    return;
+  }
+  setFormErrors(form, result as Record<string, any>);
+}
+
 /**
  * Validate and throw if any field error.
  * @param form
@@ -835,7 +1053,7 @@ export async function ensureValidate(form: Form): Promise<void> {
 
   if (form.validate) {
     const result = await form.validate(getValues(form));
-    if (result) setFormErrors(form, result);
+    applyValidateResult(form, result);
     if (hasErrors(form)) throw new Error(getFirstError(form));
   }
 }
@@ -862,6 +1080,19 @@ export function incrementSubmitCount(form: Form): void {
 export function setSubmitSuccessful(form: Form, value: boolean): void {
   form.isSubmitSuccessful = value;
   emit(form.emitter, 'submitSuccessful');
+}
+
+/**
+ * Set the form-level disabled flag and emit a payload-less 'disabled'
+ * event — subscribed fields (useField and the components built on it)
+ * re-render with the merged disabled state: form flag || their own
+ * `disabled` option.
+ * @param form
+ * @param value
+ */
+export function setDisabled(form: Form, value: boolean): void {
+  form.disabled = value;
+  emit(form.emitter, 'disabled');
 }
 
 /** Structural slice of a <form>-like element: an elements collection whose
@@ -985,7 +1216,7 @@ export function handleSubmit<T extends Record<string, any> = any>(
     const formEl = e?.currentTarget;
     setIsSubmitting(form, true);
     incrementSubmitCount(form);
-    const values = getValues(form) as T;
+    const values = getValues(form);
 
     if (
       formEl &&
@@ -1023,8 +1254,13 @@ export function handleSubmit<T extends Record<string, any> = any>(
     }
 
     try {
-      if (onSubmit) await onSubmit(values, e);
-      if (onValidSubmit) await onValidSubmit(values, e);
+      // Re-read after validation: a schema validator's parsed output
+      // (ValidationOutcome.values) landed in parsedValues during
+      // validate(), and the submit callbacks must see the coerced /
+      // transformed values, not the raw pre-validation snapshot.
+      const submitted = getValues(form);
+      if (onSubmit) await onSubmit(submitted, e);
+      if (onValidSubmit) await onValidSubmit(submitted, e);
       setSubmitSuccessful(form, true);
     } catch {
       setSubmitSuccessful(form, false);

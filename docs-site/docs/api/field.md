@@ -14,7 +14,10 @@ A controlled input component with built-in validation support and error accessib
 | `as` | `ComponentType` | Custom component to render |
 | `asProps` | `Record<string, any>` | Props passed directly to the `as` component (use when prop names conflict with Field's own props) |
 | `validate` | `(value, meta) => string \| FieldError \| undefined` | Field-level validator; strings are normalized to `{type: 'custom', message}` |
+| `rules` | `FieldRules` | Declarative constraints (`required` / `min` / `max` / `minLength` / `maxLength` / `pattern`) compiled into a validator that runs before `validate` — see [Rules](../guides/validation.md#rules) |
 | `validateDebounce` | `number` | Milliseconds to debounce this field's validation kicks (default: `0`); while pending, the field counts as validating so `trigger`/submit wait out the window — see [Async Validation](../guides/validation.md#async-validation) |
+| `delayError` | `number` | Milliseconds to hold a newly appearing error back from the render — `aria-invalid` and `renderError` wait out the window while the form's error state stays immediate — see [Delaying Error Display](../guides/validation.md#delaying-error-display) |
+| `disabled` | `boolean` | Disable the control — OR-ed with the form-level flag (`createForm({disabled})` / `setDisabled`); passing `false` cannot opt a field out of a disabled form |
 | `initialValue` | `any` | Override initial value |
 | `eventToValue` | `(event) => any` | Transform event to value |
 | `valueToProps` | `(value) => object` | Transform value to props |
@@ -39,7 +42,7 @@ All props **not** consumed by `Field` are forwarded to the underlying component 
 />
 ```
 
-The following props are **consumed** by `Field` and will **not** be forwarded: `name`, `as`, `asProps`, `validate`, `initialValue`, `eventToValue`, `valueToProps`, `renderError`, `form`, `shouldUnregister`.
+The following props are **consumed** by `Field` and will **not** be forwarded: `name`, `as`, `asProps`, `validate`, `rules`, `validateDebounce`, `delayError`, `disabled`, `initialValue`, `eventToValue`, `valueToProps`, `renderError`, `form`, `shouldUnregister`.
 
 The component rendered via `as` receives:
 - `value` — the current field value

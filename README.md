@@ -34,20 +34,20 @@ yarn add react-f0rm
 
 ## Benchmarks
 
-tinybench; relative margin of error ≤ 0.8% for the first three scenarios, ≤ 4.3% for the scale scenarios.
+tinybench; relative margin of error ≤ 0.9% for the first three scenarios, ≤ 2.5% for the scale scenarios.
 
 | Scenario | react-f0rm | Baseline | Speedup |
 |---|---|---|---|
-| Change one of 100 controlled fields | 96µs/change (~10,400 ops/s) | RHF `Controller`: 175µs (~5,730 ops/s) | ~1.8× |
+| Change one of 100 controlled fields | 113µs/change (~8,880 ops/s) | RHF `Controller`: 200µs (~5,000 ops/s) | ~1.8× |
 | Components re-rendered per change | 1 of 100 `Field`s | — | — |
-| `getValues()`, 100 fields × depth 3 | 40.4µs (ownership merge) | legacy chained `set`: 87.2µs | 2.16× |
-| Change one of 1000 controlled fields | 0.358ms/change (~2,795 ops/s, rme ±0.7%) | RHF `Controller`: 1.465ms (~683 ops/s) | 4.0× |
-| Async validation storm — burst of 3 changes × 50 debounced async validators, settled via `trigger` | 24.2ms/burst (~41 ops/s, rme ±4.3%) | — | — |
-| `await trigger(form)` — 100 mixed validators (50 sync + 50 async) settle | 1.49ms (~669 ops/s, rme ±0.3%) | — | — |
+| `getValues()`, 100 fields × depth 3 | 42.5µs (ownership merge) | legacy chained `set`: 93.0µs | 2.19× |
+| Change one of 1000 controlled fields | 0.418ms/change (~2,390 ops/s, rme ±1.1%) | RHF `Controller`: 1.662ms (~602 ops/s) | 4.0× |
+| Async validation storm — burst of 3 changes × 50 debounced async validators, settled via `trigger` | 20.5ms/burst (~49 ops/s, rme ±2.4%) | — | — |
+| `await trigger(form)` — 100 mixed validators (50 sync + 50 async) settle | 1.48ms (~676 ops/s, rme ±0.9%) | — | — |
 
 Notes:
 
-- For reference, RHF's uncontrolled `register` — which has no per-field re-render at all — floors at 20.4µs/change; the controlled comparison above uses `Controller`, the fair apples-to-apples baseline.
+- For reference, RHF's uncontrolled `register` — which has no per-field re-render at all — floors at 21µs/change; the controlled comparison above uses `Controller`, the fair apples-to-apples baseline.
 - In the `getValues()` benchmark, ownership merging also cut container allocations from 300 to 111.
 
 Reproduce with:
@@ -64,20 +64,24 @@ react-f0rm vs the established options. react-f0rm figures come from this repo (s
 | | react-f0rm | React Hook Form | TanStack Form | Formik |
 |---|---|---|---|---|
 | Rendering model | Controlled fields with field-level subscriptions (`useSyncExternalStore`): editing one of 100 fields re-renders exactly 1 component | Uncontrolled `register` by default (no React re-render while typing); `Controller` opts into per-field re-renders | Field-level subscriptions (`form.Field` / `useField`), each field re-renders itself | Form-wide context: any state change re-renders all subscribed components |
+| Unregister on unmount | Unregisters by default — an unmounted field drops out of `getValues()` (tombstone) instead of silently reviving its initial value; `shouldUnregister: false` keeps it | Value kept by default (`shouldUnregister` defaults to `false`); opt in per field or form to unregister on unmount | Values live in the form store; unmounting a field's UI keeps its value and state | No unregister concept — values persist until `reset` |
 | Schema adapters | One Standard Schema entry point (`react-f0rm/resolvers/standard-schema`) covers zod, valibot, arktype, …; legacy zod/yup resolvers also shipped | `@hookform/resolvers` — one adapter module per validation library | Built-in `standardSchemaValidators` (Standard Schema v1), plus per-library adapter packages | Yup built in via `validationSchema`; other libraries hand-wired in `validate` |
 | Path type safety | `FieldPath<T>` / `PathValue<T, P>`: every valid path enumerated, value type resolved, typos fail at compile time | `Path<T>` / `FieldPath` type-level path checking | Deep inference, including validator argument types — the strongest of the four | Top-level `keyof` only; nested paths are untyped strings |
 | Async validation | `validateDebounce` per field + `meta.signal` (`AbortSignal`) handed to every validator — superseded rounds cancel their in-flight work; pending debounce counts as validating so submit waits | Async validators supported, but no built-in debounce and no cancellation signal — both are hand-rolled per project | Built in: `asyncDebounceMs` debounces and the validator meta carries an `AbortSignal` | Async `validate` supported; no debounce, no signal |
 | Multiple errors per field | Native: every field holds `FieldError[]`; `getFieldErrors`/`useFieldErrors` read them; resolvers forward every schema issue | `criteriaMode: 'all'` collects all failing rules per field | Errors are arrays of messages per field | — |
 | SSR / hydration | `renderToString` renders initial values out of the box; server snapshot matches the client's first render | SSR-safe | SSR-safe | SSR-safe |
-| Bundle size | 5.16 KB brotli, full core (size-limit) | ~11 KB gzip | ~17.5 KB gzip | ~12.8 KB gzip |
+| React 19 / Server Actions | Bridge pattern: dispatch the action from `onValidSubmit` via `startTransition`/`useActionState`, passing the values object rather than FormData (see the React 19 Server Actions guide); no submit before JS loads | `<Form>` accepts a function `action` prop (server-action-style submit) since v7.84, and ships a `react-server` export | Documented server action integration (`createServerValidate` for server-side validation, Next.js examples) | — |
+| Bundle size | 11.18 KB gzip (7.1 KB brotli, minified), full core | ~11 KB gzip | ~17.5 KB gzip | ~12.8 KB gzip |
 | Devtools | `<Devtools />` from `react-f0rm/devtools` — separate entry point, tree-shakeable, never lands in the main bundle | `@hookform/devtools` (separate package) | Built-in devtools panel | None (official) |
 | Ecosystem maturity | New, 0.x — small audience, few integrations so far | Most mature: massive adoption, resolvers, UI-kit integrations, abundant examples and answers | Backed by the TanStack family, actively growing | Maintenance mode; the author recommends considering RHF or Final Form for new projects |
 
+Bundle-size basis: every column is gzip. react-f0rm is measured on the local build — gzip of the shipped, unminified `dist/index.mjs` after `npm run build` (minified, the same file gzips to ~7.88 KB; 7.1 KB brotli via size-limit, which minifies and tree-shakes). Competitor figures are Bundlephobia observations of minified+gzip bundles — so ours is the conservative number, not the flattering one.
+
 ### Which one should you use?
 
-**Pick react-f0rm** when you want controlled components with true per-field subscriptions (design systems, editor-like forms), one Standard Schema adapter instead of a package per validator, compile-time-checked paths, and a ~5 KB core — and you are comfortable with a young 0.x library.
+**Pick react-f0rm** when you want controlled components with true per-field subscriptions (design systems, editor-like forms), one Standard Schema adapter instead of a package per validator, compile-time-checked paths, and a small core (11.18 KB gzip / 7.1 KB brotli) — and you are comfortable with a young 0.x library.
 
-**Pick React Hook Form** when uncontrolled inputs are an option: its raw `register` performs no per-field re-render at all and floors at 20.4µs/change vs our 96µs (see [Benchmarks](#benchmarks)) — uncontrolled is simply a cheaper rendering model. RHF is also the right call when you need its mature ecosystem of resolvers, UI-library integrations and community answers today. TanStack Form sits in between: choose it when the deepest possible type inference (including validator signatures) matters more to you than bundle size.
+**Pick React Hook Form** when uncontrolled inputs are an option: its raw `register` performs no per-field re-render at all and floors at 21µs/change vs our 113µs (see [Benchmarks](#benchmarks)) — uncontrolled is simply a cheaper rendering model. RHF is also the right call when you need its mature ecosystem of resolvers, UI-library integrations and community answers today. TanStack Form sits in between: choose it when the deepest possible type inference (including validator signatures) matters more to you than bundle size.
 
 ## Usage
 
@@ -125,6 +129,35 @@ function CustomField({name}) {
 const form = useForm({initialValues: {email: ''}});
 const {value, onChange} = useField({form, name: 'email'});
 ```
+
+### `subscribe`
+
+Linked fields and other non-render side effects — province changed → clear city, autosave, analytics — should not require a mounted watching component. `subscribe` exposes the event core imperatively:
+
+```jsx
+import {createForm, subscribe, getValue, setValue} from 'react-f0rm';
+
+const form = createForm({initialValues: {province: '', city: ''}});
+
+const unsubscribe = subscribe(form, {
+  name: 'province',
+  callback: () => {
+    // Read fresh state through the getters inside the callback.
+    if (getValue(form, 'city')) setValue(form, 'city', '');
+  }
+});
+```
+
+| Option | Type | Default |
+|---|---|---|
+| `name` | field path, or an array of them | omitted — every emission of `event`, payload-less broadcasts (reset, …) included |
+| `event` | `'change'` \| `'errors'` \| `'touched'` \| `'submitting'` \| `'submitCount'` | `'change'` |
+| `scope` | `'leaf'` \| `'branch'` | `'branch'` |
+| `callback` | `() => void`, fired with no arguments | required |
+
+Matching follows the event's shape. `'change'` walks the path tree: the default `'branch'` scope wakes a `'tags'` subscriber when any `tags.*` descendant is written, while `'leaf'` matches only the exact key and its ancestors. `'errors'` and `'touched'` always match the exact key — another field's error never wakes this subscriber. `'submitting'`/`'submitCount'` are payload-less, so a `name` narrows nothing. An array of names creates one subscription per path, and the returned function unsubscribes them all. A number-bearing array (`['tags', 0]`) is one segments path, not a name list — the same rule `trigger` uses.
+
+**`subscribe` vs `useWatch`:** `useWatch` (and the `useValue`/`useError`/… readers built on it) feeds rendering — it returns a snapshot and re-renders the component when it changes. `subscribe` runs imperative code and renders nothing. Use `subscribe` for linkages and effects; reach for a hook only when the watched value itself must appear on screen.
 
 ### `useFieldArray`
 
@@ -199,6 +232,23 @@ Pass a `values` prop to `<Form>` (or `values` to `useForm`) to drive the form fr
 ```
 
 Whenever the `values` reference changes, the new object is synced into the form: uncommitted user edits are discarded — master-detail semantics, where selecting another record replaces the draft — while touched flags and errors are kept. The sync guard is reference-first with a structural fallback: re-renders that pass the same `values` reference never re-sync, and neither does an inline literal whose content is structurally equal to what the form was last seeded from — only genuinely different content replaces the draft, so an unrelated re-render never interrupts what the user is typing.
+
+## Disabled
+
+Disable a whole form — during submission, while a record loads, or for read-only views:
+
+```jsx
+const form = useForm({disabled: isReadOnly});
+
+// or toggle at runtime — every bound field re-renders:
+setDisabled(form, true);
+```
+
+The flag is OR-ed into every bound field: `Field`, `Checkbox` and `Select` render their control disabled when either the form flag or their own `disabled` prop is true — a field cannot opt out of a disabled form. `useField` exposes the merged flag as `disabled`, kept live through the form's event core:
+
+```jsx
+const {disabled, value, onChange} = useField({name: 'email'});
+```
 
 ## Submit Handlers
 
@@ -346,7 +396,7 @@ setError(form, 'password', [
 ]);
 ```
 
-`setError` accepts a string, a `FieldError`, an array mixing both, or `undefined` to clear. Schema resolvers pass every issue through — a value breaking several rules collects all of them (Standard Schema/zod by design, yup via `abortEarly: false`) — and `getErrors()` contributes one entry per error.
+`setError` accepts a string, a `FieldError`, an array mixing both, or `undefined` to clear. Schema resolvers pass every issue through — a value breaking several rules collects all of them (Standard Schema/zod by design, yup via `abortEarly: false`) — and `getErrors()` contributes one entry per error. For imperative clears, `clearErrors(form)` wipes every error while `clearErrors(form, name)` — one name or an array of names — clears only those fields.
 
 ### `setValue` options
 
@@ -374,6 +424,41 @@ Pass a `validate` function to `Field` or `useField`. Return an error string, a `
   }}
 />
 ```
+
+### Rules
+
+For declarative constraints, pass `rules` to `Field` (or any bound component — `Checkbox`, `Select` — or `useField`). Rule failures land in the form's error state as `FieldError`s (`type` is the rule name) carrying your message, so any design system can render them uniformly instead of the browser's validity bubble:
+
+```jsx
+<Field
+  name="age"
+  rules={{
+    required: 'Age is required',
+    min: 18,
+    messages: {min: 'Must be an adult'}
+  }}
+/>
+```
+
+| Rule | Value | Fails when | Default message |
+|---|---|---|---|
+| `required` | `string \| true` | value is `''`, `undefined` or `null` (`0` and `false` count as filled) | `'This field is required'` |
+| `min` | `number` | `Number(value) < min` — values converting to `NaN` skip the rule | `` `Must be at least ${min}` `` |
+| `max` | `number` | `Number(value) > max` — `NaN` skips | `` `Must be at most ${max}` `` |
+| `minLength` | `number` | a string value is shorter — non-strings skip | `` `Must be at least ${n} characters` `` |
+| `maxLength` | `number` | a string value is longer — non-strings skip | `` `Must be at most ${n} characters` `` |
+| `pattern` | `{value: RegExp, message: string}` | `pattern.value.test(value)` is false | the given `message` |
+
+The optional top-level `messages` record overrides messages per rule type (`min`, `max`, `minLength`, `maxLength`, `pattern`) — useful for centralizing or localizing them.
+
+Semantics:
+
+- A failing `required` short-circuits the rest — an empty value reports only its `required` error, not a full panel.
+- Every other failing rule collects into one ordered `FieldError[]` (see [Multiple errors per field](#multiple-errors-per-field)).
+- `rules` composes with `validate`: rules run first, then `validate` (awaited when async), merging both sources' errors with rules ahead.
+- Rules ride the exact same pipeline as `validate` — `mode`, `reValidateMode`, `validateDebounce` and `meta.signal` all apply unchanged.
+
+Rules vs native constraints: HTML attributes (`required`, `type="email"`, `min`, …) keep running through the browser's `checkValidity`, whose bubble remains the pre-submit fallback. `rules` is the state-side alternative — failures are queryable (`getErrors`, `error`, `errors`), renderable by any UI, and carry your own messages. Prefer `rules` whenever the error text must be controlled.
 
 ### Form-level validation
 
@@ -421,6 +506,18 @@ const form = createForm({
 
 Schema errors come back as `{type: 'standard', message}`.
 
+On success the adapter returns the schema's parsed output, which the form stores as its `parsedValues` baseline: `getValues()` and submit callbacks (`onSubmit`/`onValidSubmit`) read coerced/transformed values — `z.coerce.number()` hands back a real `number`, not the raw string. The baseline sits between `initialValues` and live edits, so fields the user changes afterwards still win, and dirty state keeps comparing live edits against `initialValues` only — parsing never marks a field dirty. `reset()` and `setInitialValues()` clear the baseline.
+
+### Delaying error display
+
+`delayError` (milliseconds) holds a newly appearing error back from the render for a short window — users typing through a field are not interrupted by an error the next keystroke may already fix:
+
+```jsx
+<Field name="username" rules={{minLength: 3}} delayError={300} />
+```
+
+The delay is render-layer only: `error`/`errorObject`/`errors` from `useField` (and everything `Field` derives from them — `aria-invalid`, `renderError`) stay `undefined`/empty until the window passes. The form's error state is never delayed — `trigger`, submit and `getError(form, name)` read the error immediately, unlike react-hook-form's formState-level delay. An error that clears inside the window never shows at all; once an error is visible, later changes (a new message, entries added or removed) apply immediately — only the none → some transition waits.
+
 ## Dirty & Touched Fields
 
 ```jsx
@@ -460,6 +557,30 @@ useEffect(() => {
 ```
 
 The other flags — `keepTouched`, `keepErrors`, `keepIsSubmitted`, `keepSubmitCount`, `keepIsSubmitting` — all default to `false`; omitting the object keeps the plain full-reset behavior.
+
+### Resetting a single field
+
+`resetField(form, name, options?)` resets one field and leaves the rest of the form alone: the field's live value is dropped (reads fall back to `initialValues` — when a schema's `parsedValues` baseline exists, its path is removed so the coerced output stops shadowing the initial value), and the field's touched flag and errors are cleared:
+
+```jsx
+import {resetField, getFieldState} from 'react-f0rm';
+
+resetField(form, 'email');                      // back to initialValues
+resetField(form, 'email', {keepTouched: true}); // keep the touched flag
+resetField(form, 'email', {value: ''});         // explicit value, no fallback
+```
+
+| Option        | Default | Effect                                                        |
+| ------------- | ------- | ------------------------------------------------------------- |
+| `keepTouched` | `false` | Keep the field's touched flag                                 |
+| `keepErrors`  | `false` | Keep the field's errors                                       |
+| `value`       | —       | Explicit post-reset value; never falls back to `initialValues` |
+
+Its read-side sibling `getFieldState(form, name)` returns one field's aggregated state — `{value, error, errors, isDirty, isTouched, isValidating}` — where `isDirty` applies the same rule as `getDirtyFields` (a live value differing from `initialValues`; parsing never counts) and `errors` is the stored array shared with `getFieldErrors`, so treat it as read-only:
+
+```jsx
+const {value, error, isDirty} = getFieldState(form, 'email');
+```
 
 ## Accessibility
 

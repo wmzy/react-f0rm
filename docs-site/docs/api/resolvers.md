@@ -1,5 +1,5 @@
 ---
-sidebar_position: 7
+sidebar_position: 8
 ---
 
 # Schema Resolvers
@@ -64,3 +64,12 @@ const form = createForm({
 ```
 
 Issues without a path (form-level errors) are set on the `_form` key.
+
+### Return value: `ValidationOutcome`
+
+`standardSchemaFormValidator` returns a structured `ValidationOutcome` with `errors` **and** `values` sides — not a plain error record:
+
+- On failure, `errors` uses the nested shape the form-level flattening resolves per field, keeping **every** issue of a path (not just the first).
+- On success, `values` carries the schema's parsed output — coercions and transforms included — which the form stores as its parsed baseline: `getValues()` and the submit callbacks read the parsed values from then on, live edits keep winning over the baseline, and dirty state keeps comparing live edits against `initialValues` (parsing is not an edit). `reset()` / `setInitialValues()` clear the baseline.
+
+See [Parsed Values](../guides/validation.md#parsed-values) for the full semantics.

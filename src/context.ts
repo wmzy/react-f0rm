@@ -19,7 +19,16 @@ export const FormContext = createContext<any>(null);
 
 export const FormProvider = FormContext.Provider;
 
-export function useFormContext(): any {
+/**
+ * Read the form from the module-level {@link FormContext}. Pass the values
+ * shape — `useFormContext<Values>()` — to get a fully typed `Form<Values>`
+ * headless API; the `any` default keeps untyped call sites compiling.
+ *
+ * For multiple forms in one subtree use {@link createFormContext} instead.
+ *
+ * @throws when no `<FormProvider>` is mounted above the call site.
+ */
+export function useFormContext<T extends Record<string, any> = any>(): Form<T> {
   const form = useContext(FormContext);
   if (!form) throw new Error('no form provided');
   return form;
@@ -61,11 +70,10 @@ export function createFormContext<TValues extends Record<string, any> = any>() {
   }
 
   function useField<TPath extends FieldPath<TValues> | Name = Name>(
-    // The bare `{name: TPath}` member is what drives inference: routing it
-    // through `Omit<UseFieldOptions, 'form'>` alone would collapse `name`
-    // into the options type's `[key: string]: any` index signature and
-    // degrade TPath to plain `Name` (untyped `value`). `form` is omitted on
-    // purpose — the form always comes from this factory's own Context.
+    // The bare `{name: TPath}` member keeps `name` a direct inference site
+    // for TPath instead of routing it through the mapped Omit type.
+    // `form` is omitted on purpose — the form always comes from this
+    // factory's own Context.
     options: {name: TPath} & Omit<UseFieldOptions<TValues, TPath>, 'form'>
   ): UseFieldResult<TValues, TPath> {
     return useFieldCore(options as UseFieldOptions<TValues, TPath>, Context);

@@ -13,6 +13,10 @@ export * from './hooks/form';
 export {default as useForm} from './hooks/form';
 export {default as useField} from './hooks/field';
 export {default as useFieldArray} from './hooks/fieldArray';
+export type {FieldRules} from './rules';
+
+export {subscribe} from './subscribe';
+export type {SubscribeOptions, SubscribeEvent, WatchScope} from './subscribe';
 
 export {default as Form} from './components/Form';
 export * from './components/Field';

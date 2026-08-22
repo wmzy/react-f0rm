@@ -13,7 +13,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'API',
-      items: ['api/form', 'api/field', 'api/use-form', 'api/use-field', 'api/use-field-array', 'api/create-form-context', 'api/resolvers'],
+      items: ['api/form', 'api/field', 'api/use-form', 'api/use-field', 'api/use-field-array', 'api/create-form-context', 'api/subscribe', 'api/resolvers'],
     },
     {
       type: 'category',
