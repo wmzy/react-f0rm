@@ -1,8 +1,8 @@
 import {normalizePath} from './util';
 
-export type PathValue = (string | number)[];
-export type Name = string | PathValue;
-export type Path = {value: PathValue; key: string};
+export type PathSegments = (string | number)[];
+export type Name = string | PathSegments;
+export type Path = {value: PathSegments; key: string};
 
 export default function create(name: Name): Path {
   const value = normalizePath(name);

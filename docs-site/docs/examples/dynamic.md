@@ -15,10 +15,10 @@ function TodoList() {
       {fields.map((field, i) => (
         <div key={field.id}>
           <Field name={`todos.${i}`} placeholder={`Todo #${i + 1}`} />
-          <button type="button" onClick={() => remove(i)}>✕</button>
+          <button type='button' onClick={() => remove(i)}>✕</button>
         </div>
       ))}
-      <button type="button" onClick={() => append('')}>
+      <button type='button' onClick={() => append('')}>
         Add Todo
       </button>
     </div>
@@ -32,8 +32,10 @@ export default function DynamicForm() {
       onSubmit={(values) => console.log(values)}
     >
       <TodoList />
-      <button type="submit">Save</button>
+      <button type='submit'>Save</button>
     </Form>
   );
 }
 ```
+
+Each item's `field.id` is a stable internal key — use it for React's `key`, not the array index. The list only re-renders when changes touch the `todos` branch; edits to unrelated fields never re-render it.

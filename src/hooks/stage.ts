@@ -10,6 +10,6 @@ export function useStageFn<T extends (...args: any[]) => any>(fn: T): T {
   const ref = useStage(fn);
   return useCallback(
     (...params: any[]) => ref.current(...params),
-    []
+    [ref]
   ) as unknown as T;
 }

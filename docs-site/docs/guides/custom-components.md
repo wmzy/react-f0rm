@@ -8,15 +8,15 @@ The `as` prop lets you use any component as a form field — not just native `<i
 
 ## How It Works
 
-`Field` consumes a fixed set of props (`name`, `as`, `validate`, `initialValue`, `eventToValue`, `valueToProps`). Everything else passes through to your component. If a prop name conflicts with Field's own props, use `asProps` (see [Prop Name Conflicts](#prop-name-conflicts)).
+`Field` consumes a fixed set of props (`name`, `as`, `asProps`, `validate`, `initialValue`, `eventToValue`, `valueToProps`, `renderError`, `form`, `shouldUnregister`). Everything else passes through to your component. If a prop name conflicts with Field's own props, use `asProps` (see [Prop Name Conflicts](#prop-name-conflicts)).
 
 ```tsx
 <Field
-  name="description"
+  name='description'
   as={RichTextEditor}
-  theme="dark"        // → forwarded
+  theme='dark'        // → forwarded
   maxLength={1000}    // → forwarded
-  placeholder="..."   // → forwarded
+  placeholder='...'   // → forwarded
 />
 ```
 
@@ -42,10 +42,10 @@ function RichTextEditor({ value, onChange, theme, maxLength, placeholder }) {
 Use a string for native elements:
 
 ```tsx
-<Field name="bio" as="textarea" rows={4} className="bio-input" />
-<Field name="color" as="select" eventToValue={(e) => e.target.value}>
-  <option value="red">Red</option>
-  <option value="blue">Blue</option>
+<Field name='bio' as='textarea' rows={4} className='bio-input' />
+<Field name='color' as='select' eventToValue={(e) => e.target.value}>
+  <option value='red'>Red</option>
+  <option value='blue'>Blue</option>
 </Field>
 ```
 
@@ -57,14 +57,14 @@ Most third-party input components work out of the box if they accept `value` and
 import ReactSelect from 'react-select';
 
 <Field
-  name="country"
+  name='country'
   as={ReactSelect}
   options={[
     { value: 'us', label: 'United States' },
     { value: 'uk', label: 'United Kingdom' },
   ]}
   isClearable
-  placeholder="Select..."
+  placeholder='Select...'
 />
 ```
 
@@ -75,7 +75,7 @@ If your component's `onChange` doesn't call `onChange(value)` directly, use `eve
 ```tsx
 // react-select calls onChange(option) — extract the value
 <Field
-  name="country"
+  name='country'
   as={ReactSelect}
   eventToValue={(option) => option?.value}
   options={countries}
@@ -89,7 +89,7 @@ If your component expects props instead of a `value` prop, use `valueToProps`:
 ```tsx
 // A toggle component that uses `checked` instead of `value`
 <Field
-  name="notifications"
+  name='notifications'
   as={ToggleSwitch}
   valueToProps={(value) => ({ checked: value })}
   eventToValue={(e) => e.target.checked}
@@ -98,16 +98,28 @@ If your component expects props instead of a `value` prop, use `valueToProps`:
 
 ## Validation with Custom Components
 
-`validate` works the same way — it receives the current value:
+`validate` works the same way — it receives the current value and may return a message string or a `FieldError`:
 
 ```tsx
 <Field
-  name="tags"
+  name='tags'
   as={TagInput}
   validate={(tags) => {
     if (tags.length === 0) return 'At least one tag required';
     if (tags.length > 5) return 'Max 5 tags';
   }}
+/>
+```
+
+## Rendering Errors
+
+By default `Field` only sets `aria-invalid` on the rendered component and stays headless. Pass `renderError` to render the message inline — Field wraps it in `<span id={id} role='alert'>` and wires the input's `aria-describedby` to it automatically (see [Field API](../api/field.md#error-rendering--accessibility)):
+
+```tsx
+<Field
+  name='country'
+  as={ReactSelect}
+  renderError={(error) => <em className='select-error'>{error}</em>}
 />
 ```
 
@@ -122,18 +134,18 @@ function MyComponent({ validate, ...props }) {
 }
 
 // Without asProps — `validate` is consumed by Field, never reaches MyComponent
-<Field name="feature" as={MyComponent} validate={someValue} />  // wrong!
+<Field name='feature' as={MyComponent} validate={someValue} />  // wrong!
 
 // With asProps — `validate` is forwarded directly to MyComponent
 <Field
-  name="feature"
+  name='feature'
   as={MyComponent}
   validate={(v) => !v && 'Required'}  // Field's validator
   asProps={{ validate: someValue }}    // forwarded to MyComponent
 />
 ```
 
-Merge order: `{...rest} {...asProps} {value} {onChange}` — `asProps` overrides `rest`, and `value`/`onChange` always win.
+Merge order onto the rendered component: `aria-invalid`/`aria-describedby` first, then `{...rest}`, then `{...asProps}`, then `value` (or the `valueToProps` spread), then `onChange` — `asProps` overrides `rest`, and `value`/`onChange` always win.
 
 ## forwardRef Support
 
@@ -146,5 +158,5 @@ const MyInput = React.forwardRef(function MyInput({ value, onChange, ...props },
 
 // Now refs work
 const ref = useRef();
-<Field name="email" as={MyInput} ref={ref} />
+<Field name='email' as={MyInput} ref={ref} />
 ```

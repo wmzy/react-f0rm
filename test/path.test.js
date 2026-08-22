@@ -50,4 +50,10 @@ describe('createPath', () => {
     const path2 = createPath(['user', 'name']);
     expect(path1).toEqual(path2);
   });
+
+  it('reuses the cached path array for the same string', () => {
+    const path1 = createPath('user.name');
+    const path2 = createPath('user.name');
+    expect(path1.value).toBe(path2.value);
+  });
 });

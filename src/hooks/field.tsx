@@ -1,67 +1,254 @@
-import {useEffect, useMemo} from 'react';
-import {useFormContext} from '../context';
-import {removeFieldByPath, setTouchedByPath, setValueByPath} from '../form';
-import type {Form} from '../form';
+import {useContext, useEffect, useState} from 'react';
+import type {Context} from 'react';
+import {FormContext} from '../context';
+import {
+  getValueByPath,
+  hasTouchedByPath,
+  removeFieldByPath,
+  setTouchedByPath,
+  setValueByPath
+} from '../form';
+import type {FieldError, Form} from '../form';
 import type {Name, Path} from '../path';
-import {useErrorByPath, useValueByPath} from './form';
+import type {FieldPath, PathValueOf} from '../types';
+import {rulesToValidator} from '../rules';
+import type {FieldRules} from '../rules';
+import {useFieldErrorsByPath, useValueByPath, useWatch} from './form';
 import usePath from './path';
 import useValidate from './validate';
+import type {Validator} from './validate';
 import {useStageFn} from './stage';
+import {isPromise} from '../util';
 
-interface UseFieldOptions {
-  form?: Form;
-  name: Name;
+export interface UseFieldOptions<
+  TValues extends Record<string, any> = any,
+  TPath extends FieldPath<TValues> | Name = Name
+> {
+  form?: Form<TValues>;
+  name: TPath;
   initialValue?: any;
   shouldUnregister?: boolean;
-  validate?: (
-    value: any,
-    meta: {form: Form; path: Path}
-  ) => string | undefined | Promise<string | undefined>;
-  [key: string]: any;
+  validate?: Validator;
+  /**
+   * Declarative rules (required/min/max/minLength/maxLength/pattern),
+   * compiled into a validator that runs before `validate` — both sources'
+   * errors merge into one FieldError[], rules errors ahead. Failures land
+   * in the form's error state with the given or default messages.
+   */
+  rules?: FieldRules;
+  /**
+   * Milliseconds to debounce this field's validation kicks. Defaults to 0
+   * (validate immediately); while the timer is pending the field counts as
+   * validating, so `trigger`/`ensureValidate` wait out the window. Only the
+   * last kick inside the window runs the validator.
+   */
+  validateDebounce?: number;
+  /**
+   * Milliseconds to delay showing a newly appearing error in the render
+   * layer (`error`/`errorObject`/`errors` stay undefined/empty until the
+   * window passes). The form's error state is never delayed — trigger,
+   * submit and `getError` read it immediately. An error that clears inside
+   * the window never shows; once an error is visible, later changes apply
+   * immediately. Only the none → some transition waits.
+   */
+  delayError?: number;
+  /**
+   * Disable this field: OR-ed with the form-level flag
+   * (`createForm({disabled})` / `setDisabled`) into the result's
+   * `disabled`. A field cannot opt out of a disabled form.
+   */
+  disabled?: boolean;
 }
 
-interface UseFieldResult {
-  value: any;
+/**
+ * The result of {@link useField}. Deliberately a closed shape: no index
+ * signature, so a typo'd property access (`field.vlaue`) is a type error
+ * instead of silently reading `undefined`.
+ */
+export interface UseFieldResult<
+  TValues extends Record<string, any> = any,
+  TPath extends FieldPath<TValues> | Name = Name
+> {
+  /** The form instance this field is bound to (explicit prop or context) —
+   * handy for consumers that need direct access to the headless API. */
+  form: Form<TValues>;
+  value: PathValueOf<TValues, TPath>;
+  /** Error message string (FieldError#message) for display, or undefined */
   error: string | undefined;
+  /** Full FieldError object ({type, message}), or undefined */
+  errorObject: FieldError | undefined;
+  /** Every error registered for the field, in insertion order — `error`
+   * and `errorObject` are its first entry. Empty (and reference-stable)
+   * when the field has no errors. */
+  errors: FieldError[];
   onChange: (v: any) => void;
   onBlur: () => void;
   name: string;
-  [key: string]: any;
+  /** Merged disabled flag: the form-level flag (`createForm({disabled})`
+   * toggled by `setDisabled`) OR-ed with this field's own `disabled`
+   * option, updated live through the form's event core. */
+  disabled: boolean;
 }
 
-export default function useField({
-  form: f1,
-  name,
-  initialValue,
-  shouldUnregister,
-  validate,
-  ...rest
-}: UseFieldOptions): UseFieldResult {
-  const f2 = useFormContext();
-  const form = f1 || f2;
+/**
+ * Compose declarative rules with a user validator: rules run first, then
+ * the user's validator (awaited when async), and the results merge into
+ * one error list with rules errors ahead. Either side may be absent —
+ * the other passes through untouched. Errors are returned as an array (or
+ * undefined when both sides pass), which setErrorByPath stores as-is.
+ */
+function combineRulesAndValidate(
+  rules: FieldRules | undefined,
+  validate: Validator | undefined
+): Validator | undefined {
+  if (!rules) return validate;
+  const ruleValidator = rulesToValidator(rules);
+  if (!validate) return ruleValidator;
+  return (value, meta) => {
+    // rulesToValidator's contract is FieldError[] | undefined; the wider
+    // Validator union here is only its declared type.
+    const ruleErrors = ruleValidator(value, meta) as FieldError[] | undefined;
+    const merge = (
+      other: string | FieldError | (string | FieldError)[] | undefined
+    ): (string | FieldError)[] | undefined => {
+      const list: (string | FieldError)[] = [...(ruleErrors ?? [])];
+      if (Array.isArray(other)) list.push(...other);
+      else if (other) list.push(other);
+      return list.length ? list : undefined;
+    };
+    const result = validate(value, meta);
+    return isPromise(result) ? result.then(merge) : merge(result);
+  };
+}
+
+/**
+ * Render-layer gating for {@link UseFieldOptions}.delayError: hold a newly
+ * appearing error back for `delay` ms while the form's error state stays
+ * immediate. Only the none → some transition waits — an error that clears
+ * inside the window never shows, and once an error is visible, later
+ * changes (a new message, entries added or removed) apply immediately.
+ * With `delay === undefined` the subscription value passes through
+ * untouched: no timers and no state writes, so fields that do not opt in
+ * pay nothing beyond the hook calls themselves.
+ */
+function useDelayedErrors(
+  errors: FieldError[],
+  delay: number | undefined
+): FieldError[] {
+  const [shown, setShown] = useState<FieldError[]>(errors);
+  useEffect(() => {
+    if (delay === undefined) return;
+    // Clearing is always immediate: an error cleared inside the window is
+    // cancelled before ever showing, a shown one hides at once (errors is
+    // the shared empty constant on this branch).
+    if (errors.length === 0) {
+      setShown(errors);
+      return;
+    }
+    // Already showing an error: swaps and list changes apply at once.
+    if (shown.length > 0) {
+      setShown(errors);
+      return;
+    }
+    // Appearing from none: wait out the window. The cleanup clears the
+    // timer when errors change again or the field unmounts.
+    const timer = setTimeout(() => setShown(errors), delay);
+    return () => clearTimeout(timer);
+  }, [errors, delay, shown]);
+  return delay === undefined ? errors : shown;
+}
+
+/**
+ * Shared core of {@link useField} and the per-instance hooks returned by
+ * `createFormContext()`: identical behavior, but the form is resolved from
+ * whichever Context instance is passed in instead of the module-level one.
+ *
+ * `form` is always handed to `useValidate` explicitly, and an explicit form
+ * wins over `useValidate`'s own context read — so scoped contexts need no
+ * changes there.
+ */
+export function useFieldCore<
+  TValues extends Record<string, any> = any,
+  TPath extends FieldPath<TValues> | Name = Name
+>(
+  {
+    form: f1,
+    name,
+    initialValue,
+    shouldUnregister,
+    validate,
+    rules,
+    validateDebounce,
+    delayError,
+    disabled
+  }: UseFieldOptions<TValues, TPath>,
+  Context: Context<any>
+): UseFieldResult<TValues, TPath> {
+  // Read the context unconditionally (hook call order must be stable), then
+  // let an explicitly passed form win — works without a <FormProvider>.
+  const contextForm = useContext(Context);
+  const form = f1 || contextForm;
+  if (!form) throw new Error('no form provided');
   const path = usePath(name);
 
-  const validator = useValidate(validate, path);
+  // Undeclared options are dropped on purpose: the return value carries
+  // only the fields declared on UseFieldResult, so nothing rides it back
+  // onto DOM elements through a component's prop spread.
+  const validator = useValidate(
+    combineRulesAndValidate(rules, validate),
+    path,
+    form,
+    {
+      debounce: validateDebounce
+    }
+  );
 
-  useMemo(() => {
-    if (initialValue !== undefined) setValueByPath(form, path, initialValue);
-  }, [form, path]);
-
-  const error = useErrorByPath(form, path);
+  // All errors of the field through one subscription; the array reference
+  // is stable (stored array or shared empty constant), so consumers can
+  // memo on it. delayError gates only this render-layer view of the list;
+  // the live list keeps driving the reValidateMode kicks below.
+  const liveErrors = useFieldErrorsByPath(form, path);
+  const errors = useDelayedErrors(liveErrors, delayError);
+  const errorObject = errors[0];
+  const error = errorObject?.message;
   const value = useValueByPath(form, path);
+
+  // The form-level disabled flag, subscribed so setDisabled re-renders
+  // this field; the field's own option is OR-ed in on every render.
+  const formDisabled = useWatch(form.emitter, 'disabled', () => form.disabled);
+
+  // Seed initialValue in an effect (never during render, so no 'change' is
+  // emitted while rendering) and only when the field has no value yet, so
+  // user input survives re-renders and remounts.
+  useEffect(() => {
+    if (initialValue === undefined) return;
+    if (getValueByPath(form, path) === undefined) {
+      setValueByPath(form, path, initialValue);
+    }
+  }, [form, path, initialValue]);
 
   const onChange = useStageFn((v: any) => {
     setValueByPath(form, path, v);
+    // The live (ungated) error drives the reValidate kick: an error hidden
+    // inside the delayError window still counts as "has an error", so
+    // typing re-validates and can clear it before it ever shows.
     if (
-      form.validateOnChange ||
-      (form.revalidateOnChange && error && error !== undefined)
+      form.mode === 'onChange' ||
+      form.mode === 'all' ||
+      (form.mode === 'onTouched' && hasTouchedByPath(form, path)) ||
+      (liveErrors.length > 0 && form.reValidateMode === 'onChange')
     )
       validator();
   });
 
   const onBlur = useStageFn(() => {
     setTouchedByPath(form, path);
-    if (form.validateOnBlur || (form.revalidateOnBlur && error !== undefined))
+    if (
+      form.mode === 'onBlur' ||
+      form.mode === 'onTouched' ||
+      form.mode === 'all' ||
+      (liveErrors.length > 0 && form.reValidateMode === 'onBlur')
+    )
       validator();
   });
 
@@ -74,5 +261,22 @@ export default function useField({
     [path, form, shouldUnregister]
   );
 
-  return {...rest, value, error, onChange, onBlur, name: path.key};
+  return {
+    form,
+    value,
+    error,
+    errorObject,
+    errors,
+    onChange,
+    onBlur,
+    name: path.key,
+    disabled: formDisabled || !!disabled
+  };
+}
+
+export default function useField<
+  TValues extends Record<string, any> = any,
+  TPath extends FieldPath<TValues> | Name = Name
+>(options: UseFieldOptions<TValues, TPath>): UseFieldResult<TValues, TPath> {
+  return useFieldCore(options, FormContext);
 }

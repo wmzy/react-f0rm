@@ -67,24 +67,36 @@ export default [
       }
     ]
   },
-  // Resolvers — ESM + CJS only (no UMD)
+  // Side entries — ESM + CJS only (no UMD). zod/yup reuse the
+  // standard-schema module, so rollup emits shared chunks alongside the
+  // entry chunks. devtools bundles the core it inspects; like the
+  // resolvers it stays out of the main entry's bundle graph.
   {
     input: {
+      'resolvers/standard-schema': 'src/resolvers/standard-schema.ts',
       'resolvers/zod': 'src/resolvers/zod.ts',
-      'resolvers/yup': 'src/resolvers/yup.ts'
+      'resolvers/yup': 'src/resolvers/yup.ts',
+      'devtools/index': 'src/devtools/index.ts'
     },
     external,
     plugins,
     output: [
       {
         dir: 'dist',
-        entryFileNames: '[name].esm.js',
+        // .mjs so Node natively treats the ESM chunks as modules —
+        // extensionless packages default every .js to CommonJS, which
+        // forced a reparse (MODULE_TYPELESS_PACKAGE_JSON warning) for
+        // file:linked consumers. CJS keeps .cjs.js (default .js parsing
+        // is already CommonJS, no rename churn).
+        entryFileNames: '[name].mjs',
+        chunkFileNames: '[name]-[hash].mjs',
         sourcemap: true,
         format: 'es'
       },
       {
         dir: 'dist',
         entryFileNames: '[name].cjs.js',
+        chunkFileNames: '[name]-[hash].cjs.js',
         sourcemap: true,
         format: 'cjs'
       }
@@ -94,14 +106,17 @@ export default [
   {
     input: {
       index: 'src/index.ts',
+      'resolvers/standard-schema': 'src/resolvers/standard-schema.ts',
       'resolvers/zod': 'src/resolvers/zod.ts',
-      'resolvers/yup': 'src/resolvers/yup.ts'
+      'resolvers/yup': 'src/resolvers/yup.ts',
+      'devtools/index': 'src/devtools/index.ts'
     },
     plugins: [dts({ tsconfig: './tsconfig.build.json' })],
     output: [
       {
         dir: 'dist',
         entryFileNames: '[name].d.ts',
+        chunkFileNames: '[name]-[hash].d.ts',
         format: 'es'
       }
     ]

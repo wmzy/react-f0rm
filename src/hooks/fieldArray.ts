@@ -1,8 +1,16 @@
-import {useCallback, useEffect, useMemo, useReducer, useRef} from 'react';
-import {on} from '@for-fun/event-emitter';
-import {useFormContext} from '../context';
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef
+} from 'react';
+import type {Context} from 'react';
+import {FormContext} from '../context';
 import {getValueByPath, setValueByPath} from '../form';
 import type {Form, Name} from '../form';
+import {onPathEvent} from '../subscribe';
 import usePath from './path';
 import {useStageFn} from './stage';
 
@@ -16,7 +24,7 @@ interface FieldArrayItem {
   index: number;
 }
 
-export default function useFieldArray(options: {name: Name; form?: Form}): {
+export interface UseFieldArrayResult {
   fields: FieldArrayItem[];
   append: (value: any) => void;
   prepend: (value: any) => void;
@@ -24,9 +32,24 @@ export default function useFieldArray(options: {name: Name; form?: Form}): {
   remove: (index: number) => void;
   swap: (from: number, to: number) => void;
   move: (from: number, to: number) => void;
-} {
-  const f2 = useFormContext();
-  const form = options.form || f2;
+  replace: (values: any[]) => void;
+  update: (index: number, value: any) => void;
+}
+
+/**
+ * Shared core of {@link useFieldArray} and the per-instance hook returned by
+ * `createFormContext()`: identical behavior, but the form is resolved from
+ * whichever Context instance is passed in instead of the module-level one.
+ */
+export function useFieldArrayCore(
+  options: {name: Name; form?: Form},
+  Context: Context<any>
+): UseFieldArrayResult {
+  // Read the context unconditionally (hook call order must be stable), then
+  // let an explicitly passed form win — works without a <FormProvider>.
+  const contextForm = useContext(Context);
+  const form = options.form || contextForm;
+  if (!form) throw new Error('no form provided');
   const path = usePath(options.name);
   const idsRef = useRef<string[]>([]);
 
@@ -53,13 +76,22 @@ export default function useFieldArray(options: {name: Name; form?: Form}): {
     return idsRef.current.map((id, index) => ({id, index}));
   }, [getArray]);
 
-  // Use useWatch pattern: subscribe to 'change' events and re-compute fields
+  // Subscribe to 'change' events scoped to this array's branch: the array
+  // key itself, its ancestors (an ancestor write replaces what the leaf
+  // read falls back to) and its descendants (item edits), so typing into
+  // unrelated fields does not re-render the array component. Payload-less
+  // 'change' emits (reset, removeFieldByPath, setInitialValues) always
+  // sync. The comma-separated key prefix comparison lives in onPathEvent,
+  // which keeps lookalike sibling keys ('["tagsX"]') from matching.
   const [fields, syncFields] = useReducer(
     computeFields,
     undefined,
     computeFields
   );
-  useEffect(() => on(form.emitter, 'change', syncFields), [form.emitter]);
+  useEffect(
+    () => onPathEvent(form.emitter, 'change', path, 'branch', syncFields),
+    [form.emitter, path]
+  );
 
   const append = useStageFn((value: any) => {
     const arr = getArray();
@@ -108,5 +140,30 @@ export default function useFieldArray(options: {name: Name; form?: Form}): {
     setArray(newArr);
   });
 
-  return {fields, append, prepend, insert, remove, swap, move};
+  // replace is a full swap (length may change), so every row is conceptually
+  // a new row: regenerate all ids to remount them, mirroring how reset works.
+  const replace = useStageFn((values: any[]) => {
+    idsRef.current = values.map(() => generateId());
+    setArray([...values]);
+  });
+
+  // update only overwrites one value, so the id at that index is kept and the
+  // row does not remount. Out-of-bounds indices are a silent no-op — plain
+  // assignment would instead punch sparse-array holes into the form state.
+  const update = useStageFn((index: number, value: any) => {
+    const arr = getArray();
+    if (index < 0 || index >= arr.length) return;
+    const newArr = [...arr];
+    newArr[index] = value;
+    setArray(newArr);
+  });
+
+  return {fields, append, prepend, insert, remove, swap, move, replace, update};
+}
+
+export default function useFieldArray(options: {
+  name: Name;
+  form?: Form;
+}): UseFieldArrayResult {
+  return useFieldArrayCore(options, FormContext);
 }

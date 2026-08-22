@@ -30,7 +30,7 @@ function TodoList() {
 | Option | Type | Description |
 |--------|------|-------------|
 | `name` | `string` | Array field name |
-| `form` | `Form` | Form instance (optional) |
+| `form` | `Form` | Explicit form instance — wins over the context and makes the hook work outside a `<Form>` provider |
 
 ## Returns
 
@@ -40,6 +40,22 @@ function TodoList() {
 | `append` | `(value: any) => void` | Add to end |
 | `prepend` | `(value: any) => void` | Add to start |
 | `insert` | `(index: number, value: any) => void` | Insert at index |
-| `remove` | `(index: number) => void` | Remove at index |
+| `remove` | `(index: number) => void` | Remove item |
 | `swap` | `(from: number, to: number) => void` | Swap two items |
 | `move` | `(from: number, to: number) => void` | Move item |
+| `replace` | `(values: any[]) => void` | Replace the whole list — every row id is regenerated (length may change) |
+| `update` | `(index: number, value: any) => void` | Overwrite one value, keeping that row's id — no key churn |
+
+## `replace` vs `update`
+
+`replace(values)` is the refetch shape — a server response replaces the entire list, ids included:
+
+```tsx
+const {replace, update} = useFieldArray({name: 'todos'});
+replace(await fetchTodos()); // full swap
+update(1, {name: 'Buy milk', done: true}); // rewrite one row in place
+```
+
+## Subscription Scope
+
+The hook subscribes with a path-prefix filter: only `change` events touching this array's branch — the array key itself or any descendant key — recompute `fields` and re-render the component. Typing into unrelated fields never re-renders the list.
