@@ -191,10 +191,7 @@ type ExpectAsyncValidSubmit = Expect<
 >;
 // onInvalidSubmit is NOT awaited — it must stay `=> void`.
 type ExpectSyncInvalidSubmit = Expect<
-  Equal<
-    ReturnType<NonNullable<FormPropsOf['onInvalidSubmit']>>,
-    void
-  >
+  Equal<ReturnType<NonNullable<FormPropsOf['onInvalidSubmit']>>, void>
 >;
 
 // Usage side: async handlers type-check against a typed form and see the
