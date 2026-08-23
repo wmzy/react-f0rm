@@ -11,8 +11,7 @@ import type {Validator} from '../hooks/validate';
 export interface StandardSchemaIssue {
   readonly message: string;
   readonly path?:
-    | ReadonlyArray<PropertyKey | {readonly key: PropertyKey}>
-    | undefined;
+    ReadonlyArray<PropertyKey | {readonly key: PropertyKey}> | undefined;
 }
 
 export interface StandardSchemaV1<Input = unknown, Output = Input> {

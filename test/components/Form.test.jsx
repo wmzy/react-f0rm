@@ -8,7 +8,11 @@ import {createFormContext, useFormContext} from '../../src/context';
 
 describe('Form', () => {
   it('renders a form element', () => {
-    render(<Form initialValues={{}}><button type="submit">Submit</button></Form>);
+    render(
+      <Form initialValues={{}}>
+        <button type="submit">Submit</button>
+      </Form>
+    );
     const form = document.querySelector('form');
     expect(form).not.toBeNull();
   });
@@ -42,7 +46,10 @@ describe('Form', () => {
     await user.click(screen.getByRole('button', {name: 'Submit'}));
     // Wait for async validation
     await vi.waitFor(() => {
-      expect(onValidSubmit).toHaveBeenCalledWith({name: 'test'}, expect.anything());
+      expect(onValidSubmit).toHaveBeenCalledWith(
+        {name: 'test'},
+        expect.anything()
+      );
     });
   });
 
@@ -84,7 +91,7 @@ describe('Form', () => {
     expect(Array.isArray(errors)).toBe(true);
     expect(
       errors.every(
-        (error) =>
+        error =>
           typeof error.path === 'string' &&
           typeof error.type === 'string' &&
           typeof error.message === 'string'

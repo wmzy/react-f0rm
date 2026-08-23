@@ -95,11 +95,7 @@ export function onKeyEvent(
  * `'change'`, `'submitting'` and `'submitCount'` carry paths and go
  * through {@link onPathEvent}. */
 export type SubscribeEvent =
-  | 'change'
-  | 'errors'
-  | 'touched'
-  | 'submitting'
-  | 'submitCount';
+  'change' | 'errors' | 'touched' | 'submitting' | 'submitCount';
 
 /** Options accepted by {@link subscribe}. */
 export type SubscribeOptions = {

@@ -81,7 +81,11 @@ describe('useField', () => {
     setValue(form, 'email', 'preset@test.com');
     const {result} = renderHook(
       () => useField({form, name: 'email', initialValue: 'default@test.com'}),
-      {wrapper: ({children}) => <FormProvider value={form}>{children}</FormProvider>}
+      {
+        wrapper: ({children}) => (
+          <FormProvider value={form}>{children}</FormProvider>
+        )
+      }
     );
     expect(result.current.value).toBe('preset@test.com');
   });
@@ -195,7 +199,10 @@ describe('useField', () => {
     // subscribed field re-renders with it. trigger resolves once validation
     // settles, so await it inside act to flush the re-render.
     await act(() => trigger(form));
-    expect(getError(form, 'email')).toEqual({type: 'custom', message: 'required'});
+    expect(getError(form, 'email')).toEqual({
+      type: 'custom',
+      message: 'required'
+    });
     expect(field.error).toBe('required');
 
     // Typing revalidates against the same form instance and clears it.
@@ -209,7 +216,11 @@ describe('useField', () => {
     const validate = vi.fn(value => (value ? undefined : 'required'));
     const {result} = renderHook(
       () => useField({form, name: 'name', validate}),
-      {wrapper: ({children}) => <FormProvider value={form}>{children}</FormProvider>}
+      {
+        wrapper: ({children}) => (
+          <FormProvider value={form}>{children}</FormProvider>
+        )
+      }
     );
 
     // Untouched: changes do not validate yet.
@@ -238,7 +249,11 @@ describe('useField', () => {
     const validate = vi.fn(value => (value ? undefined : 'required'));
     const {result} = renderHook(
       () => useField({form, name: 'name', validate}),
-      {wrapper: ({children}) => <FormProvider value={form}>{children}</FormProvider>}
+      {
+        wrapper: ({children}) => (
+          <FormProvider value={form}>{children}</FormProvider>
+        )
+      }
     );
 
     act(() => result.current.onChange(''));
@@ -271,7 +286,10 @@ describe('useField', () => {
     });
 
     expect(result.current.error).toBe('msg');
-    expect(result.current.errorObject).toEqual({type: 'custom', message: 'msg'});
+    expect(result.current.errorObject).toEqual({
+      type: 'custom',
+      message: 'msg'
+    });
   });
 
   it('debounces validation through validateDebounce', () => {
@@ -409,13 +427,24 @@ describe('useField', () => {
   it('runs rules with required short-circuiting the rest on empty values', () => {
     const form = createForm({initialValues: {age: ''}, mode: 'all'});
     const {result} = renderHook(
-      () => useField({form, name: 'age', rules: {required: '必填', min: 18, max: 99}}),
-      {wrapper: ({children}) => <FormProvider value={form}>{children}</FormProvider>}
+      () =>
+        useField({
+          form,
+          name: 'age',
+          rules: {required: '必填', min: 18, max: 99}
+        }),
+      {
+        wrapper: ({children}) => (
+          <FormProvider value={form}>{children}</FormProvider>
+        )
+      }
     );
 
     // Empty value: only the required error — min/max must not pile on.
     act(() => result.current.onChange(''));
-    expect(result.current.errors).toEqual([{type: 'required', message: '必填'}]);
+    expect(result.current.errors).toEqual([
+      {type: 'required', message: '必填'}
+    ]);
     expect(result.current.error).toBe('必填');
 
     // '10' passes required but fails min with the default message.
@@ -439,7 +468,11 @@ describe('useField', () => {
     const form = createForm({initialValues: {count: ''}, mode: 'all'});
     const {result} = renderHook(
       () => useField({form, name: 'count', rules: {required: true}}),
-      {wrapper: ({children}) => <FormProvider value={form}>{children}</FormProvider>}
+      {
+        wrapper: ({children}) => (
+          <FormProvider value={form}>{children}</FormProvider>
+        )
+      }
     );
 
     act(() => result.current.onChange(''));
@@ -467,7 +500,11 @@ describe('useField', () => {
             pattern: {value: /^\d+$/, message: 'Digits only'}
           }
         }),
-      {wrapper: ({children}) => <FormProvider value={form}>{children}</FormProvider>}
+      {
+        wrapper: ({children}) => (
+          <FormProvider value={form}>{children}</FormProvider>
+        )
+      }
     );
 
     // Too short and non-numeric: both collected, declaration order.
@@ -498,7 +535,11 @@ describe('useField', () => {
           name: 'age',
           rules: {min: 18, messages: {min: '太小了', pattern: '格式错误'}}
         }),
-      {wrapper: ({children}) => <FormProvider value={form}>{children}</FormProvider>}
+      {
+        wrapper: ({children}) => (
+          <FormProvider value={form}>{children}</FormProvider>
+        )
+      }
     );
 
     act(() => result.current.onChange('10'));
@@ -514,9 +555,15 @@ describe('useField', () => {
           name: 'name',
           rules: {minLength: 3},
           validate: value =>
-            value.includes('!') ? {type: 'custom', message: 'no exclamation'} : undefined
+            value.includes('!')
+              ? {type: 'custom', message: 'no exclamation'}
+              : undefined
         }),
-      {wrapper: ({children}) => <FormProvider value={form}>{children}</FormProvider>}
+      {
+        wrapper: ({children}) => (
+          <FormProvider value={form}>{children}</FormProvider>
+        )
+      }
     );
 
     // Both fail: rules error first, validate error after.
@@ -553,7 +600,11 @@ describe('useField', () => {
           rules: {minLength: 3},
           validate: async value => (value ? undefined : 'async required')
         }),
-      {wrapper: ({children}) => <FormProvider value={form}>{children}</FormProvider>}
+      {
+        wrapper: ({children}) => (
+          <FormProvider value={form}>{children}</FormProvider>
+        )
+      }
     );
 
     await act(() => trigger(form));
@@ -567,7 +618,11 @@ describe('useField', () => {
     const form = createForm({initialValues: {age: ''}, mode: 'onBlur'});
     const {result} = renderHook(
       () => useField({form, name: 'age', rules: {min: 18}}),
-      {wrapper: ({children}) => <FormProvider value={form}>{children}</FormProvider>}
+      {
+        wrapper: ({children}) => (
+          <FormProvider value={form}>{children}</FormProvider>
+        )
+      }
     );
 
     // Typing does not validate yet in onBlur mode.
@@ -722,7 +777,9 @@ describe('useField', () => {
   it('exposes the merged disabled flag and tracks setDisabled', () => {
     const form = createForm({initialValues: {name: ''}});
     const {result} = renderHook(() => useField({form, name: 'name'}), {
-      wrapper: ({children}) => <FormProvider value={form}>{children}</FormProvider>
+      wrapper: ({children}) => (
+        <FormProvider value={form}>{children}</FormProvider>
+      )
     });
     expect(result.current.disabled).toBe(false);
 

@@ -3,12 +3,7 @@ import type {Validator} from './hooks/validate';
 
 /** Type tag of a failed rule, as stored on the resulting FieldError. */
 export type RuleType =
-  | 'required'
-  | 'min'
-  | 'max'
-  | 'minLength'
-  | 'maxLength'
-  | 'pattern';
+  'required' | 'min' | 'max' | 'minLength' | 'maxLength' | 'pattern';
 
 /**
  * Declarative field rules — a subset of react-hook-form's `register` rules.

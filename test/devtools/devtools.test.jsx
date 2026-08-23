@@ -107,9 +107,13 @@ describe('Devtools', () => {
     renderDevtools(form);
 
     await user.click(screen.getByRole('button', {name: /collapse/i}));
-    expect(screen.getByRole('button', {name: /open react-f0rm devtools/i})).toBeTruthy();
+    expect(
+      screen.getByRole('button', {name: /open react-f0rm devtools/i})
+    ).toBeTruthy();
 
-    await user.click(screen.getByRole('button', {name: /open react-f0rm devtools/i}));
+    await user.click(
+      screen.getByRole('button', {name: /open react-f0rm devtools/i})
+    );
     expect(screen.getByRole('tab', {name: /values/i})).toBeTruthy();
   });
 });

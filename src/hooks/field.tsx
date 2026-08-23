@@ -9,7 +9,7 @@ import {
   setValueByPath
 } from '../form';
 import type {FieldError, Form} from '../form';
-import type {Name, Path} from '../path';
+import type {Name} from '../path';
 import type {FieldPath, PathValueOf} from '../types';
 import {rulesToValidator} from '../rules';
 import type {FieldRules} from '../rules';
@@ -142,6 +142,7 @@ function useDelayedErrors(
     // cancelled before ever showing, a shown one hides at once (errors is
     // the shared empty constant on this branch).
     if (errors.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 取消窗口是设计行为：清空必须立刻生效
       setShown(errors);
       return;
     }

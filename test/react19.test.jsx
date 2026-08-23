@@ -18,13 +18,19 @@ import userEvent from '@testing-library/user-event';
 import React from 'react';
 import Form from '../src/components/Form';
 import {Field} from '../src/components/Field';
-import {useForm, useIsSubmitting, handleSubmit, setValue, getValues} from '../src';
+import {
+  useForm,
+  useIsSubmitting,
+  handleSubmit,
+  setValue,
+  getValues
+} from '../src';
 
 /** React 18 stand-in for React 19's useActionState return triple. */
 function useActionStateShim(action, initialState) {
   const [state, setState] = React.useState(initialState);
   const [isPending, setIsPending] = React.useState(false);
-  const dispatch = (payload) => {
+  const dispatch = payload => {
     setIsPending(true);
     Promise.resolve(action(state, payload))
       .then(setState)
@@ -35,7 +41,7 @@ function useActionStateShim(action, initialState) {
 
 function deferred() {
   let resolve;
-  const promise = new Promise((r) => (resolve = r));
+  const promise = new Promise(r => (resolve = r));
   return {promise, resolve};
 }
 
@@ -51,7 +57,7 @@ describe('React 19 server action bridge', () => {
       return (
         <Form
           initialValues={{email: '', count: 3}}
-          onValidSubmit={(values) => dispatch(values)}
+          onValidSubmit={values => dispatch(values)}
         >
           <Field name="email" />
           <Field name="count" type="number" />
@@ -66,7 +72,9 @@ describe('React 19 server action bridge', () => {
     await user.click(screen.getByRole('button', {name: 'Save'}));
 
     await vi.waitFor(() => {
-      expect(screen.getByRole('status' /* <output> */).textContent).toBe('a@b.c');
+      expect(screen.getByRole('status' /* <output> */).textContent).toBe(
+        'a@b.c'
+      );
     });
     expect(action).toHaveBeenCalledTimes(1);
     const [, values] = action.mock.calls[0];
@@ -82,7 +90,11 @@ describe('React 19 server action bridge', () => {
     function Headless() {
       const form = useForm({initialValues: {email: ''}});
       return (
-        <form onSubmit={handleSubmit(form, {onValidSubmit: (values) => action(values, null)})}>
+        <form
+          onSubmit={handleSubmit(form, {
+            onValidSubmit: values => action(values, null)
+          })}
+        >
           <Field name="email" form={form} />
           <button type="submit">Save</button>
         </form>
@@ -97,17 +109,17 @@ describe('React 19 server action bridge', () => {
   });
 
   it('validation gates the action: invalid submits never dispatch', async () => {
-    const action = vi.fn(async (prev, values) => ({ok: true}));
+    const action = vi.fn(async () => ({ok: true}));
     const onInvalidSubmit = vi.fn();
     const user = userEvent.setup();
 
     render(
       <Form
         initialValues={{email: ''}}
-        onValidSubmit={(values) => action(values)}
+        onValidSubmit={values => action(values)}
         onInvalidSubmit={onInvalidSubmit}
       >
-        <Field name="email" validate={(v) => (v ? undefined : 'Required')} />
+        <Field name="email" validate={v => (v ? undefined : 'Required')} />
         <button type="submit">Save</button>
       </Form>
     );
@@ -127,10 +139,18 @@ describe('React 19 server action bridge', () => {
       const [, dispatch, isActionPending] = useActionStateShim(action, null);
       const isSubmitting = useIsSubmitting(form);
       return (
-        <Form form={form} initialValues={{email: 'a@b.c'}} onValidSubmit={(values) => dispatch(values)}>
+        <Form
+          form={form}
+          initialValues={{email: 'a@b.c'}}
+          onValidSubmit={values => dispatch(values)}
+        >
           <Field name="email" form={form} />
-          <output>{isSubmitting ? 'submitting' : isActionPending ? 'pending' : 'idle'}</output>
-          <button type="submit" disabled={isSubmitting || isActionPending}>Save</button>
+          <output>
+            {isSubmitting ? 'submitting' : isActionPending ? 'pending' : 'idle'}
+          </output>
+          <button type="submit" disabled={isSubmitting || isActionPending}>
+            Save
+          </button>
         </Form>
       );
     }
@@ -139,11 +159,17 @@ describe('React 19 server action bridge', () => {
     await user.click(screen.getByRole('button', {name: 'Save'}));
 
     // While the action is in flight the union of both flags holds the button.
-    await vi.waitFor(() => expect(screen.getByRole("button").disabled).toBe(true));
+    await vi.waitFor(() =>
+      expect(screen.getByRole('button').disabled).toBe(true)
+    );
     expect(screen.getByRole('status').textContent).toBe('pending');
 
-    await act(async () => { gate.resolve({ok: true}); });
-    await vi.waitFor(() => expect(screen.getByRole("button").disabled).toBe(false));
+    await act(async () => {
+      gate.resolve({ok: true});
+    });
+    await vi.waitFor(() =>
+      expect(screen.getByRole('button').disabled).toBe(false)
+    );
     expect(screen.getByRole('status').textContent).toBe('idle');
   });
 
@@ -155,10 +181,16 @@ describe('React 19 server action bridge', () => {
       const form = useForm({initialValues: {email: 'a@b.c'}});
       const isSubmitting = useIsSubmitting(form);
       return (
-        <Form form={form} initialValues={{email: 'a@b.c'}} onValidSubmit={() => gate.promise}>
+        <Form
+          form={form}
+          initialValues={{email: 'a@b.c'}}
+          onValidSubmit={() => gate.promise}
+        >
           <Field name="email" form={form} />
           <output>{isSubmitting ? 'submitting' : 'idle'}</output>
-          <button type="submit" disabled={isSubmitting}>Save</button>
+          <button type="submit" disabled={isSubmitting}>
+            Save
+          </button>
         </Form>
       );
     }
@@ -166,12 +198,16 @@ describe('React 19 server action bridge', () => {
     render(<Awaited />);
     await user.click(screen.getByRole('button', {name: 'Save'}));
     await vi.waitFor(() => {
-      expect(screen.getByRole("button").disabled).toBe(true);
+      expect(screen.getByRole('button').disabled).toBe(true);
       expect(screen.getByRole('status').textContent).toBe('submitting');
     });
 
-    await act(async () => { gate.resolve(); });
-    await vi.waitFor(() => expect(screen.getByRole("button").disabled).toBe(false));
+    await act(async () => {
+      gate.resolve();
+    });
+    await vi.waitFor(() =>
+      expect(screen.getByRole('button').disabled).toBe(false)
+    );
   });
 });
 
@@ -205,7 +241,10 @@ describe('why a bare <form action={serverAction}> does not fit controlled fields
     expect(formData.get('["email"]')).toBe('a@b.c');
 
     // getValues() returns the same data under natural paths.
-    expect(getValues(formRef)).toEqual({email: 'a@b.c', profile: {name: 'Ada'}});
+    expect(getValues(formRef)).toEqual({
+      email: 'a@b.c',
+      profile: {name: 'Ada'}
+    });
   });
 
   it('values without a mounted DOM control never reach FormData but do reach the action', async () => {
@@ -214,13 +253,15 @@ describe('why a bare <form action={serverAction}> does not fit controlled fields
     let formRef;
 
     function Hidden() {
-      const form = useForm({initialValues: {email: '', token: '', custom: 'shown'}});
+      const form = useForm({
+        initialValues: {email: '', token: '', custom: 'shown'}
+      });
       formRef = form;
       return (
         <Form
           form={form}
           initialValues={{email: '', token: '', custom: 'shown'}}
-          onValidSubmit={(values) => action(values)}
+          onValidSubmit={values => action(values)}
         >
           <Field name="email" />
           {/* Custom as renders no DOM input: invisible to FormData. */}

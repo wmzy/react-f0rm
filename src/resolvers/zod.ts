@@ -15,11 +15,9 @@ export function zodResolver(schema: any): Validator {
     if (!issues?.length) {
       return [{type: 'custom', message: 'Validation failed'}];
     }
-    return issues.map(
-      (issue: any): FieldError => ({
-        type: issue?.code || 'custom',
-        message: issue?.message || 'Validation failed'
-      })
-    );
+    return issues.map((issue: any): FieldError => ({
+      type: issue?.code || 'custom',
+      message: issue?.message || 'Validation failed'
+    }));
   };
 }

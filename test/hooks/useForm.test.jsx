@@ -56,9 +56,7 @@ describe('useForm', () => {
       ({initialValues}) => useForm({initialValues}),
       {
         initialProps: {initialValues},
-        wrapper: ({children}) => (
-          <React.StrictMode>{children}</React.StrictMode>
-        )
+        wrapper: ({children}) => <React.StrictMode>{children}</React.StrictMode>
       }
     );
     const form1 = result.current;
@@ -329,9 +327,7 @@ describe('useFieldErrors', () => {
       return {form, errors: useFieldErrors(form, 'name')};
     });
     expect(result.current.errors).toEqual([]);
-    act(() =>
-      setError(result.current.form, 'name', ['required', 'too short'])
-    );
+    act(() => setError(result.current.form, 'name', ['required', 'too short']));
     expect(result.current.errors).toEqual([
       {type: 'custom', message: 'required'},
       {type: 'custom', message: 'too short'}
@@ -584,12 +580,8 @@ describe('onPathEvent / onKeyEvent primitives', () => {
   it('leaf scope fires on own, ancestor and payload-less emits', () => {
     const emitter = createEmitter();
     const calls = [];
-    const off = onPathEvent(
-      emitter,
-      'change',
-      createPath('a.b'),
-      'leaf',
-      () => calls.push('hit')
+    const off = onPathEvent(emitter, 'change', createPath('a.b'), 'leaf', () =>
+      calls.push('hit')
     );
     emit(emitter, 'change', createPath('a.b')); // own
     emit(emitter, 'change', createPath('a')); // ancestor

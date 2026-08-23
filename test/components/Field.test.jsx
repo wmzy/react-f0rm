@@ -37,7 +37,13 @@ describe('Field', () => {
 
   it('renders with custom component via as prop', () => {
     function CustomInput({value, onChange, ...props}) {
-      return <textarea {...props} value={value} onChange={e => onChange(e.target.value)} />;
+      return (
+        <textarea
+          {...props}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+        />
+      );
     }
     render(
       <Form initialValues={{bio: 'hello'}}>
@@ -85,7 +91,7 @@ describe('Field', () => {
         <Field
           name="name"
           validate={() => 'too short'}
-          renderError={(error) => error}
+          renderError={error => error}
           data-testid="name-input"
         />
       </Form>
@@ -112,7 +118,7 @@ describe('Field', () => {
     const form = createForm({initialValues: {}});
     render(
       <Form form={form}>
-        <Field name={['a', 0]} renderError={(error) => error} data-testid="a0" />
+        <Field name={['a', 0]} renderError={error => error} data-testid="a0" />
       </Form>
     );
     await act(async () => {
@@ -129,7 +135,11 @@ describe('Field', () => {
   it('does not attach aria attributes without an error', () => {
     render(
       <Form initialValues={{name: 'ok'}}>
-        <Field name="name" renderError={(error) => error} data-testid="name-input" />
+        <Field
+          name="name"
+          renderError={error => error}
+          data-testid="name-input"
+        />
       </Form>
     );
     const input = screen.getByTestId('name-input');
@@ -163,7 +173,7 @@ describe('Field', () => {
         <Field
           name="name"
           aria-label="X"
-          renderError={(error) => error}
+          renderError={error => error}
           data-testid="name-input"
         />
       </Form>
@@ -186,7 +196,7 @@ describe('Field', () => {
         <Field
           name="name"
           id="my"
-          renderError={(error) => error}
+          renderError={error => error}
           data-testid="name-input"
         />
       </Form>

@@ -20,8 +20,16 @@ function ProfileForm() {
   const city = useField({form, name: 'city'});
   return (
     <form>
-      <input data-testid="name" value={name.value ?? ''} onChange={(e) => name.onChange(e.target.value)} />
-      <input data-testid="city" value={city.value ?? ''} onChange={(e) => city.onChange(e.target.value)} />
+      <input
+        data-testid="name"
+        value={name.value ?? ''}
+        onChange={e => name.onChange(e.target.value)}
+      />
+      <input
+        data-testid="city"
+        value={city.value ?? ''}
+        onChange={e => city.onChange(e.target.value)}
+      />
     </form>
   );
 }
@@ -46,7 +54,9 @@ describe('SSR', () => {
     // React 18 throws inside server render when useSyncExternalStore lacks
     // getServerSnapshot; a missing third arg would fail the render above.
     expect(
-      errorSpy.mock.calls.map((args) => args.join(' ')).filter((m) => HYDRATION_ISSUE.test(m))
+      errorSpy.mock.calls
+        .map(args => args.join(' '))
+        .filter(m => HYDRATION_ISSUE.test(m))
     ).toEqual([]);
 
     errorSpy.mockRestore();
@@ -67,7 +77,9 @@ describe('SSR', () => {
 
     // No hydration mismatch: client's first snapshot equals the server's.
     expect(
-      errorSpy.mock.calls.map((args) => args.join(' ')).filter((m) => HYDRATION_ISSUE.test(m))
+      errorSpy.mock.calls
+        .map(args => args.join(' '))
+        .filter(m => HYDRATION_ISSUE.test(m))
     ).toEqual([]);
 
     // Hydrated tree is a live controlled form: typing updates the input.

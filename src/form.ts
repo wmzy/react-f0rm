@@ -32,11 +32,7 @@ export type FieldErrorEntry = {path: string; type: string; message: string};
  * - `'all'`: on both change and blur
  */
 export type ValidationMode =
-  | 'onSubmit'
-  | 'onBlur'
-  | 'onChange'
-  | 'onTouched'
-  | 'all';
+  'onSubmit' | 'onBlur' | 'onChange' | 'onTouched' | 'all';
 
 /** When a field is re-validated after it already has an error:
  * - `'onChange'` (default): on every change

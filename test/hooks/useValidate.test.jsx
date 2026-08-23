@@ -45,32 +45,49 @@ describe('useValidate', () => {
   it('uses an explicitly passed form without a FormProvider', () => {
     const form = createForm();
     const {result} = renderHook(() =>
-      useValidate(value => (value ? undefined : 'required'), createPath('name'), form)
+      useValidate(
+        value => (value ? undefined : 'required'),
+        createPath('name'),
+        form
+      )
     );
     expect(form.validators.has('["name"]')).toBe(true);
     act(() => result.current());
-    expect(getError(form, 'name')).toEqual({type: 'custom', message: 'required'});
+    expect(getError(form, 'name')).toEqual({
+      type: 'custom',
+      message: 'required'
+    });
   });
 
   it('prefers an explicitly passed form over the context form', async () => {
     const wrapper = createWrapper();
     const inner = createForm();
-    renderHook(() => useValidate(() => 'from inner', createPath('name'), inner), {
-      wrapper
-    });
+    renderHook(
+      () => useValidate(() => 'from inner', createPath('name'), inner),
+      {
+        wrapper
+      }
+    );
     expect(inner.validators.has('["name"]')).toBe(true);
     await act(() => trigger(inner));
-    expect(getError(inner, 'name')).toEqual({type: 'custom', message: 'from inner'});
+    expect(getError(inner, 'name')).toEqual({
+      type: 'custom',
+      message: 'from inner'
+    });
   });
 
   it('passes an AbortSignal to the validator', () => {
     const form = createForm();
     let meta;
     const {result} = renderHook(() =>
-      useValidate((_value, m) => {
-        meta = m;
-        return 'nope';
-      }, createPath('name'), form)
+      useValidate(
+        (_value, m) => {
+          meta = m;
+          return 'nope';
+        },
+        createPath('name'),
+        form
+      )
     );
     act(() => result.current());
     expect(meta.form).toBe(form);
@@ -84,10 +101,14 @@ describe('useValidate', () => {
     const form = createForm();
     const signals = [];
     const {result} = renderHook(() =>
-      useValidate((_value, meta) => {
-        signals.push(meta.signal);
-        return undefined;
-      }, createPath('name'), form)
+      useValidate(
+        (_value, meta) => {
+          signals.push(meta.signal);
+          return undefined;
+        },
+        createPath('name'),
+        form
+      )
     );
     act(() => result.current());
     act(() => result.current());
@@ -162,7 +183,10 @@ describe('useValidate', () => {
         await vi.advanceTimersByTimeAsync(50);
       });
       await expect(pending).resolves.toBe(false);
-      expect(getError(form, 'name')).toEqual({type: 'custom', message: 'required'});
+      expect(getError(form, 'name')).toEqual({
+        type: 'custom',
+        message: 'required'
+      });
     } finally {
       vi.useRealTimers();
     }

@@ -18,7 +18,8 @@ const external = ['react'];
 
 const plugins = [
   replace({
-    __DEV__: process.env.NODE_ENV !== 'production'
+    __DEV__: process.env.NODE_ENV !== 'production',
+    preventAssignment: true
   }),
   resolve({
     extensions,

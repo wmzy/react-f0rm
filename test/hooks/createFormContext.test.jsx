@@ -7,7 +7,6 @@ import {renderHook, act} from '@testing-library/react';
 import React from 'react';
 import {createFormContext, FormProvider} from '../../src/context';
 import useField from '../../src/hooks/field';
-import useFieldArray from '../../src/hooks/fieldArray';
 import useForm from '../../src/hooks/form';
 import createForm, {getValues} from '../../src/form';
 
@@ -27,7 +26,9 @@ describe('createFormContext', () => {
       {
         wrapper: ({children}) => (
           <OuterCtx.FormProvider form={outerForm}>
-            <InnerCtx.FormProvider form={innerForm}>{children}</InnerCtx.FormProvider>
+            <InnerCtx.FormProvider form={innerForm}>
+              {children}
+            </InnerCtx.FormProvider>
           </OuterCtx.FormProvider>
         )
       }
@@ -51,7 +52,9 @@ describe('createFormContext', () => {
     const {result} = renderHook(() => InnerCtx.useFormContext(), {
       wrapper: ({children}) => (
         <OuterCtx.FormProvider form={outerForm}>
-          <InnerCtx.FormProvider form={innerForm}>{children}</InnerCtx.FormProvider>
+          <InnerCtx.FormProvider form={innerForm}>
+            {children}
+          </InnerCtx.FormProvider>
         </OuterCtx.FormProvider>
       )
     });
@@ -63,7 +66,9 @@ describe('createFormContext', () => {
     const {result} = renderHook(() => InnerCtx.useFieldArray({name: 'tags'}), {
       wrapper: ({children}) => (
         <OuterCtx.FormProvider form={createForm()}>
-          <InnerCtx.FormProvider form={innerForm}>{children}</InnerCtx.FormProvider>
+          <InnerCtx.FormProvider form={innerForm}>
+            {children}
+          </InnerCtx.FormProvider>
         </OuterCtx.FormProvider>
       )
     });
@@ -77,26 +82,30 @@ describe('createFormContext', () => {
     // in its own context and must throw the familiar error.
     const wrapper = ({children}) => (
       <FormProvider value={createForm()}>
-        <InnerCtx.FormProvider form={createForm()}>{children}</InnerCtx.FormProvider>
+        <InnerCtx.FormProvider form={createForm()}>
+          {children}
+        </InnerCtx.FormProvider>
       </FormProvider>
     );
     expect(() =>
       renderHook(() => OuterCtx.useField({name: 'a'}), {wrapper})
     ).toThrow('no form provided');
-    expect(() => renderHook(() => OuterCtx.useFormContext(), {wrapper})).toThrow(
-      'no form provided'
-    );
+    expect(() =>
+      renderHook(() => OuterCtx.useFormContext(), {wrapper})
+    ).toThrow('no form provided');
     expect(() =>
       renderHook(() => OuterCtx.useFieldArray({name: 'a'}), {wrapper})
     ).toThrow('no form provided');
   });
 
   it('keeps the default FormProvider + useField path working (regression)', () => {
-    const wrapper = ({children}) => {
+    const Wrapper = ({children}) => {
       const form = useForm({initialValues: {name: 'test'}});
       return <FormProvider value={form}>{children}</FormProvider>;
     };
-    const {result} = renderHook(() => useField({name: 'name'}), {wrapper});
+    const {result} = renderHook(() => useField({name: 'name'}), {
+      wrapper: Wrapper
+    });
     expect(result.current.value).toBe('test');
     act(() => result.current.onChange('changed'));
     expect(result.current.value).toBe('changed');

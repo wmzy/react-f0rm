@@ -1,10 +1,4 @@
-import {
-  createContext,
-  createElement,
-  useContext,
-  type ComponentType,
-  type ReactNode
-} from 'react';
+import {createContext, createElement, useContext, type ReactNode} from 'react';
 import {
   useFieldCore,
   type UseFieldOptions,

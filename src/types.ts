@@ -27,11 +27,10 @@ type Continue<T, D extends number> = [D] extends [never]
     : T extends Primitive | Function
       ? never
       : T extends readonly (infer U)[]
-        ?
-            | `.${number}`
-            | `[${number}]`
-            | `.${number}${Continue<U, Prev[D]>}`
-            | `[${number}]${Continue<U, Prev[D]>}`
+        ? | `.${number}`
+          | `[${number}]`
+          | `.${number}${Continue<U, Prev[D]>}`
+          | `[${number}]${Continue<U, Prev[D]>}`
         : {
             [K in Extract<keyof T, string>]:
               | `.${K}`
@@ -53,8 +52,7 @@ export type FieldPath<T> =
         ? `${number}` | `${number}${Continue<U, MaxDepth>}`
         : {
             [K in Extract<keyof T, string>]:
-              | K
-              | `${K}${Continue<T[K], MaxDepth>}`;
+              K | `${K}${Continue<T[K], MaxDepth>}`;
           }[Extract<keyof T, string>];
 
 /** Resolve `T[K]` for one bare segment: array index -> element, object key -> value. */
@@ -68,15 +66,13 @@ type Lookup<T, K extends string> = K extends `${number}`
 
 /** One dot-separated chunk: a bare segment plus any `[k]` / `[0]` suffixes. */
 type ChunkValue<T, C extends string> = C extends `${infer Key}[${infer Tail}`
-  ? // eslint-disable-next-line no-use-before-define -- mutually recursive types
-    ChunkSuffix<Lookup<T, Key>, `[${Tail}`>
+  ? ChunkSuffix<Lookup<T, Key>, `[${Tail}`>
   : Lookup<T, C>;
 
 type ChunkSuffix<T, S extends string> = S extends `[${infer Key}]${infer Rest}`
   ? Rest extends ''
     ? Lookup<T, Key>
-    : // eslint-disable-next-line no-use-before-define -- mutually recursive types
-      PathOf<Lookup<T, Key>, Rest>
+    : PathOf<Lookup<T, Key>, Rest>
   : never;
 
 /** Resolve the value type the path string `P` points at inside `T`. */
@@ -112,6 +108,7 @@ type Equal<X, Y> =
     : false;
 type Check<T extends true> = T;
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- 编译期自检：类型存在本身即断言，由 tsc --noEmit 强制
 type SelfCheckPath = {
   containsDotted: Check<
     'a.b' extends FieldPath<{a: {b: string}}> ? true : false
@@ -129,6 +126,7 @@ type SelfCheckPath = {
     'a.z' extends FieldPath<{a: {b: string}}> ? false : true
   >;
 };
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- 编译期自检：类型存在本身即断言，由 tsc --noEmit 强制
 type SelfCheckValue = {
   dottedLeaf: Check<Equal<PathValue<{a: {b: string}}, 'a.b'>, string>>;
   bracketLeaf: Check<Equal<PathValue<{a: {b: string}}, 'a[b]'>, string>>;

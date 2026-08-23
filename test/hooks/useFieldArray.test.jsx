@@ -3,8 +3,12 @@ import {render, renderHook, act} from '@testing-library/react';
 import {FormProvider} from '../../src/context';
 import useFieldArray from '../../src/hooks/fieldArray';
 import useForm from '../../src/hooks/form';
-import {getValueByPath} from '../../src/form';
-import createForm, {getValues, setValue, reset} from '../../src/form';
+import createForm, {
+  getValueByPath,
+  getValues,
+  setValue,
+  reset
+} from '../../src/form';
 import createPath from '../../src/path';
 import React from 'react';
 
@@ -18,7 +22,9 @@ function createWrapper(initialValues) {
 describe('useFieldArray', () => {
   it('returns fields array', () => {
     const wrapper = createWrapper({items: ['a', 'b']});
-    const {result} = renderHook(() => useFieldArray({name: 'items'}), {wrapper});
+    const {result} = renderHook(() => useFieldArray({name: 'items'}), {
+      wrapper
+    });
     expect(result.current.fields).toHaveLength(2);
     expect(result.current.fields[0].index).toBe(0);
     expect(result.current.fields[1].index).toBe(1);
@@ -28,7 +34,9 @@ describe('useFieldArray', () => {
 
   it('append adds item', () => {
     const wrapper = createWrapper({items: ['a']});
-    const {result} = renderHook(() => useFieldArray({name: 'items'}), {wrapper});
+    const {result} = renderHook(() => useFieldArray({name: 'items'}), {
+      wrapper
+    });
     act(() => result.current.append('b'));
     expect(result.current.fields).toHaveLength(2);
   });
@@ -37,9 +45,7 @@ describe('useFieldArray', () => {
     const wrapper = createWrapper({items: ['a', 'b']});
     const {result} = renderHook(() => useFieldArray({name: 'items'}), {
       wrapper: ({children}) => (
-        <React.StrictMode>
-          {wrapper({children})}
-        </React.StrictMode>
+        <React.StrictMode>{wrapper({children})}</React.StrictMode>
       )
     });
     const ids = result.current.fields.map(f => f.id);
@@ -52,14 +58,18 @@ describe('useFieldArray', () => {
 
   it('prepend adds item at start', () => {
     const wrapper = createWrapper({items: ['a']});
-    const {result} = renderHook(() => useFieldArray({name: 'items'}), {wrapper});
+    const {result} = renderHook(() => useFieldArray({name: 'items'}), {
+      wrapper
+    });
     act(() => result.current.prepend('z'));
     expect(result.current.fields).toHaveLength(2);
   });
 
   it('insert adds item at index', () => {
     const wrapper = createWrapper({items: ['a', 'c']});
-    const {result} = renderHook(() => useFieldArray({name: 'items'}), {wrapper});
+    const {result} = renderHook(() => useFieldArray({name: 'items'}), {
+      wrapper
+    });
     act(() => result.current.insert(1, 'b'));
     expect(result.current.fields).toHaveLength(3);
   });
@@ -75,21 +85,27 @@ describe('useFieldArray', () => {
 
   it('remove deletes item at index', () => {
     const wrapper = createWrapper({items: ['a', 'b', 'c']});
-    const {result} = renderHook(() => useFieldArray({name: 'items'}), {wrapper});
+    const {result} = renderHook(() => useFieldArray({name: 'items'}), {
+      wrapper
+    });
     act(() => result.current.remove(1));
     expect(result.current.fields).toHaveLength(2);
   });
 
   it('swap exchanges two items', () => {
     const wrapper = createWrapper({items: ['a', 'b']});
-    const {result} = renderHook(() => useFieldArray({name: 'items'}), {wrapper});
+    const {result} = renderHook(() => useFieldArray({name: 'items'}), {
+      wrapper
+    });
     act(() => result.current.swap(0, 1));
     expect(result.current.fields).toHaveLength(2);
   });
 
   it('move repositions item', () => {
     const wrapper = createWrapper({items: ['a', 'b', 'c']});
-    const {result} = renderHook(() => useFieldArray({name: 'items'}), {wrapper});
+    const {result} = renderHook(() => useFieldArray({name: 'items'}), {
+      wrapper
+    });
     act(() => result.current.move(0, 2));
     expect(result.current.fields).toHaveLength(3);
   });
@@ -100,7 +116,13 @@ describe('useFieldArray', () => {
     function TagsArray() {
       renders += 1;
       const {fields} = useFieldArray({name: 'tags', form});
-      return <div>{fields.map(f => <span key={f.id}>{f.index}</span>)}</div>;
+      return (
+        <div>
+          {fields.map(f => (
+            <span key={f.id}>{f.index}</span>
+          ))}
+        </div>
+      );
     }
     render(<TagsArray />);
     const initialRenders = renders;
@@ -147,7 +169,13 @@ describe('useFieldArray', () => {
     function TagsArray() {
       renders += 1;
       const {fields} = useFieldArray({name: 'tags', form});
-      return <div>{fields.map(f => <span key={f.id}>{f.index}</span>)}</div>;
+      return (
+        <div>
+          {fields.map(f => (
+            <span key={f.id}>{f.index}</span>
+          ))}
+        </div>
+      );
     }
     render(<TagsArray />);
     const initialRenders = renders;
@@ -177,7 +205,13 @@ describe('useFieldArray', () => {
     function TagsArray() {
       renders += 1;
       const {fields} = useFieldArray({name: 'tags', form});
-      return <div>{fields.map(f => <span key={f.id}>{f.index}</span>)}</div>;
+      return (
+        <div>
+          {fields.map(f => (
+            <span key={f.id}>{f.index}</span>
+          ))}
+        </div>
+      );
     }
     render(<TagsArray />);
     const initialRenders = renders;
@@ -235,7 +269,11 @@ describe('useFieldArray', () => {
       api = useFieldArray({name: 'tags', form});
       const values = getValues(form).tags;
       return (
-        <div>{api.fields.map(f => <span key={f.id}>{values[f.index]}</span>)}</div>
+        <div>
+          {api.fields.map(f => (
+            <span key={f.id}>{values[f.index]}</span>
+          ))}
+        </div>
       );
     }
     const {container} = render(<TagsArray />);

@@ -1,6 +1,8 @@
 import * as React from 'react';
 import {handleSubmit} from '../form';
-import type {Form} from '../form';
+// 别名规避 rollup-plugin-dts 对「type import 与本地 default export 同名」
+// 的 Identifier already declared 误报（类型引用语义不变）。
+import type {Form as FormApi} from '../form';
 import {FormContext} from '../context';
 import useForm from '../hooks/form';
 
@@ -22,7 +24,7 @@ interface FormProps<T extends Record<string, any> = any> extends Omit<
   React.FormHTMLAttributes<HTMLFormElement>,
   'onSubmit'
 > {
-  form?: Form<T>;
+  form?: FormApi<T>;
   /**
    * Provide into an isolated context from `createFormContext()` instead of
    * the module-level one — `<Form context={ProfileForm.context}>` keeps the
@@ -32,7 +34,7 @@ interface FormProps<T extends Record<string, any> = any> extends Omit<
    * `useField` do not see it; that is the point of the isolation. Omitted,
    * the form lands in the module-level FormContext as before.
    */
-  context?: React.Context<Form<any> | null>;
+  context?: React.Context<FormApi<any> | null>;
   initialValues?: T;
   /**
    * Controlled external values. When the `values` reference changes, the

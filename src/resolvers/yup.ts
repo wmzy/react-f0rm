@@ -15,12 +15,10 @@ export function yupResolver(schema: any): Validator {
     } catch (err: any) {
       const issues =
         Array.isArray(err?.inner) && err.inner.length ? err.inner : [err];
-      return issues.map(
-        (issue: any): FieldError => ({
-          type: issue?.type || 'custom',
-          message: issue?.message || 'Validation failed'
-        })
-      );
+      return issues.map((issue: any): FieldError => ({
+        type: issue?.type || 'custom',
+        message: issue?.message || 'Validation failed'
+      }));
     }
   };
 }
