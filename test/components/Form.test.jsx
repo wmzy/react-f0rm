@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import React from 'react';
 import Form from '../../src/components/Form';
 import {Field} from '../../src/components/Field';
+import {createFormContext, useFormContext} from '../../src/context';
 
 describe('Form', () => {
   it('renders a form element', () => {
@@ -234,5 +235,53 @@ describe('Form', () => {
     await vi.waitFor(() => {
       expect(document.activeElement).toBe(emailInput);
     });
+  });
+
+  // <Form context={...}> interoperability with createFormContext: the
+  // component keeps its submit machinery while providing into the
+  // factory's private context instead of the module-level one.
+  it('provides into an isolated createFormContext via the context prop', async () => {
+    const onSubmit = vi.fn();
+    const user = userEvent.setup();
+    const Ctx = createFormContext();
+
+    function EmailField() {
+      const {value, onChange} = Ctx.useField({name: 'email'});
+      return <input value={value} onChange={e => onChange(e.target.value)} />;
+    }
+
+    render(
+      <Form
+        context={Ctx.context}
+        initialValues={{email: ''}}
+        onSubmit={onSubmit}
+      >
+        <EmailField />
+        <button type="submit">Submit</button>
+      </Form>
+    );
+
+    await user.type(screen.getByRole('textbox'), 'a@b.c');
+    await user.click(screen.getByRole('button', {name: 'Submit'}));
+    expect(onSubmit).toHaveBeenCalledWith({email: 'a@b.c'}, expect.anything());
+  });
+
+  it('the module-level context does not see a form provided via context prop', () => {
+    const Ctx = createFormContext();
+
+    function Orphan() {
+      // Module-level binding: the form went into Ctx's private context,
+      // so this must keep throwing exactly as with no provider at all.
+      useFormContext();
+      return null;
+    }
+
+    expect(() =>
+      render(
+        <Form context={Ctx.context} initialValues={{}}>
+          <Orphan />
+        </Form>
+      )
+    ).toThrow('no form provided');
   });
 });

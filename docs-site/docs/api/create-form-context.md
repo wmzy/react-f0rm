@@ -50,9 +50,25 @@ function Profile({form}: {form: ReturnType<typeof useForm<Values>>}) {
 
 | Property | Type | Description |
 |----------|------|-------------|
+| `context` | `Context<Form<TValues> \| null>` | The raw React context — pass it to `<Form context={ProfileForm.context}>` so the component provides into this instance while keeping its full submit machinery (see below) |
 | `FormProvider` | `ComponentType<{form: Form<TValues>; children: ReactNode}>` | Provider taking the form as a `form` prop (not a raw `value`) |
 | `useFormContext()` | `() => Form<TValues>` | The form from this instance's context; throws `'no form provided'` outside a provider |
 | `useField(options)` | `(options: {name: TPath} & Omit<UseFieldOptions<TValues, TPath>, 'form'>) => UseFieldResult<TValues, TPath>` | Like the global [`useField`](./use-field.md), resolved from this context — no `form` option |
 | `useFieldArray(options)` | `(options: {name: FieldPath<TValues> \| Name}) => UseFieldArrayResult` | Like the global [`useFieldArray`](./use-field-array.md), resolved from this context — no `form` option |
 
 Each call creates a **private** React context: providers and hooks from separate `createFormContext()` instances never see each other's forms, so two contexts can coexist in one tree.
+
+## Interop with `<Form context={...}>`
+
+The bundle carries its raw React context, so `<Form>` can provide into it while keeping its full submit machinery — validation, submit handling, focus-on-error — instead of you wiring `<FormProvider>` + `handleSubmit` by hand:
+
+```tsx
+const ProfileForm = createFormContext<Values>();
+
+<Form context={ProfileForm.context} form={form} onValidSubmit={save}>
+  <NameField /> {/* ProfileForm.useField resolves the form <Form> manages */}
+  <button type="submit">Save</button>
+</Form>
+```
+
+The module-level `useFormContext()` / `useField` do not see that form — that is the isolation working. See [`<Form context>`](./form.md) for the prop.

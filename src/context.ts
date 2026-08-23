@@ -46,7 +46,8 @@ export function useFormContext<T extends Record<string, any> = any>(): Form<T> {
  * (`Ctx.useField({name: 'user.name'})` gets its `name` constrained by
  * `FieldPath<Values>` and its `value` typed accordingly), so call sites stop
  * hand-writing generics, and each instance's Provider scopes a strictly
- * separate form.
+ * separate form. The bundle also carries its raw React context
+ * (`Ctx.context`) so `<Form context={Ctx.context}>` can provide into it.
  */
 export function createFormContext<TValues extends Record<string, any> = any>() {
   const Context = createContext<Form<TValues> | null>(null);
@@ -85,7 +86,16 @@ export function createFormContext<TValues extends Record<string, any> = any>() {
     return useFieldArrayCore(options as {name: Name}, Context);
   }
 
-  return {FormProvider, useFormContext, useField, useFieldArray};
+  // The raw React context, for `<Form context={...}>`: the component keeps
+  // its submit machinery while providing into this instance's private
+  // context, so the bound hooks above resolve the form it manages.
+  return {
+    context: Context,
+    FormProvider,
+    useFormContext,
+    useField,
+    useFieldArray
+  };
 }
 
 export const CheckboxGroupContext = createContext<any>(null);

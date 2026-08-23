@@ -216,7 +216,20 @@ function NameField() {
 }
 ```
 
-Each call returns `{FormProvider, useFormContext, useField, useFieldArray}` bound to a private React context — pass the form via `<ProfileForm.FormProvider form={form}>`, and providers from separate instances never see each other's forms.
+Each call returns `{context, FormProvider, useFormContext, useField, useFieldArray}` bound to a private React context — pass the form via `<ProfileForm.FormProvider form={form}>`, and providers from separate instances never see each other's forms.
+
+The bundle also carries its raw React context, so `<Form>` can provide into it while keeping its full submit machinery — validation, submit handling, focus-on-error — instead of you wiring `<FormProvider>` + `handleSubmit` by hand:
+
+```tsx
+const ProfileForm = createFormContext<Values>();
+
+<Form context={ProfileForm.context} form={form} onValidSubmit={save}>
+  <NameField /> {/* ProfileForm.useField resolves the form <Form> manages */}
+  <button type="submit">Save</button>
+</Form>
+```
+
+The module-level `useFormContext()`/`useField` do not see that form — that is the isolation working.
 
 ## Controlled Forms
 
@@ -616,13 +629,46 @@ type ValuesPath = FieldPath<Values>;
 type UserName = PathValue<Values, 'user.name'>;
 
 function UserNameField() {
-  // value is inferred as string; a typo like 'user.nmae' fails to compile
+  // value is inferred as string; an unknown path degrades to `any`
+  // (PathValueOf), keeping dynamic names usable
   const {value, onChange} = useField<Values, 'user.name'>({name: 'user.name'});
   return <input value={value} onChange={e => onChange(e.target.value)} />;
 }
 ```
 
 The same generics work on `getValue`/`setValue`/`getError` and the other path-taking helpers.
+
+The default context is typed too — `useFormContext<Values>()` returns a `Form<Values>`, so downstream components drop the `any` dances (`eslint-disable no-unsafe-*`, value casts) without buying into `createFormContext`:
+
+```tsx
+import {useFormContext, useValue} from 'react-f0rm';
+
+function EmailError() {
+  const form = useFormContext<Values>();
+  const email = useValue(form, 'email'); // string
+  return email === '' ? <p>Email is required</p> : null;
+}
+```
+
+And a `Field` tied to a typed form infers its `validate` argument from the path — `PathValueOf<Values, P>` — via the `form` prop (a plain `string` name keeps the old permissive `any`, matching `useField`):
+
+```tsx
+const form = useForm<Values>();
+
+<Form form={form} initialValues={{email: ''}}>
+  <Field
+    form={form}
+    name="email"
+    validate={value => (value.includes('@') ? undefined : 'Invalid email')}
+  />
+  {/* nested paths resolve through the shape: string | undefined */}
+  <Field
+    form={form}
+    name="user.bio"
+    validate={value => (value === undefined ? 'Tell us something' : undefined)}
+  />
+</Form>
+```
 
 ## Custom Components
 

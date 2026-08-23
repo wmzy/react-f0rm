@@ -13,7 +13,7 @@ A controlled input component with built-in validation support and error accessib
 | `name` | `string \| (string\|number)[]` | Field name (supports dot notation, quoted subscripts like `a['b c']`) |
 | `as` | `ComponentType` | Custom component to render |
 | `asProps` | `Record<string, any>` | Props passed directly to the `as` component (use when prop names conflict with Field's own props) |
-| `validate` | `(value, meta) => string \| FieldError \| undefined` | Field-level validator; strings are normalized to `{type: 'custom', message}` |
+| `validate` | `(value, meta) => string \| FieldError \| undefined` | Field-level validator; strings are normalized to `{type: 'custom', message}`. With a typed `form` + `name`, `value` is inferred as `PathValueOf<Values, P>`; dynamic or untyped names keep it `any` (see [Typing](#typing)) |
 | `rules` | `FieldRules` | Declarative constraints (`required` / `min` / `max` / `minLength` / `maxLength` / `pattern`) compiled into a validator that runs before `validate` — see [Rules](../guides/validation.md#rules) |
 | `validateDebounce` | `number` | Milliseconds to debounce this field's validation kicks (default: `0`); while pending, the field counts as validating so `trigger`/submit wait out the window — see [Async Validation](../guides/validation.md#async-validation) |
 | `delayError` | `number` | Milliseconds to hold a newly appearing error back from the render — `aria-invalid` and `renderError` wait out the window while the form's error state stays immediate — see [Delaying Error Display](../guides/validation.md#delaying-error-display) |
@@ -22,7 +22,7 @@ A controlled input component with built-in validation support and error accessib
 | `eventToValue` | `(event) => any` | Transform event to value |
 | `valueToProps` | `(value) => object` | Transform value to props |
 | `renderError` | `(error: string, id: string) => ReactNode` | Optional error renderer (see [Error Rendering & Accessibility](#error-rendering--accessibility)) |
-| `form` | `Form` | Explicit form instance — skips the form context, works without a `<Form>` provider |
+| `form` | `Form<TValues>` | Explicit form instance — skips the form context, works without a `<Form>` provider. With a typed form (`Form<Values>`) and a typed `name`, the `validate` value argument is inferred (see [Typing](#typing)) |
 | `shouldUnregister` | `boolean` | Remove the field's value on unmount (default: `true`) |
 | `...props` | `any` | All other props are forwarded to the rendered component |
 
@@ -72,6 +72,28 @@ next to the input, and points the input's `aria-describedby` at that `id` (deriv
 When `renderError` is omitted, no extra element is rendered (headless) and no `aria-describedby` is attached — screen readers are not pointed at an id that does not exist.
 
 `Field` also stays in sync with the browser's constraint validation API: the current error message is pushed to the input via `setCustomValidity`, and native constraints (`required`, `type=email`, `minLength`, …) are checked before your `validate` function — a failing native constraint surfaces as a native bubble and skips custom validation for that pass.
+
+## Typing
+
+A `Field` tied to a typed form infers its `validate` value argument from the path — `PathValueOf<Values, P>` — via the `form` prop (a plain `string` name keeps the old permissive `any`, matching `useField`). `Checkbox` and `Select` share the same contract:
+
+```tsx
+const form = useForm<Values>();
+
+<Form form={form} initialValues={{email: ''}}>
+  <Field
+    form={form}
+    name="email"
+    validate={value => (value.includes('@') ? undefined : 'Invalid email')}
+  />
+  {/* nested paths resolve through the shape: string | undefined */}
+  <Field
+    form={form}
+    name="user.bio"
+    validate={value => (value === undefined ? 'Tell us something' : undefined)}
+  />
+</Form>
+```
 
 ## Examples
 

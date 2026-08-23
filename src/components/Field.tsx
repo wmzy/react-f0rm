@@ -2,15 +2,39 @@ import * as React from 'react';
 import {on} from '@for-fun/event-emitter';
 import useField from '../hooks/field';
 import type {Validator} from '../hooks/validate';
+import type {Form} from '../form';
 import type {FieldRules} from '../rules';
-import type {Name} from '../path';
+import type {Name, Path} from '../path';
+import type {FieldPath, PathValueOf} from '../types';
 
-interface UseFieldOptions {
-  form?: any;
-  name?: Name;
+/**
+ * Props shared by Field/Checkbox/Select. Generic so a typed form flows into
+ * the `validate` callback: with `form` (a `Form<Values>`) and `name`
+ * (a `FieldPath<Values>`) provided, `validate` receives the value at that
+ * path — `PathValueOf<Values, P>` — instead of `any`. The defaults keep the
+ * bare `<Field name="x" />` (context-resolved, untyped) call sites exactly
+ * as permissive as before.
+ */
+interface UseFieldOptions<
+  TValues extends Record<string, any> = any,
+  TPath extends FieldPath<TValues> | Name = Name
+> {
+  form?: Form<TValues>;
+  name?: TPath;
   initialValue?: any;
   shouldUnregister?: boolean;
-  validate?: Validator;
+  /**
+   * Field-level validator. The value argument is typed when the field is
+   * tied to a typed form (via the `form` prop); the return shape mirrors
+   * {@link Validator} — an error (string / FieldError / mixed array) or
+   * undefined when valid, possibly a Promise for async validation. The
+   * second argument carries the validation context (`meta.signal` aborts
+   * when the round is superseded).
+   */
+  validate?: (
+    value: PathValueOf<TValues, TPath>,
+    meta: {form: Form; path: Path; signal: AbortSignal}
+  ) => ReturnType<Validator>;
   /**
    * Declarative rules (required/min/max/minLength/maxLength/pattern),
    * compiled into a validator that runs before `validate`; failures land
@@ -43,7 +67,10 @@ interface UseFieldOptions {
   [key: string]: any;
 }
 
-interface FieldProps extends UseFieldOptions {
+interface FieldProps<
+  TValues extends Record<string, any> = any,
+  TPath extends FieldPath<TValues> | Name = Name
+> extends UseFieldOptions<TValues, TPath> {
   as?: React.ComponentType<any>;
   asProps?: Record<string, any>;
   eventToValue?: (e: any) => any;
@@ -75,6 +102,22 @@ function setRef<T>(ref: React.Ref<T> | undefined, value: T | null) {
 function errorIdFromKey(key: string): string {
   const id = key.replace(/["'[\],\s]+/g, '-').replace(/^-+|-+$/g, '');
   return id || 'field';
+}
+
+/**
+ * The callable shape of {@link Field}: `form` + `name` flow their generics
+ * into `validate`'s value argument (`PathValueOf<TValues, TPath>`). A named
+ * interface rather than an inline `as <TValues, ...>() => ...` signature —
+ * same types, and the inline form trips no-use-before-define on the type
+ * parameters.
+ */
+interface FieldComponent {
+  <
+    TValues extends Record<string, any> = any,
+    TPath extends FieldPath<TValues> | Name = Name
+  >(
+    props: FieldProps<TValues, TPath> & React.RefAttributes<HTMLInputElement>
+  ): React.ReactElement | null;
 }
 
 export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
@@ -206,9 +249,25 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
       </>
     );
   }
-);
+) as FieldComponent;
 
-interface CheckboxProps extends UseFieldOptions {}
+interface CheckboxProps<
+  TValues extends Record<string, any> = any,
+  TPath extends FieldPath<TValues> | Name = Name
+> extends UseFieldOptions<TValues, TPath> {}
+
+/**
+ * Callable shape of {@link Checkbox}: the same form-typed `validate`
+ * inference contract as {@link FieldComponent}.
+ */
+interface CheckboxComponent {
+  <
+    TValues extends Record<string, any> = any,
+    TPath extends FieldPath<TValues> | Name = Name
+  >(
+    props: CheckboxProps<TValues, TPath> & React.RefAttributes<HTMLInputElement>
+  ): React.ReactElement | null;
+}
 
 export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
   (
@@ -260,9 +319,12 @@ export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
       />
     );
   }
-);
+) as CheckboxComponent;
 
-interface SelectProps extends UseFieldOptions {
+interface SelectProps<
+  TValues extends Record<string, any> = any,
+  TPath extends FieldPath<TValues> | Name = Name
+> extends UseFieldOptions<TValues, TPath> {
   multiple?: boolean;
   children?: React.ReactNode;
 }
@@ -281,6 +343,19 @@ function toSelectValue(
 ): string | string[] {
   if (multiple) return Array.isArray(value) ? value : [];
   return value ?? '';
+}
+
+/**
+ * Callable shape of {@link Select}: the same form-typed `validate`
+ * inference contract as {@link FieldComponent}.
+ */
+interface SelectComponent {
+  <
+    TValues extends Record<string, any> = any,
+    TPath extends FieldPath<TValues> | Name = Name
+  >(
+    props: SelectProps<TValues, TPath> & React.RefAttributes<HTMLSelectElement>
+  ): React.ReactElement | null;
 }
 
 export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
@@ -341,4 +416,4 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
       </select>
     );
   }
-);
+) as SelectComponent;

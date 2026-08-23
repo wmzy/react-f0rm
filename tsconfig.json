@@ -11,6 +11,6 @@
     "checkJs": true,
     "noEmit": true
   },
-  "include": ["src"],
+  "include": ["src", "test/types.test-d.tsx"],
   "exclude": ["node_modules", "dist", "coverage"]
 }

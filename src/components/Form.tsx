@@ -1,7 +1,7 @@
 import * as React from 'react';
 import {handleSubmit} from '../form';
 import type {Form} from '../form';
-import {FormProvider} from '../context';
+import {FormContext} from '../context';
 import useForm from '../hooks/form';
 
 /**
@@ -23,6 +23,16 @@ interface FormProps<T extends Record<string, any> = any> extends Omit<
   'onSubmit'
 > {
   form?: Form<T>;
+  /**
+   * Provide into an isolated context from `createFormContext()` instead of
+   * the module-level one — `<Form context={ProfileForm.context}>` keeps the
+   * component's full submit machinery while the factory's bound hooks
+   * (`ProfileForm.useField`, `ProfileForm.useFormContext`, ...) resolve this
+   * form from their private context. The module-level `useFormContext()` /
+   * `useField` do not see it; that is the point of the isolation. Omitted,
+   * the form lands in the module-level FormContext as before.
+   */
+  context?: React.Context<Form<any> | null>;
   initialValues?: T;
   /**
    * Controlled external values. When the `values` reference changes, the
@@ -58,6 +68,7 @@ interface FormProps<T extends Record<string, any> = any> extends Omit<
 
 export default function Form<T extends Record<string, any> = any>({
   form: f1,
+  context,
   initialValues,
   values,
   onSubmit,
@@ -76,9 +87,13 @@ export default function Form<T extends Record<string, any> = any>({
     shouldFocusError
   });
 
+  // Route the form into the caller's isolated context (createFormContext)
+  // or the module-level default, whichever Provider we ended up with.
+  const {Provider} = context ?? FormContext;
+
   return (
-    <FormProvider value={form}>
+    <Provider value={form}>
       <form {...props} noValidate onSubmit={submit} />
-    </FormProvider>
+    </Provider>
   );
 }
