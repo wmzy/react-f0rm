@@ -1,8 +1,9 @@
 // Compile-time assertions for the typing-ergonomics surface: the default
 // context path is typed (`useFormContext<Values>()` -> `Form<Values>`),
-// `<Form context={Ctx.context}>` interoperates with createFormContext, and
-// a `Field`/`Checkbox`/`Select` tied to a typed form infers its `validate`
-// value argument from the path (`PathValueOf<Values, P>`). Not a vitest
+// `<Form context={Ctx.context}>` interoperates with createFormContext, a
+// `Field`/`Checkbox`/`Select` tied to a typed form infers its `validate`
+// value argument from the path (`PathValueOf<Values, P>`), and the `<Form>`
+// submit callbacks declare their awaited Promise return. Not a vitest
 // file — the `.test-d.` name is the tsd convention and matches no vitest
 // include pattern; the file is wired into tsconfig `include` instead, so
 // CI's `npx tsc --noEmit` compiles and enforces every assertion (same
@@ -166,6 +167,53 @@ function TypedFields() {
           return permissive ? undefined : 'Required';
         }}
       />
+    </Form>
+  );
+}
+
+// ---- goal 3: <Form> submit callbacks may be async -----------------------------
+
+// The submit flow (`handleSubmit`) awaits onSubmit/onValidSubmit, so
+// isSubmitting covers the whole async flight; the props must declare the
+// Promise return (mirroring HandleSubmitOptions) instead of `=> void`,
+// which hides that the await is part of the contract. ReturnType of the
+// resolved prop is the exact-shape check: an async handler is assignable
+// to `=> void`, so only this fails on the old declaration.
+type FormPropsOf = React.ComponentProps<typeof Form>;
+type ExpectAsyncSubmit = Expect<
+  Equal<ReturnType<NonNullable<FormPropsOf['onSubmit']>>, void | Promise<void>>
+>;
+type ExpectAsyncValidSubmit = Expect<
+  Equal<
+    ReturnType<NonNullable<FormPropsOf['onValidSubmit']>>,
+    void | Promise<void>
+  >
+>;
+// onInvalidSubmit is NOT awaited — it must stay `=> void`.
+type ExpectSyncInvalidSubmit = Expect<
+  Equal<
+    ReturnType<NonNullable<FormPropsOf['onInvalidSubmit']>>,
+    void
+  >
+>;
+
+// Usage side: async handlers type-check against a typed form and see the
+// typed values (loginForm is Form<LoginValues> from goal 2).
+function AsyncSubmitForm() {
+  return (
+    <Form
+      form={loginForm}
+      onSubmit={async values => {
+        const check: Expect<Equal<typeof values.email, string>> = true;
+        await Promise.resolve(check);
+      }}
+      onValidSubmit={async (values, e) => {
+        const event: Expect<Equal<typeof e, React.FormEvent>> = true;
+        await Promise.resolve(values.remember && event);
+      }}
+    >
+      <Field name="email" />
+      <button type="submit">Save</button>
     </Form>
   );
 }

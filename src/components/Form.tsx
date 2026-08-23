@@ -43,8 +43,11 @@ interface FormProps<T extends Record<string, any> = any> extends Omit<
    * `values` reference never clobber what the user is typing.
    */
   values?: T;
-  onSubmit?: (values: T, e: React.FormEvent) => void;
-  onValidSubmit?: (values: T, e: React.FormEvent) => void;
+  /** May be async — the submit flow awaits it, so form.isSubmitting
+   * covers the entire flight. */
+  onSubmit?: (values: T, e: React.FormEvent) => void | Promise<void>;
+  /** May be async, same as onSubmit. */
+  onValidSubmit?: (values: T, e: React.FormEvent) => void | Promise<void>;
   /**
    * Called when validation fails.
    * @param errors array of {path, type, message} entries in insertion
