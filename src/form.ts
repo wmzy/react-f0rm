@@ -1,4 +1,4 @@
-import {create as createEmitter, emit as _emit} from '@for-fun/event-emitter';
+import {create as createEmitter, emit} from '@for-fun/event-emitter';
 import type {EventEmitter} from '@for-fun/event-emitter';
 import createPath from './path';
 import type {Name, Path, PathSegments} from './path';
@@ -7,12 +7,6 @@ import {get, normalizePath, setOwned, unset, waitUntil} from './util';
 
 export type {Name};
 export type {FieldPath, PathValue} from './types';
-
-const emit = _emit as (
-  emitter: EventEmitter,
-  event: string,
-  ...args: any[]
-) => void;
 
 /** A field error: `type` identifies the error kind ('custom' for plain
  * string errors), `message` is the display text. */

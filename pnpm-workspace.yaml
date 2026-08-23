@@ -7,3 +7,5 @@ allowBuilds:
   es5-ext: false
   esbuild: true
   unrs-resolver: true
+minimumReleaseAgeExclude:
+  - '@for-fun/event-emitter'

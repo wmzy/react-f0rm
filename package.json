@@ -146,7 +146,7 @@
     "vitest": "^4.1.11"
   },
   "dependencies": {
-    "@for-fun/event-emitter": "^1.0.0",
+    "@for-fun/event-emitter": "^1.0.1",
     "use-sync-external-store": "^1.6.0"
   },
   "size-limit": [
