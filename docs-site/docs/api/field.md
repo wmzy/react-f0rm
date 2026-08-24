@@ -51,15 +51,32 @@ The component rendered via `as` receives:
 
 ## Error Rendering & Accessibility
 
-When a field has an error, `Field` sets `aria-invalid` on the rendered input automatically.
+When a field has an error, `Field` (and `Checkbox`/`Select`) sets `aria-invalid` on the rendered control automatically **and** appends `fieldErrorId(name)` to its `aria-describedby` — the id the error message element is expected to carry. `fieldErrorId` is exported, so a custom error component only needs to render that id with `role='alert'` to complete the chain for screen readers:
 
-Pass `renderError` to render the message yourself. When the field has an error, `Field` renders:
+```tsx
+import {useFormContext, useError, fieldErrorId} from 'react-f0rm';
+
+function FieldMessage({name}) {
+  const form = useFormContext();
+  const error = useError(form, name);
+  return error ? (
+    <span id={fieldErrorId(name)} role='alert' className='field-error'>
+      {error}
+    </span>
+  ) : null;
+}
+
+<Field name='email' placeholder='Email' />
+<FieldMessage name='email' />
+```
+
+For the built-in path, pass `renderError` instead. When the field has an error, `Field` renders:
 
 ```tsx
 <span id={id} role='alert'>{renderError(error, id)}</span>
 ```
 
-next to the input, and points the input's `aria-describedby` at that `id` (derived from the field path, e.g. `'todos.0'` → `'todos-0'`). `renderError` receives the error **message string** and the generated `id`.
+next to the input — same id (`fieldErrorId(name)`, derived from the field path, e.g. `'todos.0'` → `'todos-0'`), same wiring, no extra component. `renderError` receives the error **message string** and the generated `id`.
 
 ```tsx
 <Field
@@ -69,7 +86,7 @@ next to the input, and points the input's `aria-describedby` at that `id` (deriv
 />
 ```
 
-When `renderError` is omitted, no extra element is rendered (headless) and no `aria-describedby` is attached — screen readers are not pointed at an id that does not exist.
+Without `renderError` no extra element is rendered — but the `aria-describedby` → `fieldErrorId(name)` wiring still applies on error, so a custom error component anywhere in the tree (a design-system `FormItem`, a shared `FieldMessage`) is pointed at without any coordination. A user-provided `aria-describedby` survives: the error id is appended after yours. Without an error, no `aria-describedby` is added.
 
 `Field` also stays in sync with the browser's constraint validation API: the current error message is pushed to the input via `setCustomValidity`, and native constraints (`required`, `type=email`, `minLength`, …) are checked before your `validate` function — a failing native constraint surfaces as a native bubble and skips custom validation for that pass.
 

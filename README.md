@@ -547,6 +547,17 @@ function FormStatus({form}) {
 
 Both hooks expose user-facing dotted paths (`'a.b'`, `'a.0.c'`). The imperative counterparts `getDirtyFields(form)` and `getTouchedFields(form)` return the same shapes without subscribing.
 
+### Seeding new initial values
+
+`setInitialValues(form, values)` swaps the baseline by **content**, not reference: passing a fresh object with equal content (the inline literal a re-render recreates) is a no-op — committed edits survive — while genuinely changed content re-seeds: live values and tombstones are cleared, touched flags and errors survive. Same value semantics `useForm({initialValues})`/`<Form initialValues>` sync with, so the editor-page shape works without memoizing the literal or double-passing it:
+
+```jsx
+const article = useData<Article>() ?? undefined;
+// No useMemo needed: a new object per render with equal content never
+// clears what the user typed; switching to another article re-seeds.
+const form = useForm({initialValues: articleToValues(article)});
+```
+
 ### Resetting
 
 `reset(form, initialValues?)` wipes values, errors, touched, tombstones and the submission flags (`isSubmitting`, `submitCount`, `isSubmitSuccessful`). The second argument installs a fresh baseline. The third opts into keeping slices of state through the reset:
@@ -597,18 +608,56 @@ const {value, error, isDirty} = getFieldState(form, 'email');
 
 ## Accessibility
 
-`Field` sets `aria-invalid` on the input whenever it has an error. Provide a `renderError(error, id)` function to render the message, and `Field` wraps it in `<span id={id} role="alert">` next to the input and points the input's `aria-describedby` at it:
+Bound fields (`Field`, `Checkbox`, `Select`) wire the error chain automatically: whenever the field has an error, the control gets `aria-invalid="true"` and its `aria-describedby` gains `fieldErrorId(name)` — the id the error message element is expected to carry. `fieldErrorId` is exported, so a custom error component only needs to render that id with `role="alert"` to complete the chain for screen readers:
+
+```jsx
+import {useFormContext, useError, fieldErrorId} from 'react-f0rm';
+
+function FieldMessage({name}) {
+  const form = useFormContext();
+  const error = useError(form, name);
+  return error ? (
+    <span id={fieldErrorId(name)} role="alert" className="field-error">
+      {error}
+    </span>
+  ) : null;
+}
+
+<Field name="email" />
+<FieldMessage name="email" />
+```
+
+For the built-in path, provide a `renderError(error, id)` function instead: `Field` renders `<span id={id} role="alert">{renderError(error, id)}</span>` next to the input — same id, same wiring, no extra component:
 
 ```jsx
 <Field
   name="email"
-  renderError={error => <span className="field-error">{error}</span>}
+  renderError={error => <em>{error}</em>}
 />
 ```
 
-Without `renderError`, no extra element is rendered and no `aria-describedby` is attached — the headless default stays clean.
+A user-provided `aria-describedby` survives: on error, the field's id is appended after yours (`"hint email"`). Without an error, no `aria-describedby` is added.
 
 Native constraint validation (`required`, `type=email`, `minLength`, …) gates submission: `<Form>` runs the browser's `checkValidity()` before custom validators, and failing constraints surface as native validation bubbles via `reportValidity()`.
+
+## Server-side errors
+
+Server 422s land on the same channel client-side validation uses. `setServerErrors(form, errors)` takes the flat `Record<string, string | string[]>` shape REST APIs commonly return — RealWorld's `422 {errors: {email: ['has already been taken']}}` needs no hand-rolled `Object.entries` + `setError` loop — and stores each entry as the field's error(s) with `type: 'server'`:
+
+```jsx
+import {setServerErrors} from 'react-f0rm';
+
+async function onSubmit(values) {
+  try {
+    await api.post('/users', {user: values});
+  } catch (e) {
+    // e.data.errors: {email: ['has already been taken'], ...}
+    setServerErrors(form, e.data.errors);
+  }
+}
+```
+
+The message then renders under the field through the same error machinery (`renderError`, `useError` — see [Accessibility](#accessibility)), and the field's `aria-invalid`/`aria-describedby` wiring kicks in automatically. Existing errors are cleared first — a fresh response describes the current state; pass `{keepExisting: true}` to layer instead. String values land as one error, string arrays as several; an empty array clears that field.
 
 ## TypeScript
 

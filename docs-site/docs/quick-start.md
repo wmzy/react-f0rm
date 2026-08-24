@@ -53,7 +53,7 @@ function Signup() {
 }
 ```
 
-`renderError` renders the error message in a `role='alert'` span and links it to the input via `aria-describedby` automatically — omit it to stay headless.
+`renderError` renders the error message in a `role='alert'` span and links it to the input via `aria-describedby` automatically — and even without it, an errored field still sets `aria-invalid` and describes the element carrying `fieldErrorId(name)`, so a custom error component wiring that id is announced too.
 
 ## With Schema Validation
 

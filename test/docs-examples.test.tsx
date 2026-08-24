@@ -2,12 +2,13 @@
 // ("createFormContext", "Async validation" / "Multiple errors per field") and
 // docs-site/docs (api/create-form-context.md, guides/validation.md) — proving
 // the snippets behave as written. Origin: Wave 4 "DocsUpdate" task.
-import {describe, it, expect} from 'vitest';
+import {describe, it, expect, vi} from 'vitest';
 import {render, screen, fireEvent, act} from '@testing-library/react';
 import React from 'react';
 import {createFormContext, trigger, getFieldErrors} from '../src/index';
-import createForm from '../src/form';
-import {Field} from '../src/components/Field';
+import createForm, {setServerErrors} from '../src/form';
+import {Field, fieldErrorId} from '../src/components/Field';
+import {useError} from '../src/hooks/form';
 import {FormProvider} from '../src/context';
 
 // ---- README "createFormContext" snippet -------------------------------------
@@ -199,5 +200,68 @@ describe('doc example: async validation (debounce + signal)', () => {
       expect(await trigger(form)).toBe(true);
     });
     expect(getFieldErrors(form, 'email')).toEqual([]);
+  });
+});
+
+// ---- README "server-side errors" recipe -------------------------------------
+
+describe('doc example: server-side error mapping (RealWorld 422)', () => {
+  // The recipe shape: an API client that keeps the structured errors
+  // around (fetch-fun maps a non-2xx body to e.data) and the form layer
+  // landing them field by field.
+  class ApiError extends Error {
+    constructor(status, data) {
+      const [field, messages] = Object.entries(data.errors)[0];
+      super(`${field} ${messages.join(' ')}`);
+      this.status = status;
+      this.data = data;
+    }
+  }
+
+  function Register({register}) {
+    const form = React.useMemo(
+      () =>
+        createForm({initialValues: {username: '', email: '', password: ''}}),
+      []
+    );
+    const emailError = useError(form, 'email');
+    return (
+      <form
+        noValidate
+        onSubmit={async () => {
+          try {
+            await register();
+          } catch (e) {
+            setServerErrors(form, e.data.errors);
+          }
+        }}
+      >
+        <Field form={form} name="email" data-testid="email" />
+        <span id={fieldErrorId('email')} role="alert" data-testid="email-error">
+          {emailError ?? ''}
+        </span>
+        <button type="submit">Register</button>
+      </form>
+    );
+  }
+
+  it('lands a 422 response under the named field with type:server', async () => {
+    const register = vi
+      .fn()
+      .mockRejectedValue(
+        new ApiError(422, {errors: {email: ['has already been taken']}})
+      );
+    render(<Register register={register} />);
+
+    fireEvent.click(screen.getByRole('button', {name: 'Register'}));
+    await vi.waitFor(() => {
+      // The message renders under the field, not as one joined sentence
+      expect(screen.getByTestId('email-error').textContent).toBe(
+        'has already been taken'
+      );
+    });
+    const input = screen.getByTestId('email');
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    expect(input.getAttribute('aria-describedby')).toBe(fieldErrorId('email'));
   });
 });

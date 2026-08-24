@@ -250,3 +250,26 @@ Errors are stored as `FieldError` objects (`{type, message}`) — every field ho
 - `useFieldErrors(form, 'email')` → reactive `FieldError[]`, reference-stable while clean
 
 See [Multiple Errors per Field](#multiple-errors-per-field).
+
+## Server-side Errors
+
+Client-side validation cannot know what the server rejects — an email already registered, a username taken. `setServerErrors(form, errors)` lands such a response on the same error channel, field by field, with `type: 'server'`:
+
+```tsx
+import {setServerErrors} from 'react-f0rm';
+
+async function onSubmit(values) {
+  try {
+    await api.post('/users', {user: values});
+  } catch (e) {
+    // e.data.errors: {email: ['has already been taken']} (RealWorld 422)
+    setServerErrors(form, e.data.errors);
+  }
+}
+```
+
+- Takes the flat `Record<string, string | string[]>` APIs commonly return — no hand-rolled `Object.entries` + `setError` loop. A string lands as one error, a string array as several (first is what `getError`/`error` expose); an empty array clears that field.
+- Existing errors are cleared first — a fresh response describes the current state, not a patch onto stale client errors. Pass `{keepExisting: true}` to layer instead.
+- The message renders through the normal machinery (`renderError`, `useError`, `aria-invalid`/`aria-describedby` — see [Field API](../api/field.md#error-rendering--accessibility)), so client and server errors are indistinguishable downstream except by `type`.
+
+The requirement on the API layer is just to keep the structured errors around instead of joining them into one sentence — map the non-2xx body (`{errors: {...}}`) to an error object carrying it (`e.data.errors` above).

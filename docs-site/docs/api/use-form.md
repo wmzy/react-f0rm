@@ -36,7 +36,7 @@ The returned instance (also created by `createForm`) is passed to the plain func
 | `getValues(form)` | `T` | All values — the written values layered over the parsed baseline (a schema's output, when form-level schema validation succeeded) layered over `initialValues`; unregistered (tombstoned) paths are omitted. The result is a freshly merged tree per call — callers may treat it as their own copy |
 | `getValue(form, name)` | value | Field value at `name` |
 | `setValue(form, name, value)` | | Write a field value |
-| `setInitialValues(form, values)` | | Replace initialValues, clear written values **and** the parsed baseline |
+| `setInitialValues(form, values)` | | Replace initialValues **by content**: an equal-content object (the inline literal a re-render recreates) is a no-op — committed edits survive; genuinely changed content re-seeds, clearing written values, tombstones **and** the parsed baseline |
 
 The readers are generic over the values shape: a typed form instance (`useForm<Values>(…)`, `createForm<Values>(…)`) checks every `name` against `FieldPath<Values>` — a typo'd path is a compile error — and resolves the value type at each path. When the form itself is untyped, annotate the call: `getValues<Values>(form)`.
 
@@ -52,6 +52,7 @@ Errors are stored as `FieldError` objects — `{type: string, message: string}` 
 | `getFirstError(form)` | `string \| undefined` | First error's **message** string |
 | `hasErrors(form)` | `boolean` | Any error present |
 | `setError(form, name, error)` | | Set errors — accepts a `string` (normalized to `{type: 'custom', message}`), a `FieldError`, an array mixing both (several errors on one field), or `undefined` to clear |
+| `setServerErrors(form, errors, options?)` | | Land a server error response (`Record<string, string \| string[]>`, e.g. RealWorld's `422 {errors: {email: ['has already been taken']}}`) — each entry becomes the field's error(s) with `type: 'server'`; clears existing errors first unless `keepExisting: true` |
 | `clearErrors(form, name?)` | | Clear errors — omit `name` to wipe every error, or pass one name (or an array of names) to clear only those fields |
 
 ### Dirty / touched state

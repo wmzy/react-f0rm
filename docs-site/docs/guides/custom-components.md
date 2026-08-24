@@ -113,7 +113,7 @@ If your component expects props instead of a `value` prop, use `valueToProps`:
 
 ## Rendering Errors
 
-By default `Field` only sets `aria-invalid` on the rendered component and stays headless. Pass `renderError` to render the message inline — Field wraps it in `<span id={id} role='alert'>` and wires the input's `aria-describedby` to it automatically (see [Field API](../api/field.md#error-rendering--accessibility)):
+On error `Field` sets `aria-invalid` and appends `fieldErrorId(name)` to `aria-describedby` on the rendered component — the native props pass through to any `as` component with no adapter changes. Pass `renderError` to render the message inline — Field wraps it in `<span id={id} role='alert'>` with that same id (see [Field API](../api/field.md#error-rendering--accessibility)):
 
 ```tsx
 <Field
@@ -145,7 +145,7 @@ function MyComponent({ validate, ...props }) {
 />
 ```
 
-Merge order onto the rendered component: `aria-invalid`/`aria-describedby` first, then `{...rest}`, then `{...asProps}`, then `value` (or the `valueToProps` spread), then `onChange` — `asProps` overrides `rest`, and `value`/`onChange` always win.
+Merge order onto the rendered component: `{...rest}` first, then `{...asProps}`, then `value` (or the `valueToProps` spread), then `aria-invalid`/`aria-describedby`, then `onChange` — `asProps` overrides `rest`, the aria wiring overrides both, and `value`/`onChange` always win.
 
 ## forwardRef Support
 

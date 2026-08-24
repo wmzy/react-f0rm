@@ -40,7 +40,7 @@ Pure functions operating on a Form state object with:
 - `mode: ValidationMode` / `reValidateMode: ReValidateMode` — validation timing (resolved defaults at create: `'onSubmit'` / `'onChange'`)
 - `isSubmitting`, `submitCount`, `isSubmitSuccessful` — submission state
 
-Key exports: `createForm`, `getValues`, `getValue`, `setValue` (4th `options?: SetFieldOptions` — `shouldValidate`/`shouldTouch`/`shouldDirty`, `shouldDirty` reserved no-op), `getError`, `getErrors`, `getFirstError`, `setError`, `clearErrors`, `setTouched`, `hasTouched`, `isDirty`, `getDirtyFields`, `getTouchedFields`, `isTouched`, `removeField`, `setInitialValues`, `reset`, `trigger` (optional `name?: Name | Name[]` narrows to specific fields; a segments array mixes numbers, pure string arrays are name lists), `ensureValidate`, `validate`, `handleSubmit` (headless submit handler taking `{onSubmit, onValidSubmit, onInvalidSubmit, shouldFocusError}`), plus types `ValidationMode` (`'onSubmit'|'onBlur'|'onChange'|'onTouched'|'all'`), `ReValidateMode` (`'onChange'|'onBlur'|'onSubmit'`, effective only while the field already has an error), `SetFieldOptions`, `HandleSubmitOptions`, `FieldError`, `FieldErrorEntry`
+Key exports: `createForm`, `getValues`, `getValue`, `setValue` (4th `options?: SetFieldOptions` — `shouldValidate`/`shouldTouch`/`shouldDirty`, `shouldDirty` reserved no-op), `getError`, `getErrors`, `getFirstError`, `setError`, `clearErrors`, `setTouched`, `hasTouched`, `isDirty`, `getDirtyFields`, `getTouchedFields`, `isTouched`, `removeField`, `setInitialValues`, `reset`, `trigger` (optional `name?: Name | Name[]` narrows to specific fields; a segments array mixes numbers, pure string arrays are name lists), `ensureValidate`, `validate`, `handleSubmit` (headless submit handler taking `{onSubmit, onValidSubmit, onInvalidSubmit, shouldFocusError}`), `setServerErrors` (lands a server error record `Record<string, string | string[]>` as per-field `type: 'server'` errors; clears existing first unless `keepExisting`), plus types `ValidationMode` (`'onSubmit'|'onBlur'|'onChange'|'onTouched'|'all'`), `ReValidateMode` (`'onChange'|'onBlur'|'onSubmit'`, effective only while the field already has an error), `SetFieldOptions`, `HandleSubmitOptions`, `FieldError`, `FieldErrorEntry`
 
 `getValues` merges the values Map over `initialValues` with copy-on-write ownership tracking (`setOwned` in util.ts): each distinct container on a written path is allocated once and shared by all paths through it, then removes tombstoned paths immutably (`unset`).
 
@@ -52,7 +52,7 @@ Key exports: `createForm`, `getValues`, `getValue`, `setValue` (4th `options?: S
 - `src/types.ts` — compile-time path types: `FieldPath<T>` enumerates valid path strings for a values shape, `PathValue<T, P>` resolves the value type at a path; includes self-check types verified by `tsc --noEmit`
 
 ### Hooks Layer (`src/hooks/`)
-- `useForm` — creates the form instance via `useState` lazy initialization (stable across re-renders and StrictMode double renders), syncs `initialValues` through `setInitialValues` in an effect; an extra `values` option enables controlled usage — a reference change re-syncs (setInitialValues semantics: uncommitted edits discarded, touched/errors kept) while a stable reference never re-syncs, so typing is never clobbered
+- `useForm` — creates the form instance via `useState` lazy initialization (stable across re-renders and StrictMode double renders), syncs `initialValues` through `setInitialValues` in an effect; an extra `values` option enables controlled usage — changed content re-syncs (setInitialValues semantics: uncommitted edits discarded, touched/errors kept) while equal content never re-syncs (structural comparison, so inline literals per render never clobber typing)
 - `useField` — combines value, error (`error`: message string, `errorObject`: `FieldError`), touch state + onChange/onBlur handlers; validates per `form.mode`/`form.reValidateMode` (`reValidateMode` only while the field already has an error); returns the bound `form` for direct headless access; accepts an explicit `form` option (no Provider needed)
 - `useFieldArray` — array field operations (append/prepend/insert/remove/swap/move); subscribes to `change` events with path-prefix filtering so only changes touching its branch re-render it
 - `useValidate` — registers the field validator in `form.validators`, with a lock guarding stale async results
@@ -61,7 +61,7 @@ Key exports: `createForm`, `getValues`, `getValue`, `setValue` (4th `options?: S
 
 ### Components (`src/components/`)
 - `Form` — context provider, handles submission/validation flow with submission state tracking; native constraint validation gates submission (`checkValidity()` before custom validators, `reportValidity()` bubbles on failure; the element renders `noValidate`); accepts `values` for controlled external sync and `shouldFocusError` (default true)
-- `Field` — controlled input; sets `aria-invalid` on error, and with the `renderError(error, id)` prop renders `<span id role="alert">` and wires `aria-describedby`; mirrors custom errors onto native validity via `setCustomValidity`; subscribes to the form's `'focusError'` event to focus its input when a failed submit names it as the first error
+- `Field` — controlled input; on error sets `aria-invalid` and appends `fieldErrorId(name)` to `aria-describedby` (exported `fieldErrorId` is the library-wide convention: any error element rendering that id completes the screen-reader chain); with the `renderError(error, id)` prop renders `<span id role="alert">` itself; user-provided `aria-describedby` is preserved (error id appended after); mirrors custom errors onto native validity via `setCustomValidity`; subscribes to the form's `'focusError'` event to focus its input when a failed submit names it as the first error
 - `Checkbox`, `Radio` (`Group`/`Item`) — group/item components for multi-select and single-select
 - `Select` — controlled `<select>` with options as children; single-select stores a string value, `multiple` stores the selected options' values as a string array
 
@@ -85,7 +85,7 @@ Schema validation adapters (tree-shakeable, separate entry points):
 
 ## Testing
 
-Tests use Vitest with jsdom environment. Test files are in `test/` directory with `.test.{ts,tsx,js,jsx}` extension. 253 tests across 15 files (per `npx vitest list`). Benchmarks live in `test/bench/*.bench.ts`.
+Tests use Vitest with jsdom environment. Test files are in `test/` directory with `.test.{ts,tsx,js,jsx}` extension. 424 tests across 20 files (per `npx vitest run`). Benchmarks live in `test/bench/*.bench.ts`.
 
 ## Key Patterns
 

@@ -171,6 +171,37 @@ export function isPromise(value: any): value is Promise<any> {
   return value && typeof value.then === 'function';
 }
 
+/** Structural equality for form default data (primitives, arrays, plain
+ * objects, Dates). Class instances and other exotic objects compare as
+ * unequal, which errs on the side of re-seeding when {@link
+ * setInitialValues} uses it to tell a re-rendered inline literal from
+ * genuinely changed content. */
+export function isEqual(a: any, b: any): boolean {
+  if (Object.is(a, b)) return true;
+  if (a instanceof Date && b instanceof Date)
+    return a.getTime() === b.getTime();
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
+  const isArray = Array.isArray(a);
+  if (isArray !== Array.isArray(b)) return false;
+  if (isArray) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!isEqual(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  const proto = Object.getPrototypeOf(a);
+  if (proto !== Object.prototype && proto !== null) return false;
+  if (Object.getPrototypeOf(b) !== proto) return false;
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  for (const key of keysA) {
+    if (!isEqual(a[key], b[key])) return false;
+  }
+  return true;
+}
+
 export function waitUntil(
   emitter: EventEmitter<any>,
   event: string,

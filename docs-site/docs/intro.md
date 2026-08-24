@@ -12,7 +12,7 @@ react-f0rm is a lightweight, event-driven React form library with fine-grained s
 - **Event-driven** — efficient updates via an event emitter, powered by `useSyncExternalStore` (no tearing under concurrent rendering)
 - **Type-safe paths** — `FieldPath<T>` / `PathValue<T, P>` turn a typo'd field path into a compile error, with the value type resolved at each path
 - **Standard Schema support** — one adapter (`react-f0rm/resolvers/standard-schema`) covers zod v3.24+/v4, valibot v1, arktype and every other spec implementer, at field or form level; Zod and Yup resolvers included
-- **Accessible by default** — `aria-invalid` on errored inputs, optional `renderError` with `role='alert'` and automatic `aria-describedby` wiring, native constraint bubbles via `checkValidity`/`reportValidity`
+- **Accessible by default** — `aria-invalid` on errored inputs plus `aria-describedby` → `fieldErrorId(name)` wiring on every bound field (`Field`/`Checkbox`/`Select`), optional `renderError` with `role='alert'`, native constraint bubbles via `checkValidity`/`reportValidity`, and `setServerErrors(form, apiErrors)` for landing 422 responses field by field
 - **Multiple errors per field** — every field holds an ordered `FieldError[]`; schema resolvers forward every issue instead of stopping at the first
 - **Async validation with cancellation** — `validateDebounce` per field plus an `AbortSignal` in the validator meta; `trigger` resolves `Promise<boolean>` once validation settles
 - **Precise lifecycle control** — `reset(form, values, {keepDirtyValues, …})`, `setFocus(form, name)`, typed per-app contexts via `createFormContext<Values>()`

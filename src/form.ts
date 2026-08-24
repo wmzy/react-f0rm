@@ -3,7 +3,7 @@ import type {EventEmitter} from '@for-fun/event-emitter';
 import createPath from './path';
 import type {Name, Path, PathSegments} from './path';
 import type {FieldPath, PathValueOf} from './types';
-import {get, normalizePath, setOwned, unset, waitUntil} from './util';
+import {get, isEqual, normalizePath, setOwned, unset, waitUntil} from './util';
 
 export type {Name};
 export type {FieldPath, PathValue} from './types';
@@ -508,6 +508,48 @@ export function clearErrors(form: Form, name?: Name | Name[]): void {
   for (const path of paths) emit(emitter, 'errors', path);
 }
 
+/** Options accepted by {@link setServerErrors}. */
+export interface SetServerErrorsOptions {
+  /** Keep existing field errors instead of clearing them first. Defaults
+   * to `false`: a fresh server response replaces the prior error state. */
+  keepExisting?: boolean;
+}
+
+/**
+ * Land a server-side error response on the form: each entry becomes the
+ * named field's error(s) with `type: 'server'`, ready for the same
+ * renderError/`useError` channel client-side validation uses. Takes the
+ * flat `Record<string, string | string[]>` shape REST APIs commonly
+ * return (RealWorld: `422 {errors: {email: ['has already been taken']}}`)
+ * without a hand-rolled `Object.entries` + `setError` loop.
+ *
+ * A string value lands as one error, a string array as several (first one
+ * is what `getError`/`error` expose); an empty array clears that field's
+ * errors. By default every existing error is cleared first — a fresh
+ * response describes the current state, not a patch onto stale client
+ * errors; pass `keepExisting: true` to layer instead.
+ * @param form
+ * @param errors field errors keyed by name
+ * @param options
+ */
+export function setServerErrors(
+  form: Form,
+  errors: Record<string, string | string[]>,
+  options?: SetServerErrorsOptions
+): void {
+  if (!options?.keepExisting) clearErrors(form);
+  for (const [name, error] of Object.entries(errors)) {
+    setError(
+      form,
+      name,
+      (Array.isArray(error) ? error : [error]).map(message => ({
+        type: 'server',
+        message
+      }))
+    );
+  }
+}
+
 /**
  * Set field touched state
  * @param form
@@ -732,11 +774,21 @@ function reviveBranch(deleted: Set<string>, {key}: Path): void {
 
 /**
  * Set form initialValues
+ *
+ * Content-based early return: a new reference with equal content (the
+ * re-rendered inline literal) is a no-op, so committed edits survive, while
+ * genuinely changed content swaps the baseline and re-seeds — live values
+ * and tombstones are cleared, touched flags and errors survive.
  * @param form
  * @param initialValues
  */
 export function setInitialValues(form: Form, initialValues: any): void {
-  if (form.initialValues === initialValues) return;
+  if (
+    form.initialValues === initialValues ||
+    isEqual(form.initialValues, initialValues)
+  ) {
+    return;
+  }
   form.initialValues = initialValues;
   // A new baseline invalidates the previous schema parse.
   form.parsedValues = undefined;

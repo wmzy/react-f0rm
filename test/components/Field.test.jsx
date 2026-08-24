@@ -3,7 +3,12 @@ import {render, screen, act, fireEvent} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import Form from '../../src/components/Form';
-import {Field, Checkbox, Select} from '../../src/components/Field';
+import {
+  Field,
+  Checkbox,
+  Select,
+  fieldErrorId
+} from '../../src/components/Field';
 import createForm, {
   getErrors,
   setError,
@@ -148,22 +153,64 @@ describe('Field', () => {
     expect(document.querySelector('[role="alert"]')).toBeNull();
   });
 
-  it('stays headless without renderError even when there is an error', async () => {
-    const form = createForm({initialValues: {name: ''}, mode: 'onBlur'});
-    const user = userEvent.setup();
+  it('describes fieldErrorId(name) even without renderError', async () => {
+    // Library-level wiring convention: a field with an error always sets
+    // aria-invalid and describes the fieldErrorId(name) element, so a
+    // custom error component only needs to render that id.
+    const form = createForm({initialValues: {name: ''}});
     render(
       <Form form={form}>
-        <Field name="name" validate={() => 'oops'} data-testid="name-input" />
+        <Field name="name" data-testid="name-input" />
       </Form>
     );
     const input = screen.getByTestId('name-input');
-    await user.click(input);
-    await user.tab();
+    expect(input.getAttribute('aria-describedby')).toBeNull();
+    await act(async () => {
+      setError(form, 'name', 'oops');
+    });
     await vi.waitFor(() => {
       expect(input.getAttribute('aria-invalid')).toBe('true');
     });
-    expect(input.getAttribute('aria-describedby')).toBeNull();
+    expect(input.getAttribute('aria-describedby')).toBe('name');
+    // Headless still renders no extra element of its own
     expect(document.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('fieldErrorId derives the same id from the field name', async () => {
+    expect(fieldErrorId('name')).toBe('name');
+    expect(fieldErrorId(['a', 0, 'b c'])).toBe('a-0-b-c');
+    const form = createForm({initialValues: {name: ''}});
+    render(
+      <Form form={form}>
+        <Field name="name" data-testid="name-input" />
+      </Form>
+    );
+    await act(async () => {
+      setError(form, 'name', 'oops');
+    });
+    await vi.waitFor(() => {
+      expect(
+        screen.getByTestId('name-input').getAttribute('aria-describedby')
+      ).toBe(fieldErrorId('name'));
+    });
+  });
+
+  it('appends the error id after a user-provided aria-describedby', async () => {
+    const form = createForm({initialValues: {name: ''}});
+    render(
+      <Form form={form}>
+        <Field name="name" aria-describedby="hint" data-testid="name-input" />
+      </Form>
+    );
+    const input = screen.getByTestId('name-input');
+    expect(input.getAttribute('aria-describedby')).toBe('hint');
+    await act(async () => {
+      setError(form, 'name', 'oops');
+    });
+    await vi.waitFor(() => {
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+    });
+    expect(input.getAttribute('aria-describedby')).toBe('hint name');
   });
 
   it('does not override a user-provided aria-label', async () => {
@@ -225,12 +272,36 @@ describe('Field', () => {
     );
     const checkbox = screen.getByTestId('terms');
     expect(checkbox.getAttribute('aria-invalid')).toBeNull();
+    expect(checkbox.getAttribute('aria-describedby')).toBeNull();
     await act(async () => {
       setError(form, 'terms', 'must accept');
     });
     await vi.waitFor(() => {
       expect(checkbox.getAttribute('aria-invalid')).toBe('true');
     });
+    // Same error-id convention as Field
+    expect(checkbox.getAttribute('aria-describedby')).toBe('terms');
+  });
+
+  it('attaches aria-invalid and describes fieldErrorId on Select when it has an error', async () => {
+    const form = createForm({initialValues: {color: ''}});
+    render(
+      <Form form={form}>
+        <Select name="color" data-testid="color">
+          <option value="">pick</option>
+          <option value="red">red</option>
+        </Select>
+      </Form>
+    );
+    const select = screen.getByTestId('color');
+    expect(select.getAttribute('aria-invalid')).toBeNull();
+    await act(async () => {
+      setError(form, 'color', 'pick one');
+    });
+    await vi.waitFor(() => {
+      expect(select.getAttribute('aria-invalid')).toBe('true');
+    });
+    expect(select.getAttribute('aria-describedby')).toBe(fieldErrorId('color'));
   });
 
   it('focuses the input when setFocus names the field', () => {

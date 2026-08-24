@@ -5,6 +5,7 @@ import type {Validator} from '../hooks/validate';
 import type {Form} from '../form';
 import type {FieldRules} from '../rules';
 import type {Name, Path} from '../path';
+import createPath from '../path';
 import type {FieldPath, PathValueOf} from '../types';
 
 /**
@@ -78,9 +79,11 @@ interface FieldProps<
   /**
    * Optional error renderer. When provided and the field has an error,
    * Field renders `<span id={id} role="alert">{renderError(error, id)}</span>`
-   * next to the input and points the input's aria-describedby at that span.
-   * When omitted, no extra element is rendered (headless) and no
-   * aria-describedby is attached, avoiding dangling id references.
+   * next to the input. The input's aria-describedby points at that span's
+   * id (the same `fieldErrorId(name)` derivation) whenever the field has
+   * an error — with or without renderError — so custom error components
+   * that render the element themselves (using `fieldErrorId`) get the
+   * wiring for free.
    */
   renderError?: (error: string, id: string) => React.ReactNode;
 }
@@ -102,6 +105,20 @@ function setRef<T>(ref: React.Ref<T> | undefined, value: T | null) {
 function errorIdFromKey(key: string): string {
   const id = key.replace(/["'[\],\s]+/g, '-').replace(/^-+|-+$/g, '');
   return id || 'field';
+}
+
+/**
+ * The error-message element id a field's `aria-describedby` points at —
+ * `fieldErrorId('a[0].b')` is `'a-0-b'`, the same id `Field`'s built-in
+ * `renderError` span carries. This is the library-level wiring convention:
+ * whenever a bound field (Field/Checkbox/Select) has an error it sets
+ * `aria-invalid` and describes the element with this id, so a custom error
+ * component only needs `<span id={fieldErrorId(name)} role="alert">` to
+ * complete the accessible-name chain for screen readers.
+ * @param name the same field name passed to the bound component
+ */
+export function fieldErrorId(name: Name): string {
+  return errorIdFromKey(createPath(name).key);
 }
 
 /**
@@ -226,17 +243,25 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
 
     // fieldKey is the field's path key (set by useField), e.g. '["a","0"]'.
     const errorId = errorIdFromKey(fieldKey);
+    // Error-id convention: a field with an error always describes the
+    // element carrying fieldErrorId(name) — renderError renders it inline
+    // below, custom error components derive the same id through the
+    // exported fieldErrorId. A user-provided aria-describedby survives:
+    // its ids are joined ahead of the error id.
+    const describedBy = error
+      ? [props['aria-describedby'], errorId].filter(Boolean).join(' ')
+      : props['aria-describedby'];
 
     return (
       <>
         <Component
-          aria-invalid={error ? true : undefined}
-          aria-describedby={error && renderError ? errorId : undefined}
           {...props}
           name={fieldKey}
           onBlur={onBlur}
           {...asProps}
           {...(valueToProps ? valueToProps(value) : {value})}
+          aria-invalid={error ? true : props['aria-invalid']}
+          aria-describedby={describedBy}
           disabled={isDisabled}
           onChange={(e: any) => onChange(toValue(e))}
           ref={mergedRef}
@@ -303,14 +328,23 @@ export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
       delayError,
       disabled
     });
+    // Same error-id convention as Field: the checkbox describes the
+    // fieldErrorId(name) element whenever it has an error.
     return (
       <input
-        aria-invalid={error ? true : undefined}
         {...props}
         name={fieldKey}
         onBlur={onBlur}
         type="checkbox"
         checked={!!value}
+        aria-invalid={error ? true : props['aria-invalid']}
+        aria-describedby={
+          error
+            ? [props['aria-describedby'], errorIdFromKey(fieldKey)]
+                .filter(Boolean)
+                .join(' ')
+            : props['aria-describedby']
+        }
         disabled={isDisabled}
         onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
           onChange(e.target.checked)
@@ -394,14 +428,23 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
       delayError,
       disabled
     });
+    // Same error-id convention as Field: the select describes the
+    // fieldErrorId(name) element whenever it has an error.
     return (
       <select
-        aria-invalid={error ? true : undefined}
         {...props}
         name={fieldKey}
         onBlur={onBlur}
         multiple={multiple}
         value={toSelectValue(multiple, value)}
+        aria-invalid={error ? true : props['aria-invalid']}
+        aria-describedby={
+          error
+            ? [props['aria-describedby'], errorIdFromKey(fieldKey)]
+                .filter(Boolean)
+                .join(' ')
+            : props['aria-describedby']
+        }
         disabled={isDisabled}
         onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
           onChange(

@@ -37,6 +37,7 @@ import createForm, {
   setFocus,
   resetField,
   getFieldState,
+  setServerErrors,
   VALIDATION_OUTCOME
 } from '../src/form';
 import {subscribe} from '../src/subscribe';
@@ -264,6 +265,65 @@ describe('getError / setError', () => {
   it('getFieldErrorsByPath returns an empty array when no error', () => {
     const form = createForm();
     expect(getFieldErrorsByPath(form, createPath('name'))).toEqual([]);
+  });
+});
+
+describe('setServerErrors', () => {
+  it('lands string values as a single type:server error', () => {
+    const form = createForm();
+    setServerErrors(form, {email: 'has already been taken'});
+    expect(getError(form, 'email')).toEqual({
+      type: 'server',
+      message: 'has already been taken'
+    });
+  });
+
+  it('lands string arrays as multiple errors in order (RealWorld shape)', () => {
+    const form = createForm();
+    setServerErrors(form, {
+      email: ['has already been taken', 'is invalid']
+    });
+    expect(getFieldErrors(form, 'email')).toEqual([
+      {type: 'server', message: 'has already been taken'},
+      {type: 'server', message: 'is invalid'}
+    ]);
+  });
+
+  it('clears pre-existing errors by default', () => {
+    const form = createForm();
+    setError(form, 'email', 'client error');
+    setError(form, 'other', 'unrelated');
+    setServerErrors(form, {email: ['taken']});
+    expect(getError(form, 'email')).toEqual({type: 'server', message: 'taken'});
+    expect(getError(form, 'other')).toBeUndefined();
+  });
+
+  it('keeps pre-existing errors with keepExisting', () => {
+    const form = createForm();
+    setError(form, 'email', 'client error');
+    setError(form, 'other', 'unrelated');
+    setServerErrors(form, {email: ['taken']}, {keepExisting: true});
+    expect(getError(form, 'email')).toEqual({type: 'server', message: 'taken'});
+    expect(getError(form, 'other')).toEqual({
+      type: 'custom',
+      message: 'unrelated'
+    });
+  });
+
+  it('an empty array clears that field', () => {
+    const form = createForm();
+    setError(form, 'email', 'client error');
+    setServerErrors(form, {email: []});
+    expect(hasErrors(form)).toBe(false);
+  });
+
+  it('emits errors events so subscribers re-render', () => {
+    const form = createForm();
+    const listener = vi.fn();
+    on(form.emitter, 'errors', listener);
+    setServerErrors(form, {email: ['taken'], password: 'too short'});
+    // clearErrors broadcast + one emit per field
+    expect(listener).toHaveBeenCalledTimes(3);
   });
 });
 
@@ -557,6 +617,56 @@ describe('setInitialValues', () => {
     setInitialValues(form, {a: 'updated'});
     expect(getValue(form, 'a')).toBe('updated');
     expect(getValues(form)).toEqual({a: 'updated'});
+  });
+
+  it('no-ops on an equal-content inline literal (committed edits survive)', () => {
+    // The editor-page hazard: every render passes a fresh object with the
+    // same content. Without the structural early return each re-render
+    // cleared the values Map and reverted the user's typing.
+    const form = createForm({initialValues: {a: 1, list: ['x']}});
+    setValue(form, 'a', 99);
+    const spy = vi.fn();
+    on(form.emitter, 'change', spy);
+    setInitialValues(form, {a: 1, list: ['x']});
+    expect(spy).not.toHaveBeenCalled();
+    expect(form.initialValues).toEqual({a: 1, list: ['x']});
+    expect(getValue(form, 'a')).toBe(99);
+  });
+
+  it('keeps parsedValues when content is equal', async () => {
+    // The early return must leave the schema-parse baseline intact — only
+    // a genuine baseline swap drops it.
+    const form = createForm({
+      initialValues: {a: 1},
+      validate: () => ({[VALIDATION_OUTCOME]: true, values: {a: 2}})
+    });
+    await ensureValidate(form);
+    expect(form.parsedValues).toEqual({a: 2});
+    setInitialValues(form, {a: 1});
+    expect(form.parsedValues).toEqual({a: 2});
+  });
+
+  it('treats exotic objects as unequal (errs on re-seeding)', () => {
+    // Class instances never compare structurally equal, so a new instance
+    // re-seeds like the pre-guard behavior.
+    class Box {
+      constructor(v) {
+        this.v = v;
+      }
+    }
+    const form = createForm({initialValues: new Box(1)});
+    const spy = vi.fn();
+    on(form.emitter, 'change', spy);
+    setInitialValues(form, new Box(1));
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('still re-seeds and clears live values when content changed', () => {
+    const form = createForm({initialValues: {a: 1}});
+    setValue(form, 'a', 99);
+    setInitialValues(form, {a: 2});
+    expect(getValue(form, 'a')).toBe(2);
+    expect(getValues(form)).toEqual({a: 2});
   });
 });
 

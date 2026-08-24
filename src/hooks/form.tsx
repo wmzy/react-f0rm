@@ -18,6 +18,7 @@ import type {FieldError, Form, Options, Name} from '../form';
 import type {FieldPath, PathValueOf} from '../types';
 import createPath from '../path';
 import type {Path} from '../path';
+import {isEqual} from '../util';
 
 /**
  * Create a form instance bound to this component.
@@ -340,37 +341,4 @@ export function useIsSubmitting(form: Form): boolean {
 
 export function useSubmitCount(form: Form): number {
   return useWatch(form.emitter, 'submitCount', () => form.submitCount);
-}
-
-/**
- * Structural equality for form default data (primitives, arrays, plain
- * objects, Dates). Used by {@link useForm} to tell a re-rendered inline
- * initialValues literal from genuinely changed content: class instances
- * and other exotic objects compare as unequal, which errs on the side of
- * re-seeding (the pre-guard behavior).
- */
-function isEqual(a: any, b: any): boolean {
-  if (Object.is(a, b)) return true;
-  if (a instanceof Date && b instanceof Date)
-    return a.getTime() === b.getTime();
-  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
-  const isArray = Array.isArray(a);
-  if (isArray !== Array.isArray(b)) return false;
-  if (isArray) {
-    if (a.length !== b.length) return false;
-    for (let i = 0; i < a.length; i++) {
-      if (!isEqual(a[i], b[i])) return false;
-    }
-    return true;
-  }
-  const proto = Object.getPrototypeOf(a);
-  if (proto !== Object.prototype && proto !== null) return false;
-  if (Object.getPrototypeOf(b) !== proto) return false;
-  const keysA = Object.keys(a);
-  const keysB = Object.keys(b);
-  if (keysA.length !== keysB.length) return false;
-  for (const key of keysA) {
-    if (!isEqual(a[key], b[key])) return false;
-  }
-  return true;
 }
