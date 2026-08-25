@@ -261,4 +261,39 @@ describe('standardSchemaFormValidator', () => {
     await validator({a: {b: 'typed'}});
     expect(schema.calls).toEqual([{a: {b: 'typed'}}]);
   });
+
+  it('yields undefined parsed values when the success result has no value key', async () => {
+    // A minimal Standard Schema implementation may resolve with a bare
+    // success object; the outcome must carry values: undefined, not throw.
+    const schema = {
+      '~standard': {version: 1, vendor: 'mock', validate: () => ({})}
+    };
+    const validator = standardSchemaFormValidator(schema);
+    const outcome = await validator({});
+    expect(outcome.values).toBeUndefined();
+    expect(outcome.errors).toBeUndefined();
+  });
+
+  it('keeps the leaf error when a later issue nests under it', async () => {
+    // 'a' already holds a FieldError[] leaf; walking into ['a','b'] must
+    // stop instead of corrupting the leaf.
+    const validator = standardSchemaFormValidator(
+      mockSchema([
+        {message: 'leaf', path: ['a']},
+        {message: 'child', path: ['a', 'b']}
+      ])
+    );
+    const outcome = await validator({});
+    expect(outcome.errors).toEqual({a: [{type: 'standard', message: 'leaf'}]});
+  });
+
+  it('falls back to a default message for a pathless issue without one', async () => {
+    const validator = standardSchemaFormValidator(
+      mockSchema([{path: []} as MockIssue])
+    );
+    const outcome = await validator({});
+    expect(outcome.errors).toEqual({
+      _form: [{type: 'standard', message: 'Validation failed'}]
+    });
+  });
 });

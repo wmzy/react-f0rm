@@ -539,4 +539,64 @@ describe('Field', () => {
       vi.useRealTimers();
     }
   });
+
+  it('calls function refs and fills object refs with the input node', () => {
+    const calls = [];
+    const objectRef = React.createRef();
+    render(
+      <Form initialValues={{a: '', b: ''}}>
+        <Field
+          name="a"
+          ref={node => {
+            calls.push(node);
+          }}
+        />
+        <Field name="b" ref={objectRef} />
+      </Form>
+    );
+    expect(calls[0]).toBeInstanceOf(HTMLInputElement);
+    expect(objectRef.current).toBeInstanceOf(HTMLInputElement);
+  });
+
+  it('does not focus a field when focusError names another field', () => {
+    const form = createForm({initialValues: {name: 'a', email: 'b'}});
+    render(
+      <Form form={form}>
+        <Field name="name" data-testid="name" />
+        <Field name="email" data-testid="email" />
+      </Form>
+    );
+
+    act(() => setFocus(form, 'email'));
+    expect(document.activeElement).toBe(screen.getByTestId('email'));
+    expect(document.activeElement).not.toBe(screen.getByTestId('name'));
+  });
+
+  it('spreads valueToProps over the element instead of the value prop', () => {
+    function Custom({selected}) {
+      return <output data-testid="out">{selected}</output>;
+    }
+    render(
+      <Form initialValues={{pick: 'yes'}}>
+        <Field name="pick" as={Custom} valueToProps={v => ({selected: v})} />
+      </Form>
+    );
+    expect(screen.getByTestId('out').textContent).toBe('yes');
+  });
+
+  it('describes the Checkbox error element while keeping user hints', async () => {
+    const form = createForm({initialValues: {terms: false}});
+    render(
+      <Form form={form}>
+        <Checkbox name="terms" aria-describedby="terms-hint" />
+      </Form>
+    );
+    const box = screen.getByRole('checkbox');
+    expect(box.getAttribute('aria-describedby')).toBe('terms-hint');
+
+    act(() => setError(form, 'terms', 'must accept'));
+    expect(box.getAttribute('aria-invalid')).toBe('true');
+    // User-provided ids stay ahead of the generated error id.
+    expect(box.getAttribute('aria-describedby')).toBe('terms-hint terms');
+  });
 });

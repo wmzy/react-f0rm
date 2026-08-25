@@ -191,4 +191,27 @@ describe('useValidate', () => {
       vi.useRealTimers();
     }
   });
+
+  it('throws when neither a form prop nor a provider is available', () => {
+    expect(() =>
+      renderHook(() => useValidate(() => undefined, createPath('name')))
+    ).toThrow('no form provided');
+  });
+
+  it('propagates a throwing sync validator without leaving the validating mark', () => {
+    const form = createForm();
+    const {result} = renderHook(() =>
+      useValidate(
+        () => {
+          throw new Error('boom');
+        },
+        createPath('name'),
+        form
+      )
+    );
+
+    expect(() => result.current()).toThrow('boom');
+    // The validating mark must not be stuck behind the throw.
+    expect(form.validating.size).toBe(0);
+  });
 });

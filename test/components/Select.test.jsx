@@ -76,4 +76,29 @@ describe('Select', () => {
     expect(select.multiple).toBe(true);
     expect(select.selectedOptions).toHaveLength(0);
   });
+
+  it('renders nothing selected when a multiple select holds a non-array value', () => {
+    // A string sneaking into a multiple select must not select anything.
+    render(
+      <Form initialValues={{colors: 'red'}}>
+        <Select name="colors" multiple data-testid="colors">
+          <option value="red">Red</option>
+          <option value="blue">Blue</option>
+        </Select>
+      </Form>
+    );
+    expect(screen.getByTestId('colors').selectedOptions).toHaveLength(0);
+  });
+
+  it('falls back to an empty string for a nullish single-select value', () => {
+    render(
+      <Form initialValues={{color: null}}>
+        <Select name="color" data-testid="color">
+          <option value="">None</option>
+          <option value="red">Red</option>
+        </Select>
+      </Form>
+    );
+    expect(screen.getByTestId('color').value).toBe('');
+  });
 });

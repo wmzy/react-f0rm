@@ -3,10 +3,14 @@ import {
   get,
   set,
   setOwned,
+  unset,
   isEmpty,
+  isEqual,
   isPromise,
-  normalizePath
+  normalizePath,
+  waitUntil
 } from '../src/util';
+import createForm, {setValue} from '../src/form';
 
 describe('get', () => {
   it('gets a value at a simple path', () => {
@@ -258,5 +262,144 @@ describe('setOwned', () => {
 
   it('returns the value for an empty path', () => {
     expect(setOwned({a: 1}, [], 'replacement', new Set())).toBe('replacement');
+  });
+});
+
+describe('unset', () => {
+  it('removes a top-level key immutably', () => {
+    const obj = {a: 1, b: 2};
+    expect(unset(obj, ['a'])).toEqual({b: 2});
+    expect(obj).toEqual({a: 1, b: 2});
+  });
+
+  it('removes a nested key and keeps untouched branches shared', () => {
+    const obj = {a: {b: 1, keep: true}, other: 'x'};
+    const result = unset(obj, ['a', 'b']);
+    expect(result).toEqual({a: {keep: true}, other: 'x'});
+    expect(result.other).toBe(obj.other); // sibling branch not copied
+    expect(obj.a.b).toBe(1); // source tree untouched
+  });
+
+  it('returns the source when a nested removal changes nothing', () => {
+    const obj = {a: {b: 1}};
+    // Removing a missing nested key leaves the branch identical.
+    expect(unset(obj, ['a', 'missing'])).toBe(obj);
+  });
+
+  it('deletes array slots without shrinking the array', () => {
+    const result = unset(['x', 'y'], [1]);
+    expect(result.length).toBe(2);
+    expect(0 in result).toBe(true);
+    expect(1 in result).toBe(false);
+  });
+
+  it('returns the same array when the index is missing', () => {
+    const arr = [1];
+    expect(unset(arr, [3])).toBe(arr);
+  });
+
+  it('returns the input for non-object holders and empty paths', () => {
+    expect(unset('str', ['a'])).toBe('str');
+    expect(unset(null, ['a'])).toBe(null);
+    expect(unset(undefined, ['a'])).toBe(undefined);
+    const obj = {a: 1};
+    expect(unset(obj, [])).toBe(obj);
+  });
+});
+
+describe('isEqual', () => {
+  it('compares dates by time, not identity', () => {
+    expect(isEqual(new Date(0), new Date(0))).toBe(true);
+    expect(isEqual(new Date(0), new Date(1))).toBe(false);
+    expect(isEqual(new Date(0), {})).toBe(false);
+  });
+
+  it('rejects cross-kind operands', () => {
+    expect(isEqual('a', ['a'])).toBe(false);
+    expect(isEqual(['a'], {0: 'a'})).toBe(false);
+    expect(isEqual(1, {})).toBe(false);
+    expect(isEqual(null, {})).toBe(false);
+    expect(isEqual(undefined, undefined)).toBe(true); // Object.is fast path
+  });
+
+  it('compares arrays element-wise and by length', () => {
+    expect(isEqual([1, [2, {a: 3}]], [1, [2, {a: 3}]])).toBe(true);
+    expect(isEqual([1, 2], [1, 2, 3])).toBe(false);
+    expect(isEqual([1, 2], [1, 3])).toBe(false);
+  });
+
+  it('compares plain objects recursively and by key count', () => {
+    expect(isEqual({a: {b: 1}}, {a: {b: 1}})).toBe(true);
+    expect(isEqual({a: 1}, {a: 2})).toBe(false);
+    expect(isEqual({a: 1, b: 2}, {a: 1})).toBe(false);
+  });
+
+  it('treats non-plain prototypes as unequal', () => {
+    class Box {
+      constructor(v) {
+        this.v = v;
+      }
+    }
+    expect(isEqual(new Box(1), new Box(1))).toBe(false);
+    expect(isEqual(new Box(1), {v: 1})).toBe(false);
+    expect(isEqual(Object.create(null), {})).toBe(false);
+  });
+});
+
+describe('waitUntil', () => {
+  it('resolves immediately when the condition already holds', async () => {
+    const {emitter} = createForm();
+    await expect(
+      waitUntil(
+        emitter,
+        'change',
+        () => true,
+        () => false
+      )
+    ).resolves.toBeUndefined();
+  });
+
+  it('rejects immediately when the reject condition already holds', async () => {
+    const {emitter} = createForm();
+    await expect(
+      waitUntil(
+        emitter,
+        'change',
+        () => false,
+        () => true
+      )
+    ).rejects.toBeUndefined();
+  });
+
+  it('stays subscribed through events that do not satisfy the condition', async () => {
+    const form = createForm({initialValues: {name: ''}});
+    let ready = false;
+    const promise = waitUntil(
+      form.emitter,
+      'change',
+      () => ready,
+      () => false
+    );
+    setValue(form, 'name', 'not yet'); // condition false: keep waiting
+    await Promise.resolve();
+    ready = true;
+    setValue(form, 'name', 'ready');
+    await expect(promise).resolves.toBeUndefined();
+  });
+
+  it('rejects when the reject condition turns true on an event', async () => {
+    const form = createForm({initialValues: {name: ''}});
+    let dead = false;
+    const promise = waitUntil(
+      form.emitter,
+      'change',
+      () => false,
+      () => dead
+    );
+    setValue(form, 'name', 'x'); // still alive: keep waiting
+    await Promise.resolve();
+    dead = true;
+    setValue(form, 'name', 'dead');
+    await expect(promise).rejects.toBeUndefined();
   });
 });

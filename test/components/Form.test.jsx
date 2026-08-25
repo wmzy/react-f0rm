@@ -5,6 +5,7 @@ import React from 'react';
 import Form from '../../src/components/Form';
 import {Field} from '../../src/components/Field';
 import {createFormContext, useFormContext} from '../../src/context';
+import createForm from '../../src/form';
 
 describe('Form', () => {
   it('renders a form element', () => {
@@ -290,5 +291,62 @@ describe('Form', () => {
         </Form>
       )
     ).toThrow('no form provided');
+  });
+
+  it('survives a native constraint failure with no invalid-submit callback', async () => {
+    const user = userEvent.setup();
+    const onValidSubmit = vi.fn();
+    render(
+      <Form initialValues={{email: ''}} onValidSubmit={onValidSubmit}>
+        <Field name="email" required />
+        <button type="submit">Submit</button>
+      </Form>
+    );
+
+    await user.click(screen.getByRole('button', {name: 'Submit'}));
+    await vi.waitFor(() => {
+      expect(onValidSubmit).not.toHaveBeenCalled();
+      // The failed submit is still reflected in the submit flags.
+    });
+  });
+
+  it('survives a custom validation failure with no invalid-submit callback', async () => {
+    const user = userEvent.setup();
+    const form = createForm({
+      initialValues: {name: 'abc'},
+      validate: values => (values.name.length >= 8 ? {} : {name: 'too short'})
+    });
+    const onValidSubmit = vi.fn();
+    render(
+      <Form form={form} onValidSubmit={onValidSubmit}>
+        <button type="submit">Submit</button>
+      </Form>
+    );
+
+    await user.click(screen.getByRole('button', {name: 'Submit'}));
+    await vi.waitFor(() => {
+      expect(onValidSubmit).not.toHaveBeenCalled();
+    });
+  });
+
+  it('falls back to the raw name when a control name is not a JSON path key', async () => {
+    const onInvalidSubmit = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <Form initialValues={{}} onInvalidSubmit={onInvalidSubmit}>
+        {/* Not a react-f0rm field: its name starts with '[' but is not a
+            JSON path key, so the error must report the name verbatim. */}
+        <input name="[oops" required />
+        <button type="submit">Submit</button>
+      </Form>
+    );
+
+    await user.click(screen.getByRole('button', {name: 'Submit'}));
+    await vi.waitFor(() => {
+      expect(onInvalidSubmit).toHaveBeenCalledTimes(1);
+    });
+    expect(onInvalidSubmit.mock.calls[0][0]).toEqual([
+      {path: '[oops', type: 'native', message: expect.any(String)}
+    ]);
   });
 });

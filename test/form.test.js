@@ -266,6 +266,14 @@ describe('getError / setError', () => {
     const form = createForm();
     expect(getFieldErrorsByPath(form, createPath('name'))).toEqual([]);
   });
+
+  it('treats an empty string as "no error" and clears what is stored', () => {
+    const form = createForm();
+    setError(form, 'name', 'required');
+    setError(form, 'name', '');
+    expect(getError(form, 'name')).toBeUndefined();
+    expect(getFieldErrors(form, 'name')).toEqual([]);
+  });
 });
 
 describe('setServerErrors', () => {
@@ -592,6 +600,31 @@ describe('removeField', () => {
     removeField(form, 'o');
     setValue(form, 'o.p', 2);
     expect(getValues(form)).toEqual({o: {p: 2}});
+  });
+
+  it('does not tombstone a path with a live descendant write', () => {
+    const form = createForm({initialValues: {a: {b: {c: 1}}}});
+    // A deep child is still mounted (live write) when its container
+    // unmounts: the prefix scan must keep the branch alive.
+    setValue(form, 'a.b.c', 2);
+    removeField(form, 'a.b');
+    expect(form.deleted.has('["a","b"]')).toBe(false);
+  });
+
+  it('does not tombstone a path under a live ancestor write', () => {
+    const form = createForm({initialValues: {}});
+    setValue(form, 'a', {b: 1, c: 2});
+    removeField(form, 'a.b');
+    expect(form.deleted.has('["a","b"]')).toBe(false);
+  });
+
+  it('a nested tombstone removes exactly that key from getValues output', () => {
+    const form = createForm({initialValues: {a: {b: 1, c: 2}}});
+    setValue(form, 'a.c', 20);
+    removeField(form, 'a.c');
+    // 'a.c' is gone; sibling 'a.b' survives and nothing is written back
+    // under the removed key.
+    expect(getValues(form)).toEqual({a: {b: 1}});
   });
 });
 
@@ -1202,6 +1235,15 @@ describe('form-level validation', () => {
     await expect(trigger(form)).resolves.toBe(true);
     expect(getErrors(form)).toEqual([]);
     expect(form.parsedValues).toEqual({a: 2});
+  });
+
+  it('accepts FieldError objects as leaf values of the error record', async () => {
+    const form = createForm({
+      initialValues: {a: ''},
+      validate: () => ({a: {type: 'server', message: 'bad input'}})
+    });
+    await expect(trigger(form)).resolves.toBe(false);
+    expect(getError(form, 'a')).toEqual({type: 'server', message: 'bad input'});
   });
 });
 

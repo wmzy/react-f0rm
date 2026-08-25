@@ -77,4 +77,15 @@ describe('zodResolver', () => {
     expect(await resolver('ok')).toBeUndefined();
     expect(schema.safeParseAsync).not.toHaveBeenCalled();
   });
+
+  it('falls back per issue when code or message is missing', async () => {
+    const schema = createMockSchema({
+      success: false,
+      error: {issues: [{}]}
+    });
+    const resolver = zodResolver(schema);
+    expect(await resolver('')).toEqual([
+      {type: 'custom', message: 'Validation failed'}
+    ]);
+  });
 });

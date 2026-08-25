@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import React from 'react';
 import Form from '../../src/components/Form';
 import {Group, Item} from '../../src/components/Checkbox';
-import createForm, {setError} from '../../src/form';
+import createForm, {setError, getValues} from '../../src/form';
 
 describe('Checkbox', () => {
   it('renders a checkbox input', () => {
@@ -51,5 +51,26 @@ describe('Checkbox', () => {
     await vi.waitFor(() => {
       expect(checkbox.getAttribute('aria-invalid')).toBe('true');
     });
+  });
+
+  it('removes the value when a checked item is unchecked', async () => {
+    const user = userEvent.setup();
+    const form = createForm({initialValues: {terms: ['yes']}});
+    render(
+      <Form form={form}>
+        <Group name="terms">
+          <Item value="yes" data-testid="terms" />
+        </Group>
+      </Form>
+    );
+    expect(screen.getByTestId('terms').checked).toBe(true);
+
+    await user.click(screen.getByTestId('terms'));
+    expect(screen.getByTestId('terms').checked).toBe(false);
+    expect(getValues(form)).toEqual({terms: []});
+  });
+
+  it('throws when an Item renders outside a Group', () => {
+    expect(() => render(<Item value="yes" />)).toThrow('no group provided');
   });
 });

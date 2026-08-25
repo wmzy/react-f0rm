@@ -76,7 +76,9 @@ export function unset(values: any, path: (string | number)[]): any {
   const [prop, ...props] = path;
   if (props.length) {
     const next = unset(values[prop], props);
-    return next === values[prop] ? values : set(values, path, next);
+    // Reattach the pruned child at its parent key — NOT at the full path,
+    // which would write the pruned subtree back under the removed key.
+    return next === values[prop] ? values : set(values, [prop], next);
   }
   if (Array.isArray(values)) {
     if (!(prop in values)) return values;

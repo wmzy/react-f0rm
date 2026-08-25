@@ -71,4 +71,17 @@ describe('yupResolver', () => {
     ]);
     expect(validate).not.toHaveBeenCalled();
   });
+
+  it('falls back to the default message when an issue carries none', async () => {
+    // err.inner is empty, so the error itself is the single issue — with
+    // an empty message the resolver must substitute its own default.
+    const err: any = new Error('');
+    const schema = {
+      validate: () => Promise.reject(err)
+    };
+    const resolver = yupResolver(schema);
+    expect(await resolver('')).toEqual([
+      {type: 'custom', message: 'Validation failed'}
+    ]);
+  });
 });

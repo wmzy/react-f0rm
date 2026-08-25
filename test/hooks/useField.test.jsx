@@ -841,4 +841,86 @@ describe('useField', () => {
       vi.useRealTimers();
     }
   });
+
+  it('merges rules errors with a validate that returns an array', () => {
+    const form = createForm({initialValues: {name: 'a'}, mode: 'all'});
+    const {result} = renderHook(
+      () =>
+        useField({
+          form,
+          name: 'name',
+          rules: {maxLength: 3},
+          validate: value =>
+            value.includes('!')
+              ? ['no exclamation', {type: 'x', message: 'y'}]
+              : undefined
+        }),
+      {
+        wrapper: ({children}) => (
+          <FormProvider value={form}>{children}</FormProvider>
+        )
+      }
+    );
+
+    act(() => result.current.onChange('ab!'));
+    expect(result.current.errors).toEqual([
+      {type: 'custom', message: 'no exclamation'},
+      {type: 'x', message: 'y'}
+    ]);
+
+    // Both rule failure and array validate output land in declaration order.
+    act(() => result.current.onChange('abcd!'));
+    expect(result.current.errors).toEqual([
+      {type: 'maxLength', message: 'Must be at most 3 characters'},
+      {type: 'custom', message: 'no exclamation'},
+      {type: 'x', message: 'y'}
+    ]);
+  });
+
+  it('re-validates on blur (not change) with reValidateMode onBlur', () => {
+    const form = createForm({
+      initialValues: {name: ''},
+      reValidateMode: 'onBlur'
+    });
+    const validate = vi.fn(value => (value ? undefined : 'required'));
+    const {result} = renderHook(
+      () => useField({form, name: 'name', validate}),
+      {
+        wrapper: ({children}) => (
+          <FormProvider value={form}>{children}</FormProvider>
+        )
+      }
+    );
+
+    // Seed an error directly so the reValidateMode window opens without
+    // needing a validating blur first (mode stays 'onSubmit').
+    act(() => setError(form, 'name', 'seed'));
+
+    // A change must not re-validate while reValidateMode is onBlur...
+    act(() => result.current.onChange('x'));
+    expect(validate).toHaveBeenCalledTimes(0);
+
+    // ...but the next blur does.
+    act(() => result.current.onBlur());
+    expect(validate).toHaveBeenCalledTimes(1);
+    expect(result.current.error).toBeUndefined();
+  });
+
+  it('falls back to the default pattern message when none is given', () => {
+    // pattern.message is type-required, but JS consumers may omit it.
+    const form = createForm({initialValues: {code: ''}, mode: 'all'});
+    const {result} = renderHook(
+      () => useField({form, name: 'code', rules: {pattern: {value: /^\d+$/}}}),
+      {
+        wrapper: ({children}) => (
+          <FormProvider value={form}>{children}</FormProvider>
+        )
+      }
+    );
+
+    act(() => result.current.onChange('ab'));
+    expect(result.current.errors).toEqual([
+      {type: 'pattern', message: 'Invalid format'}
+    ]);
+  });
 });
