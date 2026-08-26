@@ -8,7 +8,7 @@ import {
   setTouchedByPath,
   setValueByPath
 } from '../form';
-import type {FieldError, Form} from '../form';
+import type {FieldError, Form, ValidationMode} from '../form';
 import type {Name} from '../path';
 import type {FieldPath, PathValueOf} from '../types';
 import {rulesToValidator} from '../rules';
@@ -58,6 +58,17 @@ export interface UseFieldOptions<
    * `disabled`. A field cannot opt out of a disabled form.
    */
   disabled?: boolean;
+  /**
+   * Field-level validation mode override: when given, this field validates
+   * on its own schedule instead of `form.mode` — every other field keeps
+   * the form-level timing (e.g. a form that defaults to `'onSubmit'` with
+   * one field declared `'onBlur'` shows that field's error on blur while
+   * the rest wait for submit). `reValidateMode` stays form-level: once any
+   * field has an error (after a failed submit, say), re-validation follows
+   * the form's `reValidateMode` for every field, overriding this one too.
+   * See {@link ValidationMode}.
+   */
+  mode?: ValidationMode;
 }
 
 /**
@@ -181,7 +192,8 @@ export function useFieldCore<
     rules,
     validateDebounce,
     delayError,
-    disabled
+    disabled,
+    mode: modeOption
   }: UseFieldOptions<TValues, TPath>,
   Context: Context<any>
 ): UseFieldResult<TValues, TPath> {
@@ -218,6 +230,10 @@ export function useFieldCore<
   // this field; the field's own option is OR-ed in on every render.
   const formDisabled = useWatch(form.emitter, 'disabled', () => form.disabled);
 
+  // A field-declared mode replaces the form-level one for this field only;
+  // the reValidateMode kicks below stay form-level for every field.
+  const mode = modeOption ?? form.mode;
+
   // Seed initialValue in an effect (never during render, so no 'change' is
   // emitted while rendering) and only when the field has no value yet, so
   // user input survives re-renders and remounts.
@@ -234,9 +250,9 @@ export function useFieldCore<
     // inside the delayError window still counts as "has an error", so
     // typing re-validates and can clear it before it ever shows.
     if (
-      form.mode === 'onChange' ||
-      form.mode === 'all' ||
-      (form.mode === 'onTouched' && hasTouchedByPath(form, path)) ||
+      mode === 'onChange' ||
+      mode === 'all' ||
+      (mode === 'onTouched' && hasTouchedByPath(form, path)) ||
       (liveErrors.length > 0 && form.reValidateMode === 'onChange')
     )
       validator();
@@ -245,9 +261,9 @@ export function useFieldCore<
   const onBlur = useStageFn(() => {
     setTouchedByPath(form, path);
     if (
-      form.mode === 'onBlur' ||
-      form.mode === 'onTouched' ||
-      form.mode === 'all' ||
+      mode === 'onBlur' ||
+      mode === 'onTouched' ||
+      mode === 'all' ||
       (liveErrors.length > 0 && form.reValidateMode === 'onBlur')
     )
       validator();

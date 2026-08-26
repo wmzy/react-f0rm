@@ -349,6 +349,39 @@ const form = createForm({
 });
 ```
 
+#### Per-field mode override
+
+Sometimes one field deserves a different schedule than the rest of the form — a signup form that validates on submit, except the email field whose check should fire as soon as the user leaves the input. Any field can declare its own `mode`: it replaces the form-level `mode` for that field only, while every other field keeps the form's timing.
+
+```jsx
+import {Form, Field, useForm} from 'react-f0rm';
+
+function Register() {
+  // Form default: validate on submit.
+  const form = useForm({initialValues: {email: '', bio: ''}});
+
+  return (
+    <Form form={form}>
+      {/* This field alone validates on blur... */}
+      <Field name="email" mode="onBlur" validate={checkEmail} />
+      {/* ...while every other field waits for submit. */}
+      <Field name="bio" />
+    </Form>
+  );
+}
+```
+
+The same option exists on `useField` (and `Checkbox` / `Select`):
+
+```jsx
+const email = useField({name: 'email', mode: 'onBlur', validate: checkEmail});
+```
+
+- Accepted values are the same `ValidationMode` union as the form's `mode`; omit it and the field follows `form.mode` exactly as before.
+- Precedence is per field: `field.mode ?? form.mode`. A field cannot change another field's timing, and declaring `mode: 'onSubmit'` opts a field out of an `'onChange'` form.
+- `reValidateMode` stays form-level for every field: once a field has an error (after a failed submit, say), re-validation follows the form's `reValidateMode` regardless of the field's own `mode` — a `mode: 'onBlur'` field with the default `reValidateMode: 'onChange'` still re-validates on every keystroke while errored.
+- Manual `trigger` and submit validation are unaffected — they always run the field's validators regardless of any mode.
+
 ### Triggering validation manually
 
 `trigger` runs field validators on demand. Without a name it runs every registered validator; a single name — or an array of names — narrows it to those fields:

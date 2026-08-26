@@ -2,7 +2,7 @@ import * as React from 'react';
 import {on} from '@for-fun/event-emitter';
 import useField from '../hooks/field';
 import type {Validator} from '../hooks/validate';
-import type {Form} from '../form';
+import type {Form, ValidationMode} from '../form';
 import type {FieldRules} from '../rules';
 import type {Name, Path} from '../path';
 import createPath from '../path';
@@ -65,6 +65,14 @@ interface UseFieldOptions<
    * changes apply immediately. Passed through to useField.
    */
   delayError?: number;
+  /**
+   * Field-level validation mode override: this field validates on its own
+   * schedule instead of the form's `mode` (other fields are unaffected);
+   * the form's `reValidateMode` still governs re-validation once the
+   * field has an error. Passed through to useField, never spread onto
+   * the DOM element.
+   */
+  mode?: ValidationMode;
   [key: string]: any;
 }
 
@@ -154,6 +162,7 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
       validateDebounce,
       disabled,
       delayError,
+      mode,
       ...props
     },
     ref
@@ -188,6 +197,7 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
       validateDebounce,
       delayError,
       disabled,
+      mode,
       validate: (...params: [any, any]) => {
         const el = innerRef.current;
         if (el && typeof el.checkValidity === 'function') {
@@ -306,6 +316,7 @@ export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
       validateDebounce,
       disabled,
       delayError,
+      mode,
       ...props
     },
     ref
@@ -326,7 +337,8 @@ export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
       rules,
       validateDebounce,
       delayError,
-      disabled
+      disabled,
+      mode
     });
     // Same error-id convention as Field: the checkbox describes the
     // fieldErrorId(name) element whenever it has an error.
@@ -406,6 +418,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
       validateDebounce,
       disabled,
       delayError,
+      mode,
       ...props
     },
     ref
@@ -426,7 +439,8 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
       rules,
       validateDebounce,
       delayError,
-      disabled
+      disabled,
+      mode
     });
     // Same error-id convention as Field: the select describes the
     // fieldErrorId(name) element whenever it has an error.
