@@ -114,9 +114,9 @@ For full control, `useField` returns the controlled triple plus the error state 
 
 ```tsx
 // After: react-f0rm
-import {useField} from 'react-f0rm';
+import {useField, type FormInstance} from 'react-f0rm';
 
-function UsernameField({form}: {form: Form<Values>}) {
+function UsernameField({form}: {form: FormInstance<Values>}) {
   const {value, onChange, onBlur, error} = useField({form, name: 'username'});
   return (
     <div>
@@ -126,6 +126,8 @@ function UsernameField({form}: {form: Form<Values>}) {
   );
 }
 ```
+
+> `Form` from the package entry is the component value, not a type — the form-instance interface ships under the `FormInstance` alias.
 
 Both libraries re-render exactly the field that changed; the difference is the plumbing: TanStack subscribes through signals you select manually, react-f0rm wires field-level subscriptions through `useSyncExternalStore` internally.
 
@@ -208,7 +210,7 @@ Timing differences worth knowing:
 
 ### 4. Schemas: `standardSchemaValidators` / adapters → `standardSchemaResolver` + `standardSchemaFormValidator`
 
-TanStack Form v1 validates through Standard Schema implementations by passing the schema straight into `validators` (the early adapter packages — the `zodAdapter` / `standardSchemaAdapter` era — are deprecated):
+TanStack Form v1 validates through Standard Schema implementations by passing the schema straight into `validators` (the early adapter packages — `@tanstack/zod-form-adapter`'s `zodValidator` / `valibotValidator` and friends — are deprecated; the built-in `standardSchemaValidators` replaced them):
 
 ```tsx
 // Before: TanStack Form v1
@@ -256,7 +258,7 @@ const form = createForm({
 Differences to expect:
 
 - Error shape: TanStack exposes them per field as `StandardSchemaV1Issue[]` (via `field.state.meta.errors` and the form `errorMap`); react-f0rm stores `{type: 'standard', message}` entries in the field's `FieldError[]` — every issue is kept, and `error`/`useError` surface the first.
-- **Parsed output.** TanStack does not preserve the schema's transformed output — you parse again inside `onSubmit` to get coerced values. react-f0rm's form-level adapter stores the schema's parsed output as a `parsedValues` baseline: `getValues()` reads it for any field without a live edit (`z.coerce.number()` hands back a real `number`), while a live edit always wins over the baseline — "the fields the user touched last" semantics. Dirty state keeps comparing live edits against `initialValues` only; parsing never marks a field dirty. Note a just-edited field still reads its raw input at submit time — the schema output for that field lands on the *next* validation pass, so a coerce-in-submit flow should re-read after validation or coerce inside the handler.
+- **Parsed output.** TanStack does not preserve the schema's transformed output — you parse again inside `onSubmit` to get coerced values. react-f0rm's form-level adapter stores the schema's parsed output as a `parsedValues` baseline: `getValues()` reads it for any field without a live edit (`z.coerce.number()` hands back a real `number`), while a live edit always wins over the baseline — "the fields the user touched last" semantics. Dirty state keeps comparing live edits against `initialValues` only; parsing never marks a field dirty. Mind the corollary: a field the user just edited keeps reading its raw input — the live edit shadows the parsed baseline for as long as it exists, and submit re-reads through the same layering — so a coerce-on-submit flow must coerce inside the handler rather than waiting for validation to "catch up".
 - Legacy resolvers: older zod (`zodResolver`) and yup (`yupResolver`) versions of zod v3.24- / yup ship from their own entry points (`react-f0rm/resolvers/zod`, `/yup`).
 
 ### 5. Fine-grained subscriptions: `form.subscribe(selector)` / `useSelector` → `useWatch` / `subscribe`
@@ -267,10 +269,9 @@ TanStack reads state through selectors — `useSelector` re-renders the calling 
 // Before: TanStack Form v1
 import {useSelector} from '@tanstack/react-form';
 
+// useSelector re-renders the calling component; form.Subscribe (a component,
+// see section 6) re-renders only its own children.
 const firstName = useSelector(form.store, s => s.values.firstName);
-const [canSubmit, isSubmitting] = form.Subscribe
-  ? [] // (Subscribe is a component; see section 6)
-  : [];
 
 <form.Subscribe
   selector={s => s.values.province}
@@ -464,7 +465,7 @@ function Tags() {
 }
 ```
 
-Method mapping: `pushValue` → `append`, `removeValue` → `remove`, `insertValue` → `insert`, `swapValues` → `swap`, `moveValue` → `move`, `replaceValue` → `replace` (ids regenerated — the refetch shape), `clearValues` → `replace([])`. Two extras: `prepend(value)` and `update(index, value)` (rewrites one row keeping its id — no key churn). Row keys are stable across reorders (`field.id`), where the TanStack example above keys by index.
+Method mapping: `pushValue` → `append`, `removeValue` → `remove`, `insertValue` → `insert`, `swapValues` → `swap`, `moveValue` → `move`, `replaceValue(index, value)` → `update(index, value)` (single-row rewrite, same arity), `clearValues` → `replace([])`. Two more on the react-f0rm side: `prepend(value)`, and `replace(values)` — a full-list swap that regenerates every row id (the refetch shape; TanStack has no single-call equivalent). Row keys are stable across reorders (`field.id`), where the TanStack example above keys by index.
 
 Nested paths: TanStack builds template strings (`people[${i}].name`); react-f0rm takes dotted strings or segment arrays, both checked against `FieldPath<Values>`:
 
