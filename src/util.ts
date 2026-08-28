@@ -157,12 +157,8 @@ export function setOwned(
   return root;
 }
 
-export function isNil(value: any): value is null | undefined {
-  return value == null;
-}
-
 export function isEmpty(value: any): boolean {
-  if (isNil(value)) return true;
+  if (value == null) return true;
   if (typeof value !== 'object') return false;
 
   const values = Object.values(value);

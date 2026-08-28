@@ -31,6 +31,8 @@ const plugins = [
   })
 ];
 
+const terserMinify = terser({output: {comments: /^!/}});
+
 export default [
   // Main entry — UMD + ESM + CJS
   {
@@ -54,17 +56,19 @@ export default [
         file: pkg.unpkg,
         sourcemap: true,
         format: 'umd',
-        plugins: [terser({output: {comments: /^!/}})]
+        plugins: [terserMinify]
       },
       {
         file: pkg.module,
         sourcemap: true,
-        format: 'es'
+        format: 'es',
+        plugins: [terserMinify]
       },
       {
         file: pkg.main,
         sourcemap: true,
-        format: 'cjs'
+        format: 'cjs',
+        plugins: [terserMinify]
       }
     ]
   },
@@ -92,14 +96,16 @@ export default [
         entryFileNames: '[name].mjs',
         chunkFileNames: '[name]-[hash].mjs',
         sourcemap: true,
-        format: 'es'
+        format: 'es',
+        plugins: [terserMinify]
       },
       {
         dir: 'dist',
         entryFileNames: '[name].cjs.js',
         chunkFileNames: '[name]-[hash].cjs.js',
         sourcemap: true,
-        format: 'cjs'
+        format: 'cjs',
+        plugins: [terserMinify]
       }
     ]
   },

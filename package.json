@@ -153,6 +153,11 @@
     {
       "path": "dist/index.mjs",
       "limit": "10 KB"
+    },
+    {
+      "path": "dist/index.mjs",
+      "limit": "10 KB",
+      "gzip": true
     }
   ]
 }

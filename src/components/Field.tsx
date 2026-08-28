@@ -116,6 +116,28 @@ function errorIdFromKey(key: string): string {
 }
 
 /**
+ * The aria wiring every bound field shares: `aria-invalid` when the field
+ * has an error, and `aria-describedby` pointing at the error-message
+ * element id derived from the field key — the same id `fieldErrorId(name)`
+ * derives (the key is what useField returns as `name`). User-provided ids
+ * survive, joined ahead of the error id.
+ */
+function ariaProps(
+  error: string | undefined,
+  fieldKey: string,
+  props: Record<string, any>
+) {
+  return {
+    'aria-invalid': error ? true : props['aria-invalid'],
+    'aria-describedby': error
+      ? [props['aria-describedby'], errorIdFromKey(fieldKey)]
+          .filter(Boolean)
+          .join(' ')
+      : props['aria-describedby']
+  };
+}
+
+/**
  * The error-message element id a field's `aria-describedby` points at —
  * `fieldErrorId('a[0].b')` is `'a-0-b'`, the same id `Field`'s built-in
  * `renderError` span carries. This is the library-level wiring convention:
@@ -253,14 +275,6 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
 
     // fieldKey is the field's path key (set by useField), e.g. '["a","0"]'.
     const errorId = errorIdFromKey(fieldKey);
-    // Error-id convention: a field with an error always describes the
-    // element carrying fieldErrorId(name) — renderError renders it inline
-    // below, custom error components derive the same id through the
-    // exported fieldErrorId. A user-provided aria-describedby survives:
-    // its ids are joined ahead of the error id.
-    const describedBy = error
-      ? [props['aria-describedby'], errorId].filter(Boolean).join(' ')
-      : props['aria-describedby'];
 
     return (
       <>
@@ -270,8 +284,7 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
           onBlur={onBlur}
           {...asProps}
           {...(valueToProps ? valueToProps(value) : {value})}
-          aria-invalid={error ? true : props['aria-invalid']}
-          aria-describedby={describedBy}
+          {...ariaProps(error, fieldKey, props)}
           disabled={isDisabled}
           onChange={(e: any) => onChange(toValue(e))}
           ref={mergedRef}
@@ -349,14 +362,7 @@ export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
         onBlur={onBlur}
         type="checkbox"
         checked={!!value}
-        aria-invalid={error ? true : props['aria-invalid']}
-        aria-describedby={
-          error
-            ? [props['aria-describedby'], errorIdFromKey(fieldKey)]
-                .filter(Boolean)
-                .join(' ')
-            : props['aria-describedby']
-        }
+        {...ariaProps(error, fieldKey, props)}
         disabled={isDisabled}
         onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
           onChange(e.target.checked)
@@ -451,14 +457,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
         onBlur={onBlur}
         multiple={multiple}
         value={toSelectValue(multiple, value)}
-        aria-invalid={error ? true : props['aria-invalid']}
-        aria-describedby={
-          error
-            ? [props['aria-describedby'], errorIdFromKey(fieldKey)]
-                .filter(Boolean)
-                .join(' ')
-            : props['aria-describedby']
-        }
+        {...ariaProps(error, fieldKey, props)}
         disabled={isDisabled}
         onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
           onChange(
