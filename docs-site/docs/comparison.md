@@ -33,3 +33,4 @@ Bundle-size basis: every column is gzip. react-f0rm is measured on the local bui
 - [React Hook Form docs](https://react-hook-form.com)
 - [TanStack Form docs](https://tanstack.com/form)
 - [Formik on GitHub](https://github.com/jaredpalmer/formik) (maintenance-mode notice in the README)
+- Migration guides: [from Formik](./migration/from-formik.md), [from React Hook Form](./migration/from-react-hook-form.md), [from TanStack Form](./migration/from-tanstack-form.md)

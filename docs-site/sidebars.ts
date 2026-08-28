@@ -23,7 +23,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Migration',
-      items: ['migration/from-formik', 'migration/from-react-hook-form'],
+      items: ['migration/from-formik', 'migration/from-react-hook-form', 'migration/from-tanstack-form'],
     },
   ],
 };

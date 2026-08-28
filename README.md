@@ -791,6 +791,14 @@ import {renderToString} from 'react-dom/server';
 const html = renderToString(<ProfileForm initialValues={{name: 'ada', city: 'london'}} />);
 ```
 
+## Migrating
+
+Coming from another library? Step-by-step migration guides live in the docs site:
+
+- [Migrating from Formik](docs-site/docs/migration/from-formik.md)
+- [Migrating from React Hook Form](docs-site/docs/migration/from-react-hook-form.md)
+- [Migrating from TanStack Form](docs-site/docs/migration/from-tanstack-form.md)
+
 ## Breaking changes in 0.2
 
 v0.2 structures the error model (`FieldError`), changes unregister/reset/native-validation semantics, and more — see the [v0.1 → v0.2 migration guide](docs-site/docs/migration/v0.1-to-v0.2.md).
