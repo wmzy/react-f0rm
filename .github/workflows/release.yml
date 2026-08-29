@@ -6,6 +6,7 @@ on:
     paths:
       - "src/**"
       - "package.json"
+      - "rollup.config.js"
       - ".github/workflows/release.yml"
 
 permissions:
@@ -34,6 +35,9 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Size limit
+        run: npx size-limit
 
       - name: Run tests
         run: npm test
