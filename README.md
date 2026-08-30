@@ -458,6 +458,20 @@ setValue(form, 'email', 'a@b.com', {
 });
 ```
 
+### Writing as a user change (`changeValue`)
+
+`setValue` is the imperative channel — `shouldValidate` kicks the field's validator unconditionally, ignoring any mode. `changeValue` is the user-change channel: the write routes through the mounted field's own `onChange`, so it fires exactly the validation a user typing into the field would fire — the field's effective `mode` (per-field override included) and the form's `reValidateMode`. With no mounted field on the path it degrades to a plain `setValue`.
+
+```jsx
+import {changeValue} from 'react-f0rm';
+
+// An onSubmit form with the default reValidateMode 'onChange': quiet
+// while the field has no error, re-validates once it does — same as typing.
+changeValue(form, 'email', 'a@b.com');
+```
+
+This is the channel component libraries need when they hand a control a plain setter bound to a field (a `Control`/controlled-bridge over `useField`'s value): the mode gating — per-field override and live-error view — lives inside `useField`'s `onChange` closure and cannot be rebuilt from public form state, so `useField` publishes its `onChange` on the form (`form.changeHandlers`) and `changeValue`/`changeValueByPath` route through it.
+
 ### Field-level validation
 
 Pass a `validate` function to `Field` or `useField`. Return an error string, a `FieldError` object or `undefined` — sync or async:

@@ -76,6 +76,13 @@ export interface Form<T extends Record<string, any> = any> {
   errors: Map<string, FieldError[]>;
   touched: Set<string>;
   validators: Map<string, () => void>;
+  /** Change handlers published by mounted fields (`useField`): each is the
+   * field's own onChange — the write plus its mode/reValidateMode-gated
+   * validation kick. Path-based writes with user-change semantics
+   * ({@link changeValueByPath}) route through the registered handler; the
+   * effective per-field mode and live-error view live inside the field's
+   * closure, so this map is the only channel that can reproduce them. */
+  changeHandlers: Map<string, (value: any) => void>;
   validating: Set<string>;
   /** Parsed values from the last successful schema validation: the
    * schema's complete output tree (coerced/transformed values included).
@@ -142,6 +149,7 @@ export default function create<T extends Record<string, any> = any>(
     errors: new Map(),
     touched: new Set(),
     validators: new Map(),
+    changeHandlers: new Map(),
     validating: new Set(),
     parsedValues: undefined,
     isSubmitting: false,
@@ -276,6 +284,50 @@ export function setValueByPath(
   if (options?.shouldTouch) setTouchedByPath(form, path);
   if (options?.shouldValidate) form.validators.get(path.key)?.();
   emit(emitter, 'change', path);
+}
+
+/**
+ * Set a field value as a user change.
+ *
+ * The write routes through the field's own onChange when one is mounted
+ * (registered by `useField`), so it fires exactly the validation a user
+ * typing into the field would fire: the field's effective `mode`
+ * (per-field override included) and the form's `reValidateMode`. With no
+ * mounted field on the path it degrades to a plain value set
+ * ({@link setValue}).
+ *
+ * This is the channel for component-library bridges that hand a control a
+ * plain setter bound to a field — they cannot rebuild the gating from
+ * public form state, because the per-field mode override and the
+ * live-error view that gates `reValidateMode` live inside the field's
+ * onChange closure.
+ *
+ * Contrast {@link setValue}: that is the imperative channel — its
+ * `shouldValidate` option kicks the field's validator unconditionally,
+ * ignoring any mode. Functional updaters are the caller's to evaluate
+ * ({@link getValue}).
+ *
+ * @param form
+ * @param name
+ * @param value
+ */
+export function changeValue<
+  T extends Record<string, any> = any,
+  P extends FieldPath<T> | Name = Name
+>(form: Form<T>, name: P, value: PathValueOf<T, P>): void {
+  changeValueByPath(form, createPath(name), value);
+}
+
+/**
+ * Set a field value as a user change, by parsed path
+ * @param form
+ * @param path
+ * @param value
+ */
+export function changeValueByPath(form: Form, path: Path, value: any): void {
+  const change = form.changeHandlers.get(path.key);
+  if (change) change(value);
+  else setValueByPath(form, path, value);
 }
 
 /**

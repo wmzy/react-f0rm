@@ -258,6 +258,23 @@ export function useFieldCore<
       validator();
   });
 
+  // Publish this field's change semantics so path-based user-change writes
+  // (changeValue / changeValueByPath) route through the exact same gated
+  // pipeline as a user typing into the field. Component-library bridges
+  // cannot rebuild the gate from public state: the effective per-field
+  // mode and the live-error view are closed over above. Identity of the
+  // staged fn is stable and its closure always latest, so one registration
+  // per mount suffices.
+  useEffect(() => {
+    form.changeHandlers.set(path.key, onChange);
+    return () => {
+      // Guard: a later mount on the same path may own the slot now — only
+      // remove our own registration.
+      if (form.changeHandlers.get(path.key) === onChange)
+        form.changeHandlers.delete(path.key);
+    };
+  }, [form, path.key, onChange]);
+
   const onBlur = useStageFn(() => {
     setTouchedByPath(form, path);
     if (
