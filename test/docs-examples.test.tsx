@@ -5,7 +5,14 @@
 import {describe, it, expect, vi} from 'vitest';
 import {render, screen, fireEvent, act} from '@testing-library/react';
 import React from 'react';
-import {createFormContext, trigger, getFieldErrors} from '../src/index';
+import {
+  createFormContext,
+  trigger,
+  getFieldErrors,
+  useForm,
+  useCanSubmit,
+  handleSubmit
+} from '../src/index';
 import createForm, {setServerErrors} from '../src/form';
 import {Field, fieldErrorId} from '../src/components/Field';
 import {useError} from '../src/hooks/form';
@@ -263,5 +270,102 @@ describe('doc example: server-side error mapping (RealWorld 422)', () => {
     const input = screen.getByTestId('email');
     expect(input.getAttribute('aria-invalid')).toBe('true');
     expect(input.getAttribute('aria-describedby')).toBe(fieldErrorId('email'));
+  });
+});
+
+// ---- README "Submit button state" snippet -----------------------------------
+
+describe('doc example: useCanSubmit drives the submit button', () => {
+  function Profile({onSave}) {
+    const form = useForm({initialValues: {email: ''}});
+    const canSubmit = useCanSubmit(form);
+    return (
+      <button
+        data-testid="save"
+        disabled={!canSubmit}
+        onClick={handleSubmit(form, {onSubmit: onSave})}
+      >
+        Save
+      </button>
+    );
+  }
+
+  it('disabled spans the whole async onSubmit flight', async () => {
+    let release;
+    let enteredResolve;
+    const entered = new Promise(resolve => {
+      enteredResolve = resolve;
+    });
+    const onSave = () => {
+      enteredResolve();
+      return new Promise(resolve => {
+        release = resolve;
+      });
+    };
+    render(<Profile onSave={onSave} />);
+    const button = screen.getByTestId('save');
+    expect(button.disabled).toBe(false);
+
+    fireEvent.click(button);
+    // Drive until onSave is actually in flight: disabled for the whole
+    // async span.
+    await act(async () => {
+      await entered;
+    });
+    expect(button.disabled).toBe(true);
+    await act(async () => {
+      release();
+    });
+    expect(button.disabled).toBe(false);
+  });
+
+  it('a landed error disables the button until revalidation clears it', async () => {
+    const onSave = vi.fn();
+    function ValidatedProfile() {
+      const form = useForm({initialValues: {email: ''}});
+      const canSubmit = useCanSubmit(form);
+      return (
+        <>
+          <Field
+            form={form}
+            name="email"
+            data-testid="email"
+            validate={value => (value ? undefined : 'required')}
+          />
+          <button
+            data-testid="save"
+            disabled={!canSubmit}
+            onClick={handleSubmit(form, {onSubmit: onSave})}
+          >
+            Save
+          </button>
+        </>
+      );
+    }
+    render(<ValidatedProfile />);
+    const button = screen.getByTestId('save');
+    expect(button.disabled).toBe(false);
+
+    // Failed submit: the field error lands and the button disables —
+    // onSave never runs.
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    expect(button.disabled).toBe(true);
+    expect(onSave).not.toHaveBeenCalled();
+
+    // Fixing the field revalidates (reValidateMode 'onChange' once the
+    // field holds an error), the error clears, the button re-enables.
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('email'), {
+        target: {value: 'ada@lovelace.dev'}
+      });
+    });
+    expect(button.disabled).toBe(false);
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave.mock.calls[0][0]).toEqual({email: 'ada@lovelace.dev'});
   });
 });

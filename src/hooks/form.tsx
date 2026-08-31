@@ -339,6 +339,41 @@ export function useIsSubmitting(form: Form): boolean {
   return useWatch(form.emitter, 'submitting', () => form.isSubmitting);
 }
 
+/**
+ * Get whether the form accepts a submit right now:
+ * `!isSubmitting && !hasErrors`. This is the single flag a submit
+ * button's `disabled` prop wants — it is `false` for the whole async
+ * `onSubmit` span (not just the validation pass) and whenever any field
+ * holds an error (client validation or server backfill), replacing the
+ * hand-rolled `useHasErrors(form) || useIsSubmitting(form)` pair.
+ * Deliberately no dirty or validating semantics: an untouched-but-clean
+ * form can submit.
+ */
+export function useCanSubmit(form: Form): boolean {
+  const {emitter} = form;
+  // canSubmit folds two events into one boolean: error writes
+  // ('errors') and submit-state flips ('submitting'). useWatch subscribes
+  // to a single event, so subscribe to both through useWatchCore — the
+  // snapshot recomputes on either wake and re-renders only when the
+  // boolean itself flips, so unrelated single-field error churn costs no
+  // extra render (the same granularity useHasErrors already has).
+  const subscribeFactory = useCallback(
+    (invalidate: () => void) => {
+      const offErrors = on(emitter, 'errors', invalidate);
+      const offSubmitting = on(emitter, 'submitting', invalidate);
+      return () => {
+        offErrors();
+        offSubmitting();
+      };
+    },
+    [emitter]
+  );
+  return useWatchCore(
+    subscribeFactory,
+    () => !form.isSubmitting && !hasErrors(form)
+  );
+}
+
 export function useSubmitCount(form: Form): number {
   return useWatch(form.emitter, 'submitCount', () => form.submitCount);
 }

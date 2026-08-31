@@ -214,3 +214,46 @@ function AsyncSubmitForm() {
     </Form>
   );
 }
+
+// ---- goal 4: useCanSubmit + form-level validateDebounce typing ----------------
+
+import {useCanSubmit, useForm} from '../src/index';
+
+function CanSubmitButton() {
+  const form = useForm<LoginValues>({
+    initialValues: {
+      email: '',
+      password: '',
+      profile: {},
+      tags: [],
+      remember: false
+    }
+  });
+  const canSubmit = useCanSubmit(form);
+  const typed: Expect<Equal<typeof canSubmit, boolean>> = true;
+  return <button disabled={!canSubmit || !typed}>Submit</button>;
+}
+
+// Form-level validate: the meta second argument is optional at the
+// declaration site, so legacy single-argument callbacks stay assignable,
+// and validateDebounce is milliseconds (numbers only).
+const legacyValidator = (values: LoginValues) =>
+  values.email ? undefined : {email: 'required'};
+const metaValidator = async (
+  values: LoginValues,
+  {signal}: {form: FormInstance<LoginValues>; signal: AbortSignal}
+) => {
+  const res = await fetch(`/api/check?email=${values.email}`, {signal});
+  return res.ok ? undefined : {email: 'taken'};
+};
+const debouncedForm = createForm<LoginValues>({
+  validate: legacyValidator,
+  validateDebounce: 300
+});
+const withMetaForm = createForm<LoginValues>({validate: metaValidator});
+const debounceOptionType: Expect<
+  Equal<typeof debouncedForm.validateDebounce, number | undefined>
+> = true;
+// @ts-expect-error validateDebounce is milliseconds — numbers only
+createForm<LoginValues>({validateDebounce: '300'});
+void [withMetaForm, debounceOptionType];

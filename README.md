@@ -16,7 +16,7 @@ A headless, event-driven React form library with field-level subscriptions.
 - **Tombstone unregister.** Unmounted fields drop out of `getValues()` instead of silently reviving their initial values on the next read.
 - **Copy-on-write `getValues()`.** An ownership-tracked merge allocates each container once per read instead of re-copying whole branches for every key.
 - **Multiple errors per field.** Each field stores an ordered `FieldError[]` — `getFieldErrors`/`useFieldErrors` read them all, and schema resolvers forward every issue instead of stopping at the first.
-- **Async validation with cancellation.** `validateDebounce` per field plus an `AbortSignal` handed to every validator: a superseded round aborts its in-flight fetch, and pending debounce windows count as validating so submit waits them out.
+- **Async validation with cancellation.** `validateDebounce` per field — and on the form-level `validate` — plus an `AbortSignal` handed to every validator: a superseded round aborts its in-flight fetch, and pending debounce windows count as validating so submit waits them out.
 - **Precise lifecycle control.** `reset(form, values, {keepDirtyValues, …})` covers refetch-without-clobbering-dirty-drafts, `setFocus(form, name)` focuses programmatically, and `trigger(form, name?)` resolves `Promise<boolean>` once validation settles.
 - **Typed, nestable form contexts.** `createFormContext<Values>()` gives each app area an isolated provider whose `useField`/`useFieldArray` take `FieldPath<Values>` names without hand-written generics.
 - **SSR out of the box.** `renderToString` renders initial values and the server snapshot matches the client's first render, so hydration is consistent.
@@ -307,6 +307,26 @@ All callbacks are optional — a missing one is simply skipped. The returned han
 
 `onInvalidSubmit` receives an array of `{path, type, message}` entries: custom validation failures carry dotted paths with your validator's type (`'custom'` for plain strings, `'standard'` for the Standard Schema adapter), and native constraint failures carry `type: 'native'` — `path` is the dotted field path and `message` comes from the browser's `validationMessage`. Native failures are read from the DOM and never enter the form's error state.
 
+### Submit button state
+
+`useCanSubmit(form)` is the single flag a submit button's `disabled` prop wants — `!isSubmitting && !hasErrors`:
+
+```jsx
+import {useForm, useCanSubmit, handleSubmit} from 'react-f0rm';
+
+function Profile({onSave}) {
+  const form = useForm({initialValues: {email: ''}});
+  const canSubmit = useCanSubmit(form);
+  return (
+    <button disabled={!canSubmit} onClick={handleSubmit(form, {onSubmit: onSave})}>
+      Save
+    </button>
+  );
+}
+```
+
+It is `false` for the whole async `onSubmit` span (not just the validation pass) and whenever any field holds an error — client validation or server backfill (`setServerErrors` lands there too). Deliberately no dirty or validating semantics: an untouched-but-clean form can submit. The snapshot recomputes on either input's event and re-renders only when the boolean itself flips. The underlying readers stay exported — `useIsSubmitting`, `useHasErrors`, `useSubmitCount` — for UIs that need the parts separately.
+
 ### Focusing the first error
 
 After a failed submit, the offending field is focused automatically — pass `shouldFocusError: false` (on `<Form>` or `handleSubmit`) to disable; it defaults to `true`. Custom validation failures focus the first errored field through a `'focusError'` event that bound fields (like `Field`) subscribe to; native constraint failures focus the submitted form's first `:invalid` control directly.
@@ -408,7 +428,7 @@ Without `name` the scope is all fields plus the form-level `validate` result; wi
 
 Async validators are first-class. Two knobs keep them cheap and race-free:
 
-**`validateDebounce`** (on `Field`, `useField` or any bound component) delays a field's validation kicks by the given milliseconds; only the last kick inside the window runs the validator. While the timer is pending the field counts as *validating*, so `trigger` and submit wait the window out instead of racing it.
+**`validateDebounce`** (on `Field`, `useField` or any bound component) delays a field's validation kicks by the given milliseconds; only the last kick inside the window runs the validator. While the timer is pending the field counts as *validating*, so `trigger` and submit wait the window out instead of racing it. The form-level `validate` gets the same contract through `validateDebounce` on `createForm`/`useForm` (see [Form-level validation](#form-level-validation)).
 
 **`meta.signal`** — every validator's second argument carries `{form, path, signal}`. The `AbortSignal` fires as soon as the round is superseded (a newer round started, or the field unregistered), so async validators can cancel their underlying work instead of racing a stale result home:
 
@@ -536,6 +556,25 @@ const form = createForm({
   },
 });
 ```
+
+The validate function may be async (it is awaited), and its optional second argument carries `{form, signal}` — the same contract as field validators' `meta`. Add `validateDebounce` (milliseconds) to give the whole-form validate the per-field window contract: kicks from `trigger`/submit inside the window merge into one run reading the values current when the window closes, and while the timer is pending the form counts as *validating*, so `trigger` and submit wait the window out instead of racing it:
+
+```jsx
+const form = useForm({
+  validate: async (values, {signal}) => {
+    const res = await fetch('/api/validate', {
+      method: 'POST',
+      body: JSON.stringify(values),
+      signal
+    });
+    const {errors} = await res.json();
+    return errors; // nested error record, flattened like above
+  },
+  validateDebounce: 300
+});
+```
+
+The `AbortSignal` fires as soon as the round is superseded — a newer round started, which under a positive `validateDebounce` means a kick landed during the in-flight round's window — so async validators can cancel their underlying work instead of racing a stale result home. Stale results are dropped independently by the round gate, so validators that ignore the signal stay correct too. Without `validateDebounce` (`0`/omitted) the validate runs once per `trigger`/submit exactly as before; it still receives the meta argument, but nothing supersedes an immediate round, so its signal never fires.
 
 ### Schema validation
 

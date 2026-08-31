@@ -1245,6 +1245,226 @@ describe('form-level validation', () => {
     await expect(trigger(form)).resolves.toBe(false);
     expect(getError(form, 'a')).toEqual({type: 'server', message: 'bad input'});
   });
+
+  // ---- form-level validateDebounce --------------------------------------
+  // The form-level twin of the per-field validateDebounce contract: the
+  // window counts as validating (trigger/submit wait it out), kicks inside
+  // the window merge into one run reading the freshest values, and a
+  // submit is never raced through an open window.
+
+  it('runs validate immediately per call when validateDebounce is unset (default regression)', async () => {
+    const spy = vi.fn(() => ({}));
+    const form = createForm({initialValues: {a: 1}, validate: spy});
+    expect(form.validateDebounce).toBeUndefined();
+    await ensureValidate(form);
+    expect(spy).toHaveBeenCalledTimes(1);
+    await ensureValidate(form);
+    expect(spy).toHaveBeenCalledTimes(2);
+    // The undebounced pipeline never marks the form as validating.
+    expect(form.validating.size).toBe(0);
+  });
+
+  it('waits out the validateDebounce window before running form-level validate', async () => {
+    vi.useFakeTimers();
+    try {
+      const spy = vi.fn(() => ({}));
+      const form = createForm({
+        initialValues: {a: 1},
+        validate: spy,
+        validateDebounce: 50
+      });
+      const pending = ensureValidate(form);
+      // The form kick happens after ensureValidate's field-validator wait
+      // (a microtask in); flush it without advancing the window.
+      await vi.advanceTimersByTimeAsync(0);
+      expect(spy).not.toHaveBeenCalled();
+      // The pending window counts as validating, like a field's window.
+      expect(form.validating.size).toBe(1);
+      await vi.advanceTimersByTimeAsync(49);
+      expect(spy).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(pending).resolves.toBeUndefined();
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(form.validating.size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('merges kicks inside the window into one run reading the freshest values', async () => {
+    vi.useFakeTimers();
+    try {
+      const seen = [];
+      const form = createForm({
+        initialValues: {a: 1},
+        validate: values => {
+          seen.push(values.a);
+          return {};
+        },
+        validateDebounce: 50
+      });
+      const first = trigger(form);
+      setValue(form, 'a', 2);
+      const second = trigger(form);
+      await vi.advanceTimersByTimeAsync(50);
+      expect(await first).toBe(true);
+      expect(await second).toBe(true);
+      // One merged run, reading the values current when the window closed.
+      expect(seen).toEqual([2]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('trigger resolves only after the debounced error has landed', async () => {
+    vi.useFakeTimers();
+    try {
+      const form = createForm({
+        initialValues: {a: 1},
+        validate: () => ({a: 'bad'}),
+        validateDebounce: 50
+      });
+      const pending = trigger(form);
+      let settled = false;
+      pending.then(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(49);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await pending).toBe(false);
+      expect(getError(form, 'a').message).toBe('bad');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a submit is not raced through the window: a debounced form error still blocks it', async () => {
+    vi.useFakeTimers();
+    try {
+      const onValidSubmit = vi.fn();
+      const onInvalidSubmit = vi.fn();
+      const form = createForm({
+        initialValues: {a: 1},
+        validate: () => ({a: 'bad'}),
+        validateDebounce: 50
+      });
+      const submit = handleSubmit(form, {onValidSubmit, onInvalidSubmit});
+      const pending = submit();
+      // Mid-window: the submit must not have slipped through yet.
+      await vi.advanceTimersByTimeAsync(25);
+      expect(form.isSubmitting).toBe(true);
+      expect(onValidSubmit).not.toHaveBeenCalled();
+      expect(onInvalidSubmit).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(25);
+      await pending;
+      expect(onValidSubmit).not.toHaveBeenCalled();
+      expect(onInvalidSubmit).toHaveBeenCalledTimes(1);
+      expect(form.isSubmitting).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a debounced clean form-level validate lets the submit through once the window closes', async () => {
+    vi.useFakeTimers();
+    try {
+      const onValidSubmit = vi.fn();
+      const form = createForm({
+        initialValues: {a: 1},
+        validate: () => ({}),
+        validateDebounce: 50
+      });
+      const submit = handleSubmit(form, {onValidSubmit});
+      const pending = submit();
+      await vi.advanceTimersByTimeAsync(50);
+      await pending;
+      expect(onValidSubmit).toHaveBeenCalledTimes(1);
+      expect(onValidSubmit).toHaveBeenCalledWith({a: 1}, undefined);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('passes meta.signal to the form-level validate callback', async () => {
+    vi.useFakeTimers();
+    try {
+      const metas = [];
+      const form = createForm({
+        initialValues: {a: 1},
+        validate: (values, meta) => {
+          metas.push(meta);
+          return {};
+        },
+        validateDebounce: 50
+      });
+      const pending = trigger(form);
+      await vi.advanceTimersByTimeAsync(50);
+      await pending;
+      expect(metas).toHaveLength(1);
+      expect(metas[0].form).toBe(form);
+      expect(metas[0].signal.aborted).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('aborts the superseded async round and drops its late result', async () => {
+    vi.useFakeTimers();
+    try {
+      const deferred = [];
+      const signals = [];
+      const form = createForm({
+        initialValues: {a: 1},
+        validate: (values, {signal}) => {
+          signals.push(signal);
+          return new Promise(resolve => {
+            deferred.push(resolve);
+          });
+        },
+        validateDebounce: 50
+      });
+      const first = trigger(form);
+      await vi.advanceTimersByTimeAsync(50);
+      // Round 1 in flight; a kick during its flight opens a new window.
+      expect(signals).toHaveLength(1);
+      const second = trigger(form);
+      await vi.advanceTimersByTimeAsync(50);
+      // Round 2 started: round 1 is superseded — its signal fired and its
+      // eventual result must be dropped, not raced home.
+      expect(signals).toHaveLength(2);
+      expect(signals[0].aborted).toBe(true);
+      expect(signals[1].aborted).toBe(false);
+      deferred[0]({a: 'stale'});
+      await vi.advanceTimersByTimeAsync(0);
+      expect(getError(form, 'a')).toBeUndefined();
+      deferred[1]({});
+      expect(await first).toBe(true);
+      expect(await second).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('propagates a rejecting debounced round to the awaiting callers', async () => {
+    vi.useFakeTimers();
+    try {
+      const form = createForm({
+        initialValues: {a: 1},
+        validate: () => Promise.reject(new Error('validator blew up')),
+        validateDebounce: 50
+      });
+      const pending = ensureValidate(form);
+      // Attach the rejection handler before the window closes, so the
+      // rejection never spends a tick unhandled.
+      const assertion = expect(pending).rejects.toThrow('validator blew up');
+      await vi.advanceTimersByTimeAsync(50);
+      await assertion;
+      expect(form.validating.size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('submission state', () => {

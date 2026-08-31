@@ -59,6 +59,29 @@ export type ValidateResult<T> =
   | ValidationOutcome<T>
   | Promise<Record<string, any> | ValidationOutcome<T>>;
 
+/** Context passed to a form-level `validate` function's second argument.
+ * `signal` aborts as soon as the round is superseded — a newer round
+ * started (which only happens under a positive `validateDebounce`, where
+ * kicks merge into windows) — so async validators can cancel their
+ * underlying work instead of racing a stale result home. Stale results
+ * are dropped independently by the round gate, so validators that ignore
+ * the signal stay correct too; the same contract field-level validators
+ * get through their own `meta`. */
+export type FormValidateMeta<T extends Record<string, any> = any> = {
+  form: Form<T>;
+  signal: AbortSignal;
+};
+
+/** Form-level validator: receives all values (plus {@link
+ * FormValidateMeta} as an optional second argument) and returns a
+ * {@link ValidateResult} — sync or async — or `undefined`/nothing when
+ * valid (the runtime skips falsy results, so implicit-return callbacks
+ * type-check). */
+export type FormValidateFn<T extends Record<string, any> = any> = (
+  values: T,
+  meta: FormValidateMeta<T>
+) => ValidateResult<T> | undefined;
+
 export interface Form<T extends Record<string, any> = any> {
   emitter: EventEmitter;
   mode: ValidationMode;
@@ -90,7 +113,12 @@ export interface Form<T extends Record<string, any> = any> {
    * until `reset`/`setInitialValues` clears it. Never affects dirty
    * state — that compares live edits against initialValues only. */
   parsedValues: T | undefined;
-  validate?: (values: T) => ValidateResult<T>;
+  /** Form-level validator, seeded from {@link Options.validate}. May
+   * receive a second {@link FormValidateMeta} argument. */
+  validate?: FormValidateFn<T>;
+  /** Delay in milliseconds before the form-level `validate` runs; seeded
+   * from {@link Options.validateDebounce} and fixed at create time. */
+  validateDebounce?: number;
   isSubmitting: boolean;
   submitCount: number;
   isSubmitSuccessful: boolean | undefined;
@@ -120,7 +148,17 @@ export type Options<T extends Record<string, any> = any> = {
    * (the schema's parsed output) becomes the form's parsedValues baseline
    * that {@link getValues} layers over initialValues.
    */
-  validate?: (values: T) => ValidateResult<T>;
+  validate?: FormValidateFn<T>;
+  /**
+   * Milliseconds to debounce the form-level `validate`: kicks from
+   * `trigger`/`ensureValidate`/submit inside the window merge into one
+   * run, and while the timer is pending the form counts as validating,
+   * so `trigger` and submit wait the window out — the same contract the
+   * per-field `validateDebounce` gives field validators. The merged run
+   * reads the values current when its timer fires. Defaults to `0`
+   * (validate runs immediately, exactly as before this option existed).
+   */
+  validateDebounce?: number;
   /** Start the form with every bound field disabled — the flag bound
    * fields OR with their own `disabled` option (a field cannot opt out
    * of a disabled form). Toggle later with {@link setDisabled}.
@@ -1022,24 +1060,24 @@ export async function trigger(
   name?: Name | Name[]
 ): Promise<boolean> {
   // Never reject (an error landing is a normal outcome, not a failure), so
-  // waitUntil's isReject is permanently false. Waiting on the whole
-  // `validating` set is deliberately conservative: it also rides out
-  // unrelated in-flight validators rather than racing them.
+  // waitUntil's isReject is permanently false. Waiting on every FIELD
+  // validator is deliberately conservative: it also rides out unrelated
+  // in-flight field validators rather than racing them. The form-level
+  // validate's own window is excluded (fieldsSettled) — callers wait that
+  // out through the kick's promise instead, so a pending window never
+  // gates the next kick.
   const settle = () =>
     waitUntil(
       form.emitter,
       'validating',
-      () => !form.validating.size,
+      () => fieldsSettled(form),
       () => false
     );
 
   if (name === undefined) {
     form.validators.forEach(validator => validator());
     await settle();
-    if (form.validate) {
-      const result = await form.validate(getValues(form));
-      applyValidateResult(form, result);
-    }
+    if (form.validate) await runFormValidate(form);
     return !hasErrors(form);
   }
 
@@ -1128,6 +1166,182 @@ function applyValidateResult(
   setFormErrors(form, result as Record<string, any>);
 }
 
+/** Key the form-level validate round reserves in `form.validating` while
+ * its debounce window is pending or its async round is in flight. Real
+ * path keys are JSON-stringified segments (always bracketed), so a bare
+ * word can never collide. */
+const FORM_VALIDATING_KEY = '__form_validate__';
+
+/** Are all FIELD validation rounds drained? trigger/ensureValidate wait on
+ * this before kicking the form-level validate (its errors gate whether the
+ * form-level round may run at all). The form validate's own reserved key
+ * is deliberately excluded: its window is waited out through the kick's
+ * returned promise instead, so a pending window or in-flight form round
+ * never gates the next kick — a kick during an in-flight round opens a
+ * new window and the newer round supersedes, mirroring the per-field
+ * `validateDebounce` contract. */
+function fieldsSettled(form: Form): boolean {
+  for (const key of form.validating) {
+    if (key !== FORM_VALIDATING_KEY) return false;
+  }
+  return true;
+}
+
+/** Sentinel telling {@link settleFormValidate} the round landed cleanly —
+ * distinct from every rejection payload, including `undefined`. */
+const SETTLED = Symbol('form-validate-settled');
+
+/** Per-form bookkeeping for the debounced form-level validate: the
+ * pending window timer, the in-flight round, and the waiters merged into
+ * the current window group. Held in a WeakMap so the Form instance shape
+ * is untouched for forms that never set `validateDebounce`. */
+interface FormValidateState {
+  timer: ReturnType<typeof setTimeout> | null;
+  controller: AbortController | null;
+  /** Identity of the in-flight round; a superseded round's outcome
+   * (rejection included) is dropped by comparing against it. */
+  round: object | null;
+  /** Whether this state currently holds FORM_VALIDATING_KEY in
+   * form.validating. */
+  marked: boolean;
+  waiters: Array<{resolve: () => void; reject: (error: unknown) => void}>;
+}
+
+const formValidateStates = new WeakMap<Form, FormValidateState>();
+
+function getFormValidateState(form: Form): FormValidateState {
+  let state = formValidateStates.get(form);
+  if (!state) {
+    state = {
+      timer: null,
+      controller: null,
+      round: null,
+      marked: false,
+      waiters: []
+    };
+    formValidateStates.set(form, state);
+  }
+  return state;
+}
+
+/**
+ * Run the form-level `validate` and land its result, honoring the form's
+ * `validateDebounce` option.
+ *
+ * Undebounced (`0`/undefined) the caller's await *is* the validate call —
+ * the long-standing pipeline, unchanged: no validating mark, no round
+ * gating, immediate values snapshot, rejection propagating to the caller.
+ *
+ * Debounced, the kick opens (or restarts — kicks inside the window merge)
+ * a window during which the form counts as validating, so `trigger` /
+ * `ensureValidate` / submit wait the window out exactly like a field's
+ * `validateDebounce` window. When the timer fires, the round reads the
+ * then-current values, supersedes (aborts) any in-flight round, and lands
+ * its result. The returned promise settles once the window group's final
+ * round has landed — rejecting when that round's validate callback threw
+ * or its promise rejected, mirroring the undebounced propagation — so
+ * merged callers all observe the same outcome.
+ *
+ * Only called under `if (form.validate)`.
+ */
+function runFormValidate(form: Form): Promise<void> {
+  const validate = form.validate;
+  if (!validate) return Promise.resolve();
+  const debounce = form.validateDebounce ?? 0;
+  if (debounce <= 0) {
+    // Standalone controller: nothing supersedes an undebounced call, so
+    // its signal never fires — it exists for argument-shape parity with
+    // the debounced rounds (and with field-level meta.signal).
+    const controller = new AbortController();
+    return Promise.resolve(
+      validate(getValues(form), {form, signal: controller.signal})
+    ).then(result => {
+      applyValidateResult(form, result);
+    });
+  }
+  const state = getFormValidateState(form);
+  // (Re)open the window: a kick while the timer is pending restarts it
+  // (only the last kick's values run); one while a round is in flight
+  // keeps the validating mark held and defers to the new window's round.
+  if (state.timer !== null) clearTimeout(state.timer);
+  else {
+    state.marked = true;
+    form.validating.add(FORM_VALIDATING_KEY);
+    emit(form.emitter, 'validating');
+  }
+  state.timer = setTimeout(() => {
+    state.timer = null;
+    const round = (state.round = {});
+    runFormValidateRound(form, state, round).then(
+      () => settleFormValidate(form, state, round, SETTLED),
+      error => settleFormValidate(form, state, round, error)
+    );
+  }, debounce);
+  return new Promise<void>((resolve, reject) => {
+    state.waiters.push({resolve, reject});
+  });
+}
+
+/** Run one form-level validate round with the form's current values.
+ * Aborts the previous in-flight round's signal; a superseded round's
+ * outcome — rejection included — is dropped by the round gate, exactly
+ * like the field-level lock. */
+function runFormValidateRound(
+  form: Form,
+  state: FormValidateState,
+  round: object
+): Promise<void> {
+  const validate = form.validate;
+  if (!validate) return Promise.resolve();
+  state.controller?.abort();
+  const controller = (state.controller = new AbortController());
+  let outcome: Promise<any>;
+  try {
+    outcome = Promise.resolve(
+      validate(getValues(form), {form, signal: controller.signal})
+    );
+  } catch (error) {
+    outcome = Promise.reject(error);
+  }
+  return outcome.then(
+    result => {
+      if (state.round === round) applyValidateResult(form, result);
+    },
+    error => {
+      if (state.round === round) throw error;
+    }
+  );
+}
+
+/** Land the window group's outcome: release the validating mark — after
+ * the round's errors/values have already landed, because 'validating'
+ * subscribers (trigger, ensureValidate) re-read state on wake — and
+ * settle every merged waiter. A superseded round never lands here (the
+ * newer round owns the release), and a window that re-opened while the
+ * round was in flight defers: the mark and the waiters carry over to the
+ * pending timer's round. */
+function settleFormValidate(
+  form: Form,
+  state: FormValidateState,
+  round: object,
+  outcome: unknown
+): void {
+  if (state.round !== round) return;
+  state.round = null;
+  if (state.timer !== null) return;
+  if (state.marked) {
+    state.marked = false;
+    form.validating.delete(FORM_VALIDATING_KEY);
+    emit(form.emitter, 'validating');
+  }
+  const waiters = state.waiters;
+  state.waiters = [];
+  for (const waiter of waiters) {
+    if (outcome === SETTLED) waiter.resolve();
+    else waiter.reject(outcome);
+  }
+}
+
 /**
  * Validate and throw if any field error.
  * @param form
@@ -1139,15 +1353,14 @@ export async function ensureValidate(form: Form): Promise<void> {
   await waitUntil(
     form.emitter,
     'validating',
-    () => !form.validating.size,
+    () => fieldsSettled(form),
     () => hasErrors(form)
   ).catch(() => {
     throw new Error(getFirstError(form));
   });
 
   if (form.validate) {
-    const result = await form.validate(getValues(form));
-    applyValidateResult(form, result);
+    await runFormValidate(form);
     if (hasErrors(form)) throw new Error(getFirstError(form));
   }
 }

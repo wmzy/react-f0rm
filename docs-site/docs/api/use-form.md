@@ -162,4 +162,5 @@ Rides the same `'focusError'` event channel a failed `handleSubmit` uses to focu
 - `useTouchedFields(form)` — reactive `string[]` of touched fields (dotted paths), recalculated after blur/touch events
 - `useHasErrors(form)` — reactive error state
 - `useIsSubmitting(form)` — reactive submitting state
+- `useCanSubmit(form)` — reactive `!isSubmitting && !hasErrors`: the one flag a submit button's `disabled` prop wants
 - `useSubmitCount(form)` — reactive submit count

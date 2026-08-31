@@ -11,6 +11,7 @@ import useForm, {
   useTouchedFields,
   useHasErrors,
   useIsSubmitting,
+  useCanSubmit,
   useSubmitCount
 } from '../../src/hooks/form';
 import createForm, {
@@ -25,7 +26,8 @@ import createForm, {
   getTouchedFields,
   clearErrors,
   removeField,
-  reset
+  reset,
+  handleSubmit
 } from '../../src/form';
 import {create as createEmitter, emit} from '@for-fun/event-emitter';
 import {onKeyEvent, onPathEvent} from '../../src/subscribe';
@@ -543,6 +545,110 @@ describe('useIsSubmitting', () => {
     expect(result.current.isSubmitting).toBe(true);
     act(() => setIsSubmitting(result.current.form, false));
     expect(result.current.isSubmitting).toBe(false);
+  });
+});
+
+describe('useCanSubmit', () => {
+  // canSubmit = !isSubmitting && !hasErrors — the state-transition matrix
+  // over errors × submitting. Every test starts from the (no errors, idle)
+  // cell, then flips one or both inputs.
+  function setup() {
+    const {result} = renderHook(() => {
+      const form = useForm({initialValues: {name: ''}});
+      return {form, canSubmit: useCanSubmit(form)};
+    });
+    return result;
+  }
+
+  it('is true on a clean idle form', () => {
+    const result = setup();
+    expect(result.current.canSubmit).toBe(true);
+  });
+
+  it('flips false when an error lands and true again when it clears', () => {
+    const result = setup();
+    act(() => setError(result.current.form, 'name', 'required'));
+    expect(result.current.canSubmit).toBe(false);
+    act(() => clearErrors(result.current.form));
+    expect(result.current.canSubmit).toBe(true);
+  });
+
+  it('flips false for the whole submitting span', () => {
+    const result = setup();
+    act(() => setIsSubmitting(result.current.form, true));
+    expect(result.current.canSubmit).toBe(false);
+    act(() => setIsSubmitting(result.current.form, false));
+    expect(result.current.canSubmit).toBe(true);
+  });
+
+  it('recovers only once both inputs clear again', () => {
+    const result = setup();
+    // (errors, submitting) cell: both set
+    act(() => setError(result.current.form, 'name', 'required'));
+    act(() => setIsSubmitting(result.current.form, true));
+    expect(result.current.canSubmit).toBe(false);
+    // error clears while submitting: still blocked by isSubmitting
+    act(() => clearErrors(result.current.form));
+    expect(result.current.canSubmit).toBe(false);
+    // error back before the submit ends: still blocked by hasErrors
+    act(() => setError(result.current.form, 'name', 'required'));
+    act(() => setIsSubmitting(result.current.form, false));
+    expect(result.current.canSubmit).toBe(false);
+    act(() => clearErrors(result.current.form));
+    expect(result.current.canSubmit).toBe(true);
+  });
+
+  it('does not re-render when the inputs churn but the flag holds', () => {
+    let renders = 0;
+    const {result} = renderHook(() => {
+      renders++;
+      const form = useForm({initialValues: {a: ''}});
+      return {form, canSubmit: useCanSubmit(form)};
+    });
+    act(() => setIsSubmitting(result.current.form, true));
+    const afterFlip = renders;
+    // An error landing cannot change the flag (already false): the wake
+    // must recompute the snapshot without re-rendering the component.
+    act(() => setError(result.current.form, 'a', 'x'));
+    expect(renders).toBe(afterFlip);
+    act(() => clearErrors(result.current.form));
+    expect(renders).toBe(afterFlip);
+    act(() => setIsSubmitting(result.current.form, false));
+    expect(renders).toBe(afterFlip + 1);
+    expect(result.current.canSubmit).toBe(true);
+  });
+
+  it('covers the full handleSubmit span: false while onSubmit is in flight', async () => {
+    let releaseSubmit;
+    let resolveEntered;
+    const entered = new Promise(resolve => {
+      resolveEntered = resolve;
+    });
+    const {result} = renderHook(() => {
+      const form = useForm({initialValues: {a: ''}});
+      return {form, canSubmit: useCanSubmit(form)};
+    });
+    const submit = handleSubmit(result.current.form, {
+      onSubmit: () => {
+        resolveEntered();
+        return new Promise(resolve => {
+          releaseSubmit = resolve;
+        });
+      }
+    });
+    let pending;
+    // Drive the submit until its onSubmit callback is actually running —
+    // isSubmitting spans validation plus the whole async onSubmit.
+    await act(async () => {
+      pending = submit();
+      await entered;
+    });
+    expect(result.current.canSubmit).toBe(false);
+    await act(async () => {
+      releaseSubmit();
+      await pending;
+    });
+    expect(result.current.canSubmit).toBe(true);
   });
 });
 
