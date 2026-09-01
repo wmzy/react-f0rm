@@ -7,6 +7,8 @@
 
 A headless, event-driven React form library with field-level subscriptions.
 
+Coming from TanStack Form? [Migrating from TanStack Form](./docs/from-tanstack-form.md) is the one-page concept map — the core mapping table, known differences, and common pitfalls.
+
 ## Features
 
 - **Field-level subscriptions.** Editing one field re-renders exactly that field's component, not the whole form. State is read through `useSyncExternalStore`, so snapshots stay consistent under concurrent rendering (no tearing).
@@ -897,7 +899,7 @@ const html = renderToString(<ProfileForm initialValues={{name: 'ada', city: 'lon
 
 ## Migrating
 
-Coming from another library? Step-by-step migration guides live in the docs site:
+Coming from another library? [Migrating from TanStack Form](./docs/from-tanstack-form.md) is the repo-level concept map — core mapping table, known differences, common pitfalls. Step-by-step migration guides live in the docs site:
 
 - [Migrating from Formik](docs-site/docs/migration/from-formik.md)
 - [Migrating from React Hook Form](docs-site/docs/migration/from-react-hook-form.md)
