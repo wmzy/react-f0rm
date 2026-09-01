@@ -83,6 +83,7 @@ Bundle-size basis: every column is gzip. react-f0rm is measured on the local bui
 
 **Pick React Hook Form** when uncontrolled inputs are an option: its raw `register` performs no per-field re-render at all and floors at 21µs/change vs our 113µs (see [Benchmarks](#benchmarks)) — uncontrolled is simply a cheaper rendering model. RHF is also the right call when you need its mature ecosystem of resolvers, UI-library integrations and community answers today. TanStack Form sits in between: choose it when the deepest possible type inference (including validator signatures) matters more to you than bundle size.
 
+
 ## Usage
 
 ```jsx
@@ -626,6 +627,35 @@ const form = createForm({
 Schema errors come back as `{type: 'standard', message}`.
 
 On success the adapter returns the schema's parsed output, which the form stores as its `parsedValues` baseline: `getValues()` and submit callbacks (`onSubmit`/`onValidSubmit`) read coerced/transformed values — `z.coerce.number()` hands back a real `number`, not the raw string. The baseline sits between `initialValues` and live edits, so fields the user changes afterwards still win, and dirty state keeps comparing live edits against `initialValues` only — parsing never marks a field dirty. `reset()` and `setInitialValues()` clear the baseline.
+
+#### Schema defaults
+
+**Standard Schema v1 has no default-value metadata.** The interface carries types and `validate` and nothing else — whether a field declares a default, and how to read it, is vendor territory: zod v3.24 exposes `.getDefault()` per field, zod v4 wraps defaulted fields in a `ZodDefault` whose `.def.defaultValue` is a de-facto-public field rather than a documented accessor, valibot ships a `getDefault` util. None of it is reachable through the standard surface, and react-f0rm reads schemas only through `~standard.validate` — probing `schema.shape`/`.def` internals per vendor is exactly the adapter-per-library tree this library refuses to grow. So `defaultValues` derived from a schema is deliberately **not** a library feature: pass `initialValues` explicitly.
+
+What you do get for free: defaults flow through `validate`. A schema's parsed output contains every declared default, so after the first successful validation the `parsedValues` baseline already serves them — `getValues()` reads `z.string().default('anon')` fields as `'anon'` without any seeding. The gap is only the render before the first validation round, and two recipes close it user-side:
+
+```jsx
+// 1. Vendor-neutral: one parse of an empty object materializes every
+//    default the schema declares (nested ones included).
+const result = schema['~standard'].validate({});
+const initialValues = result.issues ? {} : result.value;
+
+const form = useForm({initialValues, validate: standardSchemaFormValidator(schema)});
+```
+
+The empty parse succeeds only where defaults cover everything; a required field without a default fails it, and `{}` is the honest seed in that case. For per-field extraction instead of a whole-object parse, do it through the vendor's own API — zod v4:
+
+```jsx
+// 2. zod v4: ZodDefault wrappers expose their default on .def
+const defaultValues = Object.fromEntries(
+  Object.entries(schema.shape).map(([key, field]) => [
+    key,
+    field.def?.type === 'default' ? field.def.defaultValue : undefined
+  ])
+);
+```
+
+(zod v3.24: the same loop calling `field.getDefault()`. That this loop is version-specific is the point — it is your schema and your vendor, not the form library's, contract to maintain.)
 
 ### Delaying error display
 
