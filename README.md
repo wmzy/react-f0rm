@@ -600,6 +600,39 @@ const form = useForm({
 
 The `AbortSignal` fires as soon as the round is superseded — a newer round started, which under a positive `validateDebounce` means a kick landed during the in-flight round's window — so async validators can cancel their underlying work instead of racing a stale result home. Stale results are dropped independently by the round gate, so validators that ignore the signal stay correct too. Without `validateDebounce` (`0`/omitted) the validate runs once per `trigger`/submit exactly as before; it still receives the meta argument, but nothing supersedes an immediate round, so its signal never fires.
 
+#### Re-running on dependent field changes (`validateDeps`)
+
+By default the form-level `validate` runs on `trigger` and submit only — a cross-field error stays on screen even after the user edits the field that would fix it. `validateDeps` declares the fields whose **user changes re-run the form-level `validate`**:
+
+```jsx
+const form = useForm({
+  initialValues: {password: '', confirm: ''},
+  validate: values =>
+    values.password !== values.confirm
+      ? {confirm: 'Passwords do not match'}
+      : {},
+  validateDeps: ['password']
+});
+```
+
+Now the submit-then-fix flow works: submit lands the mismatch on `confirm`, editing `password` re-runs the validate, and the passing round makes the error disappear. The re-run timing rides the same mode matrix as any field validator, evaluated against the changed field's effective `mode` (per-field override included) and the form's `reValidateMode`:
+
+| Situation | Dep change re-runs the form validate? |
+|---|---|
+| `mode: 'onChange'` / `'all'` (form or the dep field) | yes, error state or not |
+| `mode: 'onTouched'`, dep field touched | yes |
+| otherwise, the last round's error is live **and** `reValidateMode: 'onChange'` (default) | yes — the submit-then-fix flow |
+| `reValidateMode: 'onBlur'` / `'onSubmit'` | no — a change is not a blur; re-runs wait for their own trigger |
+
+Details that fall out of the plumbing:
+
+- **User changes only.** The kick rides the mounted field's own change pipeline, so typing and `changeValue` (component-library bridges) both fire it, while programmatic `setValue` does not — exactly like field validators. A dep path with no mounted field never re-runs the validate.
+- **Round-scoped error ownership.** Opting in changes what a re-run may clear: each round first drops the errors the *previous round* wrote, then lands its own result — so a passing re-run clears the stale mismatch. Errors the round never wrote (field validators', `setServerErrors`, manual `setError`) survive it, and a foreign write onto a round-owned path takes the key out of the round's ownership.
+- **`validateDebounce` applies.** Dep-change kicks are ordinary kicks: they merge inside the debounce window like `trigger`/submit kicks do.
+- Forms that don't set `validateDeps` keep the historical behavior untouched — the form validate runs on `trigger`/submit only, and re-runs never clear earlier errors.
+
+TanStack Form's counterpart is `onChangeListenTo` (v1) / validator `triggers` (v2 alpha); both re-run a validator when listed fields change. react-f0rm keeps the declaration at the form level (the validate belongs to the form) and gates the re-run by the library's own `mode`/`reValidateMode` semantics instead of adding an always-on listener.
+
 ### Schema validation
 
 Any library implementing [Standard Schema v1](https://standardschema.dev) — zod v3.24+/v4, valibot v1, arktype and more — works through one adapter, imported from its own tree-shakeable entry point:

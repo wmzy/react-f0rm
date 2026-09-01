@@ -119,6 +119,10 @@ export interface Form<T extends Record<string, any> = any> {
   /** Delay in milliseconds before the form-level `validate` runs; seeded
    * from {@link Options.validateDebounce} and fixed at create time. */
   validateDebounce?: number;
+  /** Path keys (JSON-stringified segments) of the fields whose user
+   * changes re-run the form-level `validate`; normalized from {@link
+   * Options.validateDeps} at create time and fixed thereafter. */
+  validateDeps?: ReadonlySet<string>;
   isSubmitting: boolean;
   submitCount: number;
   isSubmitSuccessful: boolean | undefined;
@@ -159,6 +163,21 @@ export type Options<T extends Record<string, any> = any> = {
    * (validate runs immediately, exactly as before this option existed).
    */
   validateDebounce?: number;
+  /** Fields whose user changes re-run the form-level `validate` — the
+   * cross-field dependency list (password-confirm mismatch and friends).
+   * Each entry is a field path ('password', 'user.email', 'items.0.qty');
+   * a user change to a listed field re-runs the form-level `validate`
+   * under the same mode/`reValidateMode` gating the field's own
+   * validator gets. Omit it and the form-level `validate` only runs on
+   * `trigger`/submit, exactly as before this option existed.
+   *
+   * Opting in also changes what a re-run may clear: each round first
+   * drops the errors the previous round wrote (paths it flattened onto),
+   * so a dep change that fixes the cross-field error makes it disappear.
+   * Errors the round never wrote — field validators', `setServerErrors`,
+   * manual `setError` — are never touched. TanStack Form's counterpart is
+   * `onChangeListenTo` (v1) / validator `triggers` (v2 alpha). */
+  validateDeps?: FieldPath<T>[];
   /** Start the form with every bound field disabled — the flag bound
    * fields OR with their own `disabled` option (a field cannot opt out
    * of a disabled form). Toggle later with {@link setDisabled}.
@@ -181,6 +200,9 @@ export default function create<T extends Record<string, any> = any>(
     mode: options?.mode ?? 'onSubmit',
     reValidateMode: options?.reValidateMode ?? 'onChange',
     disabled: options?.disabled ?? false,
+    validateDeps: options?.validateDeps
+      ? new Set(options.validateDeps.map(dep => createPath(dep).key))
+      : undefined,
     initialValues: (options?.initialValues ?? {}) as T,
     values: new Map(),
     deleted: new Set(),
@@ -1207,24 +1229,50 @@ function isFieldError(value: any): value is FieldError {
  * the 'a.b' error), array values contribute every non-empty string they
  * hold as separate errors (zod flatten() formErrors style), and
  * FieldError-shaped objects are stored as-is. Falsy values are skipped.
+ *
+ * When `footprint` is passed (validateDeps forms only), every leaf this
+ * round actually stored is recorded into it — the exact stored array —
+ * so the next round can drop exactly what this one wrote.
  */
 function setFormErrors(
   form: Form,
   result: Record<string, any>,
-  segments: PathSegments = []
+  segments: PathSegments = [],
+  footprint?: Map<string, FieldError[]>
 ): void {
   Object.entries(result).forEach(([key, value]) => {
     const path: PathSegments = [...segments, ...normalizePath(key)];
     if (typeof value === 'string') {
-      if (value) setError(form, path, value);
+      if (value) {
+        setError(form, path, value);
+        recordFootprint(form, path, footprint);
+      }
     } else if (Array.isArray(value)) {
       setError(form, path, value);
+      recordFootprint(form, path, footprint);
     } else if (isFieldError(value)) {
       setError(form, path, value);
+      recordFootprint(form, path, footprint);
     } else if (value && typeof value === 'object') {
-      setFormErrors(form, value, path);
+      setFormErrors(form, value, path, footprint);
     }
   });
+}
+
+/** Record one leaf write of a form-level validate round: the path key and
+ * the exact array now stored there. Nothing is recorded when the write
+ * normalized away (all-empty arrays) — there is no error to own. The
+ * stored array is read back from the errors Map because setErrorByPath
+ * owns normalization. */
+function recordFootprint(
+  form: Form,
+  segments: PathSegments,
+  footprint: Map<string, FieldError[]> | undefined
+): void {
+  if (!footprint) return;
+  const path = createPath(segments);
+  const stored = form.errors.get(path.key);
+  if (stored) footprint.set(path.key, stored);
 }
 
 /** Store a schema validator's parsed output as the getValues baseline
@@ -1246,19 +1294,77 @@ function setParsedValues(form: Form, values: any): void {
  * (the schema's parsed output — coerced/transformed values included)
  * becomes the form's parsedValues baseline. Falsy results are skipped,
  * branded or not.
+ *
+ * Forms that opted into `validateDeps` additionally get round-scoped
+ * error ownership: before the new result lands, the errors the previous
+ * round wrote are dropped ({@link clearFormValidateErrors}), so a re-run
+ * that passes makes the cross-field error disappear — and the new
+ * round's own writes become the tracked footprint. Forms without the
+ * option keep the historical write-only behavior untouched.
  */
 function applyValidateResult(
   form: Form,
   result: ValidateResult<any> | undefined
 ): void {
+  const footprint = form.validateDeps ? getFormErrorFootprint(form) : undefined;
+  if (footprint) {
+    clearFormValidateErrors(form, footprint);
+    footprint.clear();
+  }
   if (!result) return;
   if (typeof result === 'object' && VALIDATION_OUTCOME in result) {
     const outcome = result as ValidationOutcome<any>;
-    if (outcome.errors) setFormErrors(form, outcome.errors);
+    if (outcome.errors) setFormErrors(form, outcome.errors, [], footprint);
     setParsedValues(form, outcome.values);
     return;
   }
-  setFormErrors(form, result as Record<string, any>);
+  setFormErrors(form, result as Record<string, any>, [], footprint);
+}
+
+/** Per-form error footprint of the last form-level validate round: every
+ * path key it flattened onto, with the exact array instance it stored.
+ * Tracked only for forms that opted into `validateDeps` — held in a
+ * WeakMap so the Form shape and the non-opted pipeline stay untouched. */
+const formErrorFootprints = new WeakMap<Form, Map<string, FieldError[]>>();
+
+function getFormErrorFootprint(form: Form): Map<string, FieldError[]> {
+  let footprint = formErrorFootprints.get(form);
+  if (!footprint) {
+    footprint = new Map();
+    formErrorFootprints.set(form, footprint);
+  }
+  return footprint;
+}
+
+/** Does the form still show an error the last form-level round wrote?
+ * Compared by identity, not key membership: once a field validator,
+ * `setServerErrors`, a manual `setError` or `clearErrors` replaces the
+ * stored array, that error is no longer the round's to own — neither the
+ * dep-change gate nor the next round's clearing may touch it. */
+function hasFormValidateErrors(form: Form): boolean {
+  const footprint = formErrorFootprints.get(form);
+  if (!footprint) return false;
+  for (const [key, written] of footprint) {
+    if (form.errors.get(key) === written) return true;
+  }
+  return false;
+}
+
+/** Drop the last form-level round's errors before the next round lands.
+ * Per key the stored array is identity-checked — an error overwritten or
+ * cleared by anyone else in between survives — and each drop emits the
+ * same path-payload 'errors' event {@link setErrorByPath} would, so
+ * subscribed fields re-render exactly like on any error write. */
+function clearFormValidateErrors(
+  form: Form,
+  footprint: Map<string, FieldError[]>
+): void {
+  for (const [key, written] of footprint) {
+    const stored = form.errors.get(key);
+    if (stored !== written) continue;
+    form.errors.delete(key);
+    emit(form.emitter, 'errors', createPath(JSON.parse(key)));
+  }
 }
 
 /** Key the form-level validate round reserves in `form.validating` while
@@ -1434,6 +1540,52 @@ function settleFormValidate(
   for (const waiter of waiters) {
     if (outcome === SETTLED) waiter.resolve();
     else waiter.reject(outcome);
+  }
+}
+
+/**
+ * Form-level twin of the gated validator kick in `useField`'s onChange:
+ * re-run the form-level `validate` after a user change to a field listed
+ * in `validateDeps`. Called from the field's own change pipeline (typing
+ * and `changeValue` alike — both route through the mounted field's
+ * onChange), so programmatic `setValue` writes do not re-run it, exactly
+ * like they do not re-run field validators.
+ *
+ * The gate mirrors the per-field matrix with the *changed field's*
+ * effective `mode` (a per-field override governs when its changes may
+ * fire validation) and the form-level `reValidateMode` against the last
+ * round's error footprint ({@link hasFormValidateErrors} — field
+ * validators' errors never arm this kick):
+ * - `mode` `'onChange'`/`'all'` — every dep change re-runs;
+ * - `mode` `'onTouched'` — dep changes re-run once the field was touched;
+ * - otherwise the re-run waits for `reValidateMode: 'onChange'` (the
+ *   default) while the last round's error is still live — the
+ *   submit-then-fix flow: the mismatch lands on submit, editing the
+ *   dependency re-runs the validate and clears it.
+ * `reValidateMode: 'onBlur'`/`'onSubmit'` never re-run on a change (a
+ * change is not a blur; submit re-runs are the submit pipeline's job).
+ *
+ * The kick is fire-and-forget: async round rejections are swallowed
+ * (nothing in an event handler can await them), while a synchronous
+ * throw inside the validate callback propagates to the caller exactly
+ * like a field validator's does.
+ *
+ * A no-op unless the form set `validateDeps` listing `path` — forms
+ * without the option pay one property check here.
+ */
+export function revalidateFormOnChange(
+  form: Form,
+  path: Path,
+  mode: ValidationMode
+): void {
+  if (!form.validateDeps?.has(path.key) || !form.validate) return;
+  if (
+    mode === 'onChange' ||
+    mode === 'all' ||
+    (mode === 'onTouched' && hasTouchedByPath(form, path)) ||
+    (form.reValidateMode === 'onChange' && hasFormValidateErrors(form))
+  ) {
+    runFormValidate(form).catch(() => {});
   }
 }
 

@@ -115,6 +115,30 @@ holds an error, re-validation follows the form-level `reValidateMode` (default
 `'onChange'`) regardless of the field's own `mode`; `trigger(form, 'email')` is the
 manual `form.validate()` (form-wide without a name).
 
+Cross-field re-runs — TanStack's `onChangeListenTo` (v1) / validator `triggers`
+(v2 alpha) — map to the form-level `validateDeps` list instead of a per-field
+listener, because the cross-field validator itself is form-level here:
+
+```tsx
+// Before: the confirm field listens to password changes
+<form.Field name="confirm" validators={{onChange: ({value, field}) =>
+  value !== field.form.getFieldValue('password') ? 'Passwords do not match' : undefined
+}} onChangeListenTo={['password']} />
+
+// After: one form-level validate plus its dependency list
+const form = useForm({
+  initialValues: {password: '', confirm: ''},
+  validate: values =>
+    values.password !== values.confirm ? {confirm: 'Passwords do not match'} : {},
+  validateDeps: ['password']
+});
+```
+
+A dep change re-runs the validate under the same `mode`/`reValidateMode` gating as
+any field validator (with the default `'onSubmit'`/`'onChange'` pair that means:
+once the round has landed an error, dep changes keep it fresh — and clear it once
+fixed), and each round clears exactly the errors the previous round wrote.
+
 ## Schema validation
 
 ```tsx

@@ -1,4 +1,4 @@
-import {describe, it, expect} from 'vitest';
+import {describe, it, expect, vi} from 'vitest';
 import {renderHook, render, act} from '@testing-library/react';
 import React from 'react';
 import useForm, {
@@ -27,11 +27,14 @@ import createForm, {
   clearErrors,
   removeField,
   reset,
-  handleSubmit
+  handleSubmit,
+  changeValue,
+  trigger
 } from '../../src/form';
 import {create as createEmitter, emit} from '@for-fun/event-emitter';
 import {onKeyEvent, onPathEvent} from '../../src/subscribe';
 import createPath from '../../src/path';
+import useField from '../../src/hooks/field';
 
 describe('useForm', () => {
   it('returns a form instance', () => {
@@ -729,5 +732,125 @@ describe('onPathEvent / onKeyEvent primitives', () => {
     emit(emitter, 'errors', createPath('nameX')); // lookalike
     emit(emitter, 'errors', createPath('other')); // unrelated
     expect(calls).toBe(2);
+  });
+});
+
+// The mounted-field half of form-level validateDeps: the kick rides the
+// field's own onChange pipeline (typing and changeValue alike), so the
+// core-level gate matrix (see test/form.test.js) applies to real user
+// changes, and programmatic setValue never re-runs the form validate.
+describe('form-level validateDeps (user-change pipeline)', () => {
+  it('editing a declared dep re-runs the form validate and clears the fixed error (Register scenario)', async () => {
+    const form = createForm({
+      initialValues: {password: 'a', confirm: 'b'},
+      validate: values =>
+        values.password === values.confirm
+          ? {}
+          : {confirm: 'Passwords do not match'},
+      validateDeps: ['password']
+    });
+    const password = renderHook(() => useField({form, name: 'password'}));
+    const confirm = renderHook(() => useField({form, name: 'confirm'}));
+
+    // Submit lands the mismatch error on confirm.
+    await expect(trigger(form)).resolves.toBe(false);
+    expect(confirm.result.current.error).toBe('Passwords do not match');
+
+    // Typing into the declared dep re-runs the form validate (default
+    // mode onSubmit + reValidateMode onChange + live round error) and the
+    // fixed error disappears from the subscribed field.
+    act(() => password.result.current.onChange('b'));
+    await act(async () => {});
+    expect(confirm.result.current.error).toBeUndefined();
+    expect(getError(form, 'confirm')).toBeUndefined();
+  });
+
+  it('editing an undeclared field does not re-run the form validate', async () => {
+    const runs = vi.fn(() => ({confirm: 'Passwords do not match'}));
+    const form = createForm({
+      initialValues: {password: '', confirm: '', nickname: ''},
+      validate: runs,
+      validateDeps: ['password']
+    });
+    const nickname = renderHook(() => useField({form, name: 'nickname'}));
+    await trigger(form);
+    expect(runs).toHaveBeenCalledTimes(1);
+
+    act(() => nickname.result.current.onChange('zed'));
+    await act(async () => {});
+    expect(runs).toHaveBeenCalledTimes(1);
+  });
+
+  it('changeValue routes the dep kick through the mounted field pipeline', async () => {
+    const runs = vi.fn(values =>
+      values.password === values.confirm ? {} : {confirm: 'mismatch'}
+    );
+    const form = createForm({
+      initialValues: {password: 'a', confirm: 'b'},
+      validate: runs,
+      validateDeps: ['password']
+    });
+    renderHook(() => useField({form, name: 'password'}));
+    renderHook(() => useField({form, name: 'confirm'}));
+    await expect(trigger(form)).resolves.toBe(false);
+
+    // A component-library bridge writing through changeValue fires the
+    // same gated kick as typing.
+    act(() => changeValue(form, 'password', 'b'));
+    await act(async () => {});
+    expect(runs).toHaveBeenCalledTimes(2);
+    expect(getError(form, 'confirm')).toBeUndefined();
+  });
+
+  it('programmatic setValue does not re-run the form validate', async () => {
+    const runs = vi.fn(() => ({}));
+    const form = createForm({
+      initialValues: {password: ''},
+      validate: runs,
+      mode: 'onChange',
+      validateDeps: ['password']
+    });
+    renderHook(() => useField({form, name: 'password'}));
+
+    act(() => setValue(form, 'password', 'x'));
+    await act(async () => {});
+    expect(runs).toHaveBeenCalledTimes(0);
+  });
+
+  it('a dep field with a per-field mode override gates the kick by its own mode', async () => {
+    const runs = vi.fn(() => ({}));
+    const form = createForm({
+      initialValues: {password: ''},
+      validate: runs,
+      mode: 'onChange',
+      validateDeps: ['password']
+    });
+    // The dep field opts out of the form's onChange timing: its changes
+    // may not fire validation — the form-level kick included.
+    const password = renderHook(() =>
+      useField({form, name: 'password', mode: 'onSubmit'})
+    );
+
+    act(() => password.result.current.onChange('x'));
+    await act(async () => {});
+    expect(runs).toHaveBeenCalledTimes(0);
+  });
+
+  it('forms without the option are untouched: typing never re-runs the form validate', async () => {
+    const runs = vi.fn(() => ({confirm: 'mismatch'}));
+    const form = createForm({
+      initialValues: {password: '', confirm: ''},
+      validate: runs
+    });
+    const password = renderHook(() => useField({form, name: 'password'}));
+    await trigger(form);
+    expect(runs).toHaveBeenCalledTimes(1);
+
+    act(() => password.result.current.onChange('secret'));
+    await act(async () => {});
+    expect(runs).toHaveBeenCalledTimes(1);
+    // And the stale error stays — the historical behavior this option
+    // opts into changing.
+    expect(getError(form, 'confirm')?.message).toBe('mismatch');
   });
 });

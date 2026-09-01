@@ -21,6 +21,8 @@ const form = useForm({
 | `initialValues` | `T` | Initial form values |
 | `values` | `T` | Controlled external values — re-synced into the form when they **genuinely change** (reference-first with a structural fallback: an inline literal with equal content never re-syncs, so re-renders don't clobber in-progress edits) |
 | `validate` | `(values: T) => Record<string, any> \| Promise<Record<string, any>>` | Form-level validator; nested results are flattened onto field paths (see [Validation](../guides/validation.md)) |
+| `validateDebounce` | `number` | Milliseconds to debounce the form-level `validate` (default: `0`); kicks from `trigger`/submit inside the window merge into one run, and while the timer is pending the form counts as validating — see [Async Validation](../guides/validation.md#async-validation) |
+| `validateDeps` | `FieldPath<T>[]` | Fields whose **user changes re-run the form-level `validate`** (the password-confirm dependency list). Re-runs are gated by the mode/`reValidateMode` matrix, and each round clears the errors the previous round wrote — see [Re-running on dependent field changes](../guides/validation.md#re-running-on-dependent-field-changes-validatedeps) |
 | `mode` | `'onSubmit' \| 'onBlur' \| 'onChange' \| 'onTouched' \| 'all'` | When fields are validated (default: `'onSubmit'`) — see [Validation Timing](../guides/validation.md#validation-timing) |
 | `reValidateMode` | `'onChange' \| 'onBlur' \| 'onSubmit'` | When a field is re-validated **after it already has an error** (default: `'onChange'`) |
 | `disabled` | `boolean` | Start the form with every bound field disabled (default: `false`) — bound fields OR this flag with their own `disabled` option (a field cannot opt out); toggle at runtime with `setDisabled` |

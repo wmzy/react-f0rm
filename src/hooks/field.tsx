@@ -5,6 +5,7 @@ import {
   getValueByPath,
   hasTouchedByPath,
   removeFieldByPath,
+  revalidateFormOnChange,
   setTouchedByPath,
   setValueByPath
 } from '../form';
@@ -256,6 +257,11 @@ export function useFieldCore<
       (liveErrors.length > 0 && form.reValidateMode === 'onChange')
     )
       validator();
+    // Form-level validate deps: a user change to a listed field re-runs
+    // the form-level validate under the same mode/reValidateMode gating
+    // above (evaluated against the last round's own error footprint).
+    // No-op for forms without validateDeps.
+    revalidateFormOnChange(form, path, mode);
   });
 
   // Publish this field's change semantics so path-based user-change writes

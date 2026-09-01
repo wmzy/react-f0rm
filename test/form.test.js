@@ -38,6 +38,7 @@ import createForm, {
   resetField,
   getFieldState,
   setServerErrors,
+  revalidateFormOnChange,
   VALIDATION_OUTCOME
 } from '../src/form';
 import {subscribe} from '../src/subscribe';
@@ -1527,6 +1528,241 @@ describe('form-level validation', () => {
       await vi.advanceTimersByTimeAsync(50);
       await assertion;
       expect(form.validating.size).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // ---- form-level validateDeps --------------------------------------------
+  // The form-level twin of the gated kick in useField's onChange: a user
+  // change to a declared dep re-runs the form-level validate under the
+  // mode/reValidateMode matrix, and each round owns (and may clear) exactly
+  // the errors the previous round wrote.
+
+  it('normalizes validateDeps into a path-key set at create time', () => {
+    const form = createForm({
+      initialValues: {user: {email: ''}},
+      validateDeps: ['user.email', 'password']
+    });
+    expect(form.validateDeps).toEqual(
+      new Set(['["user","email"]', '["password"]'])
+    );
+    expect(createForm({}).validateDeps).toBeUndefined();
+  });
+
+  it('re-runs the form validate on a declared dep change under the mode matrix', async () => {
+    const seen = [];
+    const form = createForm({
+      initialValues: {password: '', confirm: ''},
+      validate: values => {
+        seen.push(values.password);
+        return {};
+      },
+      validateDeps: ['password']
+    });
+    const password = createPath('password');
+    const confirm = createPath('confirm');
+
+    // Default mode ('onSubmit') with no live form-level error: a dep
+    // change does not re-run the validate — same timing as a field
+    // validator in an onSubmit form.
+    revalidateFormOnChange(form, password, 'onSubmit');
+    expect(seen).toHaveLength(0);
+
+    // mode 'onChange': every dep change re-runs, error state or not.
+    revalidateFormOnChange(form, password, 'onChange');
+    expect(seen).toHaveLength(1);
+
+    // mode 'all' behaves like 'onChange' for the change trigger.
+    revalidateFormOnChange(form, password, 'all');
+    expect(seen).toHaveLength(2);
+
+    // An undeclared field never re-runs the validate, in any mode.
+    revalidateFormOnChange(form, confirm, 'onChange');
+    expect(seen).toHaveLength(2);
+
+    // A form without validateDeps never re-runs either.
+    const plain = createForm({
+      initialValues: {password: ''},
+      validate: () => ({a: 'x'})
+    });
+    revalidateFormOnChange(plain, createPath('password'), 'onChange');
+    expect(plain.errors.size).toBe(0);
+  });
+
+  it('re-runs on dep change in mode onSubmit while the last round error is live (reValidateMode onChange)', async () => {
+    const form = createForm({
+      initialValues: {password: 'x', confirm: 'y'},
+      validate: values =>
+        values.password === values.confirm
+          ? {}
+          : {confirm: 'Passwords do not match'},
+      validateDeps: ['password']
+    });
+    const password = createPath('password');
+
+    // Submit-like round lands the mismatch error.
+    await expect(trigger(form)).resolves.toBe(false);
+    expect(getError(form, 'confirm')?.message).toBe('Passwords do not match');
+
+    // Now the dep change re-runs under the default reValidateMode
+    // ('onChange') because the form-level round's error is still live.
+    setValue(form, 'password', 'y');
+    revalidateFormOnChange(form, password, 'onSubmit');
+    await Promise.resolve();
+    expect(getError(form, 'confirm')).toBeUndefined();
+  });
+
+  it('does not re-run on dep change when reValidateMode is onBlur or onSubmit', async () => {
+    for (const reValidateMode of ['onBlur', 'onSubmit']) {
+      const runs = vi.fn(() => ({confirm: 'Passwords do not match'}));
+      const form = createForm({
+        initialValues: {password: '', confirm: ''},
+        validate: runs,
+        reValidateMode,
+        validateDeps: ['password']
+      });
+      await trigger(form);
+      expect(runs).toHaveBeenCalledTimes(1);
+      expect(getError(form, 'confirm')).toBeDefined();
+
+      // The round's error is live, but a change is not a blur: the
+      // re-run waits for the reValidateMode's own trigger.
+      revalidateFormOnChange(form, createPath('password'), 'onSubmit');
+      await Promise.resolve();
+      expect(runs).toHaveBeenCalledTimes(1);
+      expect(getError(form, 'confirm')).toBeDefined();
+    }
+  });
+
+  it('re-runs on dep change in mode onTouched only once the dep field was touched', async () => {
+    const runs = vi.fn(() => ({}));
+    const form = createForm({
+      initialValues: {password: ''},
+      validate: runs,
+      mode: 'onTouched',
+      validateDeps: ['password']
+    });
+    const password = createPath('password');
+
+    revalidateFormOnChange(form, password, 'onTouched');
+    expect(runs).toHaveBeenCalledTimes(0);
+
+    setTouched(form, 'password');
+    revalidateFormOnChange(form, password, 'onTouched');
+    expect(runs).toHaveBeenCalledTimes(1);
+  });
+
+  it('each round clears the previous round errors before landing its own', async () => {
+    let mismatch = true;
+    const form = createForm({
+      initialValues: {password: 'a', confirm: 'b'},
+      validate: () =>
+        mismatch
+          ? {confirm: 'Passwords do not match', password: 'differs'}
+          : {},
+      validateDeps: ['password']
+    });
+
+    await expect(trigger(form)).resolves.toBe(false);
+    expect(getError(form, 'confirm')).toBeDefined();
+    expect(getError(form, 'password')).toBeDefined();
+
+    // The dep change re-run passes: every error the round wrote
+    // disappears — including on the dep field itself.
+    mismatch = false;
+    revalidateFormOnChange(form, createPath('password'), 'onChange');
+    await Promise.resolve();
+    expect(getError(form, 'confirm')).toBeUndefined();
+    expect(getError(form, 'password')).toBeUndefined();
+    expect(form.errors.size).toBe(0);
+  });
+
+  it('a passing re-run also clears through a falsy result', async () => {
+    let mismatch = true;
+    const form = createForm({
+      initialValues: {password: 'a', confirm: 'b'},
+      validate: () => (mismatch ? {confirm: 'mismatch'} : undefined),
+      validateDeps: ['password']
+    });
+    await expect(trigger(form)).resolves.toBe(false);
+    mismatch = false;
+    revalidateFormOnChange(form, createPath('password'), 'onChange');
+    await Promise.resolve();
+    expect(getError(form, 'confirm')).toBeUndefined();
+  });
+
+  it('clearing is scoped to the round own errors — foreign writes survive', async () => {
+    let mismatch = true;
+    const form = createForm({
+      initialValues: {password: '', confirm: '', email: ''},
+      validate: () => (mismatch ? {confirm: 'mismatch'} : {}),
+      validateDeps: ['password']
+    });
+    await trigger(form);
+    // Errors the round never wrote: a field validator's / manual setError
+    // and a server error.
+    setError(form, 'email', 'taken');
+    setServerErrors(form, {password: 'expired'}, {keepExisting: true});
+
+    mismatch = false;
+    revalidateFormOnChange(form, createPath('password'), 'onChange');
+    await Promise.resolve();
+    expect(getError(form, 'confirm')).toBeUndefined();
+    expect(getError(form, 'email')?.message).toBe('taken');
+    expect(getError(form, 'password')?.message).toBe('expired');
+  });
+
+  it('a foreign error written over the round key is not cleared by the next round', async () => {
+    let mismatch = true;
+    const form = createForm({
+      initialValues: {confirm: ''},
+      validate: () => (mismatch ? {confirm: 'round error'} : {}),
+      validateDeps: ['confirm']
+    });
+    await trigger(form);
+    expect(getError(form, 'confirm')?.message).toBe('round error');
+    // A foreign write replaces the stored array: the key is no longer
+    // the round's to own, so the next round may neither clear it...
+    setError(form, 'confirm', 'manual error');
+    mismatch = false;
+    revalidateFormOnChange(form, createPath('confirm'), 'onChange');
+    await Promise.resolve();
+    expect(getError(form, 'confirm')?.message).toBe('manual error');
+  });
+
+  it('without validateDeps the historical behavior is unchanged: a re-run never clears', async () => {
+    let mismatch = true;
+    const form = createForm({
+      initialValues: {password: 'a', confirm: 'b'},
+      validate: () => (mismatch ? {confirm: 'Passwords do not match'} : {}),
+      reValidateMode: 'onChange'
+    });
+    await expect(trigger(form)).resolves.toBe(false);
+    mismatch = false;
+    // Only submit/trigger re-runs — and even then the stale error stays.
+    await trigger(form);
+    expect(getError(form, 'confirm')?.message).toBe('Passwords do not match');
+  });
+
+  it('dep-change kicks merge inside the validateDebounce window like any other kick', async () => {
+    vi.useFakeTimers();
+    try {
+      const runs = vi.fn(() => ({}));
+      const form = createForm({
+        initialValues: {password: ''},
+        validate: runs,
+        validateDebounce: 50,
+        validateDeps: ['password']
+      });
+      const password = createPath('password');
+      revalidateFormOnChange(form, password, 'onChange');
+      setValue(form, 'password', 'a');
+      revalidateFormOnChange(form, password, 'onChange');
+      expect(runs).toHaveBeenCalledTimes(0);
+      expect(form.validating.size).toBe(1);
+      await vi.advanceTimersByTimeAsync(50);
+      expect(runs).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
