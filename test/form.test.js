@@ -121,12 +121,33 @@ describe('getValue / setValue', () => {
     expect(hasTouched(form, 'name')).toBe(true);
   });
 
-  it('accepts shouldDirty as a no-op without throwing', () => {
-    const form = createForm({initialValues: {}});
-    expect(() =>
-      setValue(form, 'name', 'x', {shouldDirty: true})
-    ).not.toThrow();
-    expect(getValue(form, 'name')).toBe('x');
+  it('shouldDirty: false lands the value without dirtying the field', () => {
+    const form = createForm({initialValues: {name: 'init'}});
+    setValue(form, 'name', 'committed', {shouldDirty: false});
+    expect(getValue(form, 'name')).toBe('committed');
+    expect(getDirtyFields(form)).toEqual({});
+    expect(isDirty(form)).toBe(false);
+    expect(getFieldState(form, 'name').isDirty).toBe(false);
+  });
+
+  it('shouldDirty: false re-bases the field for later writes', () => {
+    const form = createForm({initialValues: {name: 'init'}});
+    setValue(form, 'name', 'committed', {shouldDirty: false});
+    // A later write equal to the committed baseline stays clean.
+    setValue(form, 'name', 'committed');
+    expect(getDirtyFields(form)).toEqual({});
+    // A later write differing from it dirties the field again.
+    setValue(form, 'name', 'edited');
+    expect(getDirtyFields(form)).toEqual({name: true});
+  });
+
+  it('shouldDirty: true keeps the derived behavior', () => {
+    const form = createForm({initialValues: {name: 'init'}});
+    setValue(form, 'name', 'x', {shouldDirty: true});
+    expect(getDirtyFields(form)).toEqual({name: true});
+    // Spelled out or omitted, the flag is the same comparison.
+    setValue(form, 'name', 'init');
+    expect(getDirtyFields(form)).toEqual({});
   });
 
   it('applies options through setValueByPath too', () => {
@@ -528,6 +549,51 @@ describe('isDirty', () => {
     const reverted = getDirtyFields(form);
     expect(reverted).toEqual({});
     expect(getDirtyFields(form)).toBe(reverted);
+  });
+
+  it('reset drops committed baselines', () => {
+    const form = createForm({initialValues: {a: '1'}});
+    setValue(form, 'a', '2', {shouldDirty: false});
+    reset(form, {a: '9'});
+    // The old commit no longer suppresses dirtiness against the new
+    // baseline: '2' differs from '9'.
+    setValue(form, 'a', '2');
+    expect(getDirtyFields(form)).toEqual({a: true});
+  });
+
+  it('setInitialValues drops committed baselines', () => {
+    const form = createForm({initialValues: {a: '1'}});
+    setValue(form, 'a', '2', {shouldDirty: false});
+    setInitialValues(form, {a: '9'});
+    setValue(form, 'a', '2');
+    expect(getDirtyFields(form)).toEqual({a: true});
+  });
+
+  it('resetField drops the field’s committed baseline', () => {
+    const form = createForm({initialValues: {a: '1'}});
+    setValue(form, 'a', '3', {shouldDirty: false});
+    resetField(form, 'a', {value: '3'});
+    // Baseline cleared: the live '3' compares against initial '1' again.
+    expect(getFieldState(form, 'a').isDirty).toBe(true);
+  });
+
+  it('removeField drops the field’s committed baseline', () => {
+    const form = createForm({initialValues: {a: '1'}});
+    setValue(form, 'a', '2', {shouldDirty: false});
+    removeField(form, 'a');
+    setValue(form, 'a', '2');
+    expect(getDirtyFields(form)).toEqual({a: true});
+  });
+
+  it('a wholesale write at an ancestor drops committed baselines beneath it', () => {
+    const form = createForm({initialValues: {tags: ['a', 'b']}});
+    setValue(form, ['tags', 1], 'B', {shouldDirty: false});
+    expect(getDirtyFields(form)).toEqual({});
+    // Array movers rewrite the parent path; the row-level commit died with
+    // the subtree it was committed against, so the surviving row edit
+    // compares against initialValues again.
+    setValue(form, 'tags', ['a', 'B2']);
+    expect(getDirtyFields(form)).toEqual({tags: true, 'tags.1': true});
   });
 
   it('getTouchedFields returns dotted paths of touched fields', () => {

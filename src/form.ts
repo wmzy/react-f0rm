@@ -268,18 +268,23 @@ export function getValueByPath(
   return get(parsedValues ?? initialValues, path.value);
 }
 
-/** Options accepted by {@link setValue} / {@link setValueByPath}. Every flag
- * defaults to `false`; omitting the options object entirely keeps the plain
- * set-value behavior (no validation, no touched marking). */
+/** Options accepted by {@link setValue} / {@link setValueByPath} / {@link
+ * changeValue} / {@link changeValueByPath}. `shouldValidate`/`shouldTouch`
+ * default to `false`; omitting the options object entirely keeps the plain
+ * set-value behavior (no validation, no touched marking, dirty stays
+ * derived). */
 export interface SetFieldOptions {
   /** Run the field's registered validator (if any) after the value lands,
    * same as triggering that single field. Defaults to `false`. */
   shouldValidate?: boolean;
   /** Mark the field as touched. Defaults to `false`. */
   shouldTouch?: boolean;
-  /** Reserved for a future manual dirty marker. Dirty state is currently
-   * derived from comparing values against initialValues, so this flag is
-   * accepted but does nothing. Defaults to `false`. */
+  /** Land the value as a commit instead of an edit: the value becomes the
+   * field's dirty-comparison baseline, so `getDirtyFields`/`isDirty`/
+   * `getFieldState().isDirty` read the field as clean, and a later write
+   * dirties it only by differing from the new baseline. `true` (or
+   * omitting the flag) keeps the default derived behavior — dirty while
+   * the live value differs from initialValues. */
   shouldDirty?: boolean;
 }
 
@@ -318,6 +323,11 @@ export function setValueByPath(
   const {emitter, values, deleted} = form;
   values.set(path.key, value);
   reviveBranch(deleted, path);
+  // Baselines under the replaced subtree die with it — before the emit, so
+  // subscribers reading dirty state inside the emission never see a stale
+  // commit suppressing the write they are being told about.
+  pruneDirtyBaselines(form, path);
+  if (options?.shouldDirty === false) setDirtyBaseline(form, path, value);
   bumpDirtyVersion(form);
   if (options?.shouldTouch) setTouchedByPath(form, path);
   if (options?.shouldValidate) form.validators.get(path.key)?.();
@@ -345,15 +355,27 @@ export function setValueByPath(
  * ignoring any mode. Functional updaters are the caller's to evaluate
  * ({@link getValue}).
  *
+ * `options` carries the same {@link SetFieldOptions}: on the fallback path
+ * (no mounted field) they forward to {@link setValueByPath} wholesale,
+ * while on the mounted-field path only `shouldDirty: false` applies — the
+ * write lands as a commit while the field's own mode gating keeps driving
+ * validation, which is the point of this channel.
+ *
  * @param form
  * @param name
  * @param value
+ * @param options
  */
 export function changeValue<
   T extends Record<string, any> = any,
   P extends FieldPath<T> | Name = Name
->(form: Form<T>, name: P, value: PathValueOf<T, P>): void {
-  changeValueByPath(form, createPath(name), value);
+>(
+  form: Form<T>,
+  name: P,
+  value: PathValueOf<T, P>,
+  options?: SetFieldOptions
+): void {
+  changeValueByPath(form, createPath(name), value, options);
 }
 
 /**
@@ -361,11 +383,21 @@ export function changeValue<
  * @param form
  * @param path
  * @param value
+ * @param options
  */
-export function changeValueByPath(form: Form, path: Path, value: any): void {
+export function changeValueByPath(
+  form: Form,
+  path: Path,
+  value: any,
+  options?: SetFieldOptions
+): void {
+  // The baseline must land before the mounted field's onChange runs — its
+  // write emits synchronously and subscribers read dirty state inside the
+  // emission, so installing after the call would flash dirty-then-clean.
+  if (options?.shouldDirty === false) setDirtyBaseline(form, path, value);
   const change = form.changeHandlers.get(path.key);
   if (change) change(value);
-  else setValueByPath(form, path, value);
+  else setValueByPath(form, path, value, options);
 }
 
 /**
@@ -477,13 +509,17 @@ export function getFieldState<
   P extends FieldPath<T> | Name = Name
 >(form: Form<T>, name: P): FieldState<PathValueOf<T, P>> {
   const path = createPath(name);
-  const {initialValues, values, touched, validating} = form;
+  const {values, touched, validating} = form;
   const live = values.get(path.key);
   return {
     value: getValueByPath(form, path),
     error: getErrorByPath(form, path),
     errors: getFieldErrorsByPath(form, path),
-    isDirty: values.has(path.key) && get(initialValues, path.value) !== live,
+    // Same rule as getDirtyFields, committed baselines included: the field
+    // is dirty while its live value differs from its effective baseline.
+    isDirty:
+      values.has(path.key) &&
+      getDirtyBaseline(form, path.key, path.value) !== live,
     isTouched: touched.has(path.key),
     isValidating: validating.has(path.key)
   };
@@ -695,14 +731,64 @@ export function isDirty(form: Form): boolean {
   return dirty;
 }
 
-function forEachDirtyField(
-  {initialValues, values}: Form,
-  fn: (dottedKey: string) => void
-): void {
-  for (const [key, value] of values) {
+function forEachDirtyField(form: Form, fn: (dottedKey: string) => void): void {
+  for (const [key, value] of form.values) {
     const path = JSON.parse(key) as PathSegments;
-    if (get(initialValues, path) !== value) fn(path.join('.'));
+    if (getDirtyBaseline(form, key, path) !== value) fn(path.join('.'));
   }
+}
+
+/** Per-path dirty-comparison baselines installed by writes with
+ * `shouldDirty: false`: the written value becomes that field's baseline —
+ * the write reads as a commit, not an edit. Module-private (like
+ * {@link dirtyFieldsCaches}) so the Form shape is untouched for forms that
+ * never opt in. */
+const dirtyBaselines = new WeakMap<Form, Map<string, any>>();
+
+/** The value a field's dirtiness is measured against: its committed
+ * baseline when one exists, initialValues at the path otherwise. */
+function getDirtyBaseline(
+  form: Form,
+  key: string,
+  segments: PathSegments
+): any {
+  const baselines = dirtyBaselines.get(form);
+  if (baselines?.has(key)) return baselines.get(key);
+  return get(form.initialValues, segments);
+}
+
+/** Install a committed baseline for a `shouldDirty: false` write: the
+ * field reads clean until a later write diverges from the new baseline. */
+function setDirtyBaseline(form: Form, {key}: Path, value: any): void {
+  let baselines = dirtyBaselines.get(form);
+  if (!baselines) {
+    baselines = new Map();
+    dirtyBaselines.set(form, baselines);
+  }
+  baselines.set(key, value);
+}
+
+/** A wholesale write at a path replaces the subtree below it, so baselines
+ * committed under the branch die with the data they were committed against
+ * (array movers rewrite the parent path, re-aligning row indices). Called
+ * from every write — a no-op unless the form ever opted in. */
+function pruneDirtyBaselines(form: Form, {key}: Path): void {
+  const baselines = dirtyBaselines.get(form);
+  if (!baselines?.size) return;
+  const stem = `${key.slice(0, -1)},`;
+  for (const baselineKey of baselines.keys()) {
+    if (baselineKey.startsWith(stem)) baselines.delete(baselineKey);
+  }
+}
+
+/** Drop committed baselines at one path ({@link removeFieldByPath} /
+ * {@link resetField}) or all of them ({@link setInitialValues} /
+ * {@link reset}) — the state they were measured against is gone. */
+function clearDirtyBaselines(form: Form, key?: string): void {
+  const baselines = dirtyBaselines.get(form);
+  if (!baselines) return;
+  if (key === undefined) baselines.clear();
+  else baselines.delete(key);
 }
 
 /** Per-form memoization of {@link getDirtyFields}. `version` counts value
@@ -812,6 +898,9 @@ export function removeFieldByPath(
   touched.delete(key);
   errors.delete(key);
   validating.delete(key);
+  // The field is gone; a remount starts fresh rather than inheriting a
+  // baseline committed by the previous incarnation.
+  clearDirtyBaselines(form, key);
   // Tombstone the unregistered path so later reads do not fall back to
   // initialValues and "revive" the field's old initial value. A tombstone
   // never shadows live values: skip it when the branch is already covered
@@ -884,6 +973,8 @@ export function setInitialValues(form: Form, initialValues: any): void {
   form.parsedValues = undefined;
   form.values.clear();
   form.deleted.clear();
+  // ...and every baseline committed against the old one.
+  clearDirtyBaselines(form);
   bumpDirtyVersion(form);
   emit(form.emitter, 'change');
 }
@@ -936,6 +1027,7 @@ export function reset(
   const {emitter, touched, values, deleted, validating} = form;
   values.clear();
   deleted.clear();
+  clearDirtyBaselines(form);
   if (!options?.keepTouched) touched.clear();
   validating.clear();
   if (!options?.keepIsSubmitting) form.isSubmitting = false;
@@ -992,6 +1084,9 @@ export function resetField<
   const path = createPath(name);
   const {emitter, values, touched, errors, deleted} = form;
   values.delete(path.key);
+  // The field returns to its baseline; commits from before the reset no
+  // longer shadow the comparison.
+  clearDirtyBaselines(form, path.key);
   // A parse baseline wholesale-shadows initialValues in reads (see
   // getValues), so unset alone would read the path as undefined. Remove
   // the path from the tree (immutable — parsedValues shares branches with

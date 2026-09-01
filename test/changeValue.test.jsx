@@ -12,10 +12,13 @@ import useField from '../src/hooks/field';
 import createForm, {
   changeValue,
   changeValueByPath,
+  getDirtyFields,
   getError,
   getValue,
+  isDirty,
   setValue
 } from '../src/form';
+import {subscribe} from '../src/subscribe';
 import createPath from '../src/path';
 
 const required = v => (v ? undefined : 'required');
@@ -193,5 +196,41 @@ describe('changeValue', () => {
 
     act(() => changeValue(form, 'a', 'y'));
     expect(validate).toHaveBeenCalledTimes(1); // still just the setValue kick
+  });
+
+  it('routes shouldDirty: false through the mounted field without dirtying it', () => {
+    // The mounted path: the write goes through the field's own onChange
+    // (mode gating intact), yet lands as a commit — the field reads clean
+    // immediately, with no dirty-then-clean flash for sync subscribers.
+    const form = createForm({initialValues: {a: 'init'}});
+    const validate = vi.fn(required);
+    renderHook(() => useField({form, name: 'a', mode: 'onChange', validate}));
+
+    let seenDirty = true;
+    const unsubscribe = subscribe(form, {
+      name: 'a',
+      callback: () => {
+        seenDirty = isDirty(form);
+      }
+    });
+
+    act(() => changeValue(form, 'a', 'committed', {shouldDirty: false}));
+    expect(getValue(form, 'a')).toBe('committed');
+    expect(getDirtyFields(form)).toEqual({});
+    expect(seenDirty).toBe(false); // clean already inside the emission
+    // Mode gating still applied: onChange mode validated the write.
+    expect(validate).toHaveBeenCalledTimes(1);
+    unsubscribe();
+
+    // And a later plain write differing from the commit dirties it again.
+    act(() => changeValue(form, 'a', 'edited'));
+    expect(getDirtyFields(form)).toEqual({a: true});
+  });
+
+  it('forwards shouldDirty: false on the no-field fallback path', () => {
+    const form = createForm({initialValues: {a: 'init'}});
+    act(() => changeValue(form, 'a', 'committed', {shouldDirty: false}));
+    expect(getValue(form, 'a')).toBe('committed');
+    expect(getDirtyFields(form)).toEqual({});
   });
 });

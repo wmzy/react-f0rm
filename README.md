@@ -466,7 +466,7 @@ setError(form, 'password', [
 
 ### `setValue` options
 
-The fourth argument to `setValue` opts into side effects. Every flag defaults to `false`; omitting the object keeps the plain set-value behavior:
+The fourth argument to `setValue` opts into side effects. `shouldValidate`/`shouldTouch` default to `false`; omitting the object keeps the plain set-value behavior:
 
 ```jsx
 import {setValue} from 'react-f0rm';
@@ -474,9 +474,23 @@ import {setValue} from 'react-f0rm';
 setValue(form, 'email', 'a@b.com', {
   shouldValidate: true, // run the field's registered validator after the value lands
   shouldTouch: true,    // mark the field as touched
-  shouldDirty: true     // reserved for a manual dirty marker — currently a no-op
+  shouldDirty: false    // land the value as a commit: it becomes the field's dirty baseline
 });
 ```
+
+Dirty state is derived, not marked: a field is dirty while its live value differs from `initialValues` (reverting to the initial value makes it clean again). That makes `shouldDirty` a one-sided flag. `shouldDirty: false` declares this write a **commit instead of an edit** — the written value becomes that field's dirty-comparison baseline, so `getDirtyFields`/`isDirty`/`getFieldState().isDirty` read the field as clean immediately, and a later write dirties it only by differing from the new baseline:
+
+```jsx
+setValue(form, 'email', 'normalized@x.com', {shouldDirty: false});
+getDirtyFields(form); // {} — the normalization is not a user edit
+
+setValue(form, 'email', 'normalized@x.com'); // still clean: equal to the baseline
+setValue(form, 'email', 'a@b.com');          // dirty: differs from it
+```
+
+Use it whenever a programmatic write is not user input — normalized/formatted values, autofill, defaults applied after mount — and you don't want it to trip the "unsaved changes" state. `shouldDirty: true` (or omitting the flag) is the default derived behavior spelled out; unlike react-hook-form, where `setValue` skips dirty marking unless opted in, react-f0rm always derives dirty from the comparison and `false` is the opt-out.
+
+Committed baselines follow the form's lifecycle: `reset`, `setInitialValues` and `resetField`/`removeField` drop them (the state they measured against is gone), and a wholesale write at an ancestor path — a `useFieldArray` rewrite, say — drops baselines beneath it, since the subtree they were committed against no longer exists.
 
 ### Writing as a user change (`changeValue`)
 
@@ -491,6 +505,12 @@ changeValue(form, 'email', 'a@b.com');
 ```
 
 This is the channel component libraries need when they hand a control a plain setter bound to a field (a `Control`/controlled-bridge over `useField`'s value): the mode gating — per-field override and live-error view — lives inside `useField`'s `onChange` closure and cannot be rebuilt from public form state, so `useField` publishes its `onChange` on the form (`form.changeHandlers`) and `changeValue`/`changeValueByPath` route through it.
+
+`changeValue` takes the same options object as `setValue` (see [`setValue` options](#setvalue-options)). With a field mounted on the path, `shouldDirty: false` applies — the write lands as a commit while the field's own mode gating keeps driving validation, which is the point of this channel (`shouldValidate`/`shouldTouch` have no meaning there: forcing them would defeat the gating). With no mounted field, the options forward to the plain `setValue` fallback wholesale:
+
+```jsx
+changeValue(form, 'email', 'normalized@x.com', {shouldDirty: false});
+```
 
 ### Field-level validation
 
