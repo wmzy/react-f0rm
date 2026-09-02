@@ -686,6 +686,40 @@ Details that fall out of the plumbing:
 
 TanStack Form's counterpart is `onChangeListenTo` (v1) / validator `triggers` (v2 alpha); both re-run a validator when listed fields change. react-f0rm keeps the declaration at the form level (the validate belongs to the form) and gates the re-run by the library's own `mode`/`reValidateMode` semantics instead of adding an always-on listener.
 
+#### Field-to-field linkage (`validateDeps` on `useField`)
+
+The same declaration exists per field: `validateDeps` on `useField` lists the **other** fields whose user changes re-run **this field's validator** — the field-level shape of the option above, for cross-field rules you want as field errors (queryable via `getError`, renderable by `renderError`) without a form-level validate:
+
+```jsx
+const form = useForm({
+  initialValues: {password: '', passwordConfirm: ''}
+});
+
+function PasswordConfirmField() {
+  const {value, onChange, error} = useField({
+    form,
+    name: 'passwordConfirm',
+    validate: v => (v === getValue(form, 'password') ? undefined : 'Passwords do not match'),
+    validateDeps: ['password']
+  });
+  // ...
+}
+```
+
+The re-run semantics mirror the form-level option exactly, because it rides the same channel — the changed field's own onChange pipeline:
+
+| Situation | Dep change re-runs this field's validator? |
+|---|---|
+| `mode: 'onChange'` / `'all'` (form or the dep field) | yes, error state or not |
+| `mode: 'onTouched'`, dep field touched | yes |
+| otherwise, this field shows an error **and** `reValidateMode: 'onChange'` (default) | yes — the submit-then-fix flow |
+| `reValidateMode: 'onBlur'` / `'onSubmit'` | no — re-runs wait for their own trigger |
+
+- **User changes only.** Typing and `changeValue` fire it; programmatic `setValue` does not. A dep path with no mounted field never re-runs the validator.
+- **A passing re-run clears the error.** A field validator owns its whole error key (every kick's result replaces the previous list), so the submit-then-fix flow needs no footprint bookkeeping: edit `password` until it matches and the confirm error disappears.
+- **`validateDebounce` applies** — the re-run is an ordinary kick of this field's validator, debounce window included.
+- Listing the field's own path is a no-op (its own change already validates it), and unmounting the dependent field drops the linkage.
+
 ### Schema validation
 
 Any library implementing [Standard Schema v1](https://standardschema.dev) — zod v3.24+/v4, valibot v1, arktype and more — works through one adapter, imported from its own tree-shakeable entry point:

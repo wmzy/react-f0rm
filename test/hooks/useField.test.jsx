@@ -6,7 +6,9 @@ import useField from '../../src/hooks/field';
 import useForm from '../../src/hooks/form';
 import createForm, {
   getValues,
+  getValue,
   setValue,
+  changeValue,
   getError,
   setError,
   trigger,
@@ -973,5 +975,109 @@ describe('useField', () => {
     expect(result.current.errors).toEqual([
       {type: 'pattern', message: 'Invalid format'}
     ]);
+  });
+
+  describe('validateDeps (field-level linkage)', () => {
+    function setup(options = {}) {
+      const form = createForm({
+        initialValues: {password: '', confirm: ''},
+        ...options
+      });
+      const w = ({children}) => (
+        <FormProvider value={form}>{children}</FormProvider>
+      );
+      const confirmValidate = vi.fn(value =>
+        value === getValue(form, 'password')
+          ? undefined
+          : 'Passwords do not match'
+      );
+      const confirmHook = renderHook(
+        () =>
+          useField({
+            form,
+            name: 'confirm',
+            validate: confirmValidate,
+            validateDeps: ['password']
+          }),
+        {wrapper: w}
+      );
+      const passwordHook = renderHook(
+        () => useField({form, name: 'password'}),
+        {wrapper: w}
+      );
+      return {
+        form,
+        confirm: confirmHook.result,
+        password: passwordHook.result,
+        unmountConfirm: confirmHook.unmount,
+        confirmValidate
+      };
+    }
+
+    it('re-runs the dependent validator on dep changes under mode onChange', () => {
+      const {confirm, password} = setup({mode: 'onChange'});
+
+      act(() => password.current.onChange('secret'));
+      act(() => confirm.current.onChange('secret'));
+      expect(confirm.current.error).toBeUndefined();
+
+      // Editing the dependency re-validates the dependent without it being
+      // touched: the mismatch lands on confirm.
+      act(() => password.current.onChange('changed'));
+      expect(confirm.current.error).toBe('Passwords do not match');
+
+      // And a matching dep edit clears it again — the re-run's passing
+      // result replaces the stale error (footprint reclaim, field shape).
+      act(() => password.current.onChange('secret'));
+      expect(confirm.current.error).toBeUndefined();
+    });
+
+    it('supports the submit-then-fix flow under the default mode', async () => {
+      const {form, confirm, password, confirmValidate} = setup();
+
+      act(() => password.current.onChange('secret'));
+      act(() => confirm.current.onChange('secrat'));
+      // Default mode onSubmit: nothing validates until submit.
+      expect(confirmValidate).not.toHaveBeenCalled();
+
+      await act(() => trigger(form));
+      expect(confirm.current.error).toBe('Passwords do not match');
+
+      // Fixing through the DEP (typing the password to match the typo'd
+      // confirm) re-runs the dependent's validator and clears the error —
+      // reValidateMode 'onChange' while the dependent shows an error.
+      act(() => password.current.onChange('secrat'));
+      expect(confirm.current.error).toBeUndefined();
+    });
+
+    it('never re-runs on programmatic setValue writes', () => {
+      const {form, confirmValidate} = setup();
+      // setValue is the imperative channel: no mounted-field change
+      // pipeline runs, so the dependent never re-validates — exactly like
+      // field validators and the form-level validateDeps.
+      act(() => setValue(form, 'password', 'typed'));
+      expect(confirmValidate).not.toHaveBeenCalled();
+    });
+
+    it('re-runs through changeValue (component-library bridge channel)', () => {
+      const {form, confirmValidate} = setup({mode: 'onChange'});
+      act(() => changeValue(form, 'password', 'typed'));
+      // changeValue routes through the mounted field's own onChange, so
+      // the dep kick fires exactly like typing would.
+      expect(confirmValidate).toHaveBeenCalledTimes(1);
+    });
+
+    it('stops re-running when the dependent unmounts', () => {
+      const {password, unmountConfirm, confirmValidate} = setup({
+        mode: 'onChange'
+      });
+      act(() => password.current.onChange('a'));
+      expect(confirmValidate).toHaveBeenCalledTimes(1);
+      unmountConfirm();
+      // Both the registration and the validator are gone: dep changes
+      // after the unmount kick nothing and throw nothing.
+      act(() => password.current.onChange('b'));
+      expect(confirmValidate).toHaveBeenCalledTimes(1);
+    });
   });
 });

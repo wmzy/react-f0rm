@@ -4,12 +4,16 @@ import {FormContext} from '../context';
 import {
   getValueByPath,
   hasTouchedByPath,
+  registerFieldValidateDeps,
   removeFieldByPath,
+  revalidateDependentsOnChange,
   revalidateFormOnChange,
   setTouchedByPath,
-  setValueByPath
+  setValueByPath,
+  unregisterFieldValidateDeps
 } from '../form';
 import type {FieldError, Form, ValidationMode} from '../form';
+import createPath from '../path';
 import type {Name} from '../path';
 import type {FieldPath, PathValueOf} from '../types';
 import {rulesToValidator} from '../rules';
@@ -70,6 +74,28 @@ export interface UseFieldOptions<
    * See {@link ValidationMode}.
    */
   mode?: ValidationMode;
+  /**
+   * Field paths whose **user changes re-run this field's validator** —
+   * the field-level counterpart of the form-level `validateDeps` option
+   * (cross-field linkage: `password` changed → re-check
+   * `passwordConfirm`). TanStack Form's `onChangeListenTo` / RHF trigger
+   * chains are the ecosystem analogues.
+   *
+   * The re-run rides the changed field's own onChange pipeline, so typing
+   * and `changeValue` both fire it while programmatic `setValue` does
+   * not, and its timing is gated by the same mode matrix as the form
+   * level: the changed field's effective `mode` (per-field override
+   * included) and the form's `reValidateMode` — under the default
+   * `'onSubmit'`/`'onChange'` pair, a dep change re-validates this field
+   * once this field already shows an error (the submit-then-fix flow: the
+   * mismatch lands on submit, editing the password re-checks the confirm
+   * and a passing round clears the error, because a field validator owns
+   * its whole key).
+   *
+   * `validateDebounce` applies to the re-run like to any kick. Declaring
+   * the field's own path is a no-op (its own change already validates it).
+   */
+  validateDeps?: FieldPath<TValues>[];
 }
 
 /**
@@ -192,6 +218,7 @@ export function useFieldCore<
     validate,
     rules,
     validateDebounce,
+    validateDeps,
     delayError,
     disabled,
     mode: modeOption
@@ -262,6 +289,10 @@ export function useFieldCore<
     // above (evaluated against the last round's own error footprint).
     // No-op for forms without validateDeps.
     revalidateFormOnChange(form, path, mode);
+    // Field-level validate deps: fields that declared this path re-run
+    // their own validators under the same gate. No-op when nobody
+    // declared the path.
+    revalidateDependentsOnChange(form, path, mode);
   });
 
   // Publish this field's change semantics so path-based user-change writes
@@ -280,6 +311,19 @@ export function useFieldCore<
         form.changeHandlers.delete(path.key);
     };
   }, [form, path.key, onChange]);
+
+  // Publish this field's validateDeps declaration so the dep fields'
+  // change pipelines can find it (revalidateDependentsOnChange). Keyed on
+  // the serialized dep list, so a re-render passing an equal inline array
+  // does not churn the registry; a genuinely changed list re-registers.
+  const depsKey = validateDeps?.length ? validateDeps.join('\n') : undefined;
+  useEffect(() => {
+    if (!depsKey) return;
+    const depKeys = validateDeps!.map(dep => createPath(dep).key);
+    registerFieldValidateDeps(form, path.key, depKeys);
+    return () => unregisterFieldValidateDeps(form, path.key, depKeys);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are `depsKey` on purpose: depKeys derive from the same option value the key serializes
+  }, [form, path.key, depsKey]);
 
   const onBlur = useStageFn(() => {
     setTouchedByPath(form, path);

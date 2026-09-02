@@ -1662,6 +1662,102 @@ export function revalidateFormOnChange(
   }
 }
 
+/** Per-form registry of field-level `validateDeps` declarations ({@link
+ * revalidateDependentsOnChange}): dep path key -> every dependent field key
+ * that listed it. Held in a WeakMap so the Form shape is untouched for
+ * forms whose fields never declare deps. */
+const fieldValidateDeps = new WeakMap<Form, Map<string, Set<string>>>();
+
+/** Register one field's validateDeps declaration: `key` re-validates when
+ * any path in `depKeys` takes a user change. Idempotent per (key, dep)
+ * pair, so StrictMode's double effect is harmless. */
+export function registerFieldValidateDeps(
+  form: Form,
+  key: string,
+  depKeys: string[]
+): void {
+  let deps = fieldValidateDeps.get(form);
+  if (!deps) {
+    deps = new Map();
+    fieldValidateDeps.set(form, deps);
+  }
+  for (const depKey of depKeys) {
+    let dependents = deps.get(depKey);
+    if (!dependents) {
+      dependents = new Set();
+      deps.set(depKey, dependents);
+    }
+    dependents.add(key);
+  }
+}
+
+/** Drop one field's validateDeps registration ({@link
+ * registerFieldValidateDeps}). Entries nobody lists anymore are removed so
+ * the registry never outlives its fields. */
+export function unregisterFieldValidateDeps(
+  form: Form,
+  key: string,
+  depKeys: string[]
+): void {
+  const deps = fieldValidateDeps.get(form);
+  if (!deps) return;
+  for (const depKey of depKeys) {
+    const dependents = deps.get(depKey);
+    if (!dependents?.delete(key)) continue;
+    if (!dependents.size) deps.delete(depKey);
+  }
+}
+
+/**
+ * Field-level twin of {@link revalidateFormOnChange}: after a user change
+ * to `path`, re-run every field validator that declared `path` in its
+ * `validateDeps` (useField option). Same channel, same gate: the kick
+ * rides the changed field's own onChange pipeline (typing and
+ * `changeValue` alike), so programmatic `setValue` writes never fire it —
+ * exactly like field validators and the form-level `validateDeps`.
+ *
+ * The gate mirrors the form-level matrix with the *changed field's*
+ * effective `mode` and the form-level `reValidateMode` against each
+ * dependent's live error:
+ * - `mode` `'onChange'`/`'all'` — every dep change re-runs the dependent;
+ * - `mode` `'onTouched'` — once the changed field was touched;
+ * - otherwise the re-run waits for `reValidateMode: 'onChange'` (the
+ *   default) while the dependent still shows an error — the
+ *   submit-then-fix flow: the mismatch lands on submit, editing the
+ *   dependency re-validates the dependent and a passing round clears it
+ *   (a field validator owns its whole key, so the re-run's result
+ *   replaces whatever the previous round wrote — the field-level shape
+ *   of the form-level footprint reclaim).
+ *
+ * The kick is an ordinary validator kick: the dependent's own
+ * `validateDebounce` window applies, and a synchronous throw inside its
+ * validate propagates to the caller like any field validator's would.
+ *
+ * A no-op unless some field declared `path` as a dep — forms without any
+ * field-level `validateDeps` pay one property check here.
+ */
+export function revalidateDependentsOnChange(
+  form: Form,
+  path: Path,
+  mode: ValidationMode
+): void {
+  const dependents = fieldValidateDeps.get(form)?.get(path.key);
+  if (!dependents?.size) return;
+  for (const dependent of dependents) {
+    // A self-dep changes nothing: the field's own onChange above already
+    // validated it under the same gate.
+    if (dependent === path.key) continue;
+    if (
+      mode === 'onChange' ||
+      mode === 'all' ||
+      (mode === 'onTouched' && hasTouchedByPath(form, path)) ||
+      (form.reValidateMode === 'onChange' && form.errors.has(dependent))
+    ) {
+      form.validators.get(dependent)?.();
+    }
+  }
+}
+
 /**
  * Validate and throw if any field error.
  * @param form
