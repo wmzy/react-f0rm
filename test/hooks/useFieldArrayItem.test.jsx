@@ -5,6 +5,7 @@ import {renderToString} from 'react-dom/server';
 import {createRoot} from 'react-dom/client';
 import {FormProvider, createFormContext} from '../../src/context';
 import useFieldArray, {useFieldArrayItem} from '../../src/hooks/fieldArray';
+import useField from '../../src/hooks/field';
 import useForm from '../../src/hooks/form';
 import createForm, {getValues, setValue, setError, reset} from '../../src/form';
 
@@ -89,6 +90,51 @@ describe('useFieldArrayItem', () => {
     expect(s.count(id2)).toBe(before[2] + 1);
     expect(s.rowText(id2)).toBe('C');
     expect(getValues(s.form).tags).toEqual(['a', 'b', 'C']);
+  });
+
+  it('row writes and a leaf useField under the row stay on one generation', () => {
+    // Both item.setValue and array update rewrite the parent path as a
+    // whole value; a leaf field inside the row must follow those writes
+    // instead of falling back to the initialValues snapshot (the layering
+    // bug this suite pins) — and a later leaf edit layers over the row
+    // value without resurrecting the replaced generation.
+    const form = createForm({initialValues: {tags: [{label: 'old'}]}});
+    let api;
+    let leaf;
+    let itemApi;
+    function Row({id}) {
+      const item = useFieldArrayItem({name: 'tags', id, form});
+      leaf = useField({form, name: ['tags', item.index, 'label']});
+      itemApi = item;
+      return <li data-testid={`row-${id}`}>{String(item.value?.label)}</li>;
+    }
+    function Tags() {
+      api = useFieldArray({name: 'tags', form});
+      return (
+        <ul>
+          {api.fields.map(f => (
+            <Row key={f.id} id={f.id} />
+          ))}
+        </ul>
+      );
+    }
+    render(<Tags />);
+    expect(leaf.value).toBe('old');
+
+    // Row-level write: the leaf follows.
+    act(() => api.update(0, {label: 'api-write'}));
+    expect(leaf.value).toBe('api-write');
+
+    // Item-level write: the leaf follows too.
+    act(() => itemApi.setValue({label: 'item-write'}));
+    expect(leaf.value).toBe('item-write');
+
+    // Leaf edit layers over the row value, and the next row write wins.
+    act(() => leaf.onChange('leaf-write'));
+    expect(leaf.value).toBe('leaf-write');
+    act(() => api.update(0, {label: 'final'}));
+    expect(leaf.value).toBe('final');
+    expect(getValues(form)).toEqual({tags: [{label: 'final'}]});
   });
 
   it('append leaves existing rows untouched', () => {

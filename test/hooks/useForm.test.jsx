@@ -680,11 +680,12 @@ describe('useSubmitCount', () => {
 
 // Direct unit tests of the src/subscribe.ts primitives the scoped hooks are
 // built on (useValueByPath/useFieldArray -> onPathEvent, useErrorByPath/
-// useTouchedByPath -> onKeyEvent). Ancestor-write invalidation is only
-// observable at this layer: getValueByPath reads ancestors through the
-// initialValues fallback, so hook-level values do not move on ancestor
-// writes. Placed in this file (not a new one) because the scoped hooks it
-// exercises live in src/hooks/form.tsx.
+// useTouchedByPath -> onKeyEvent). Ancestor-write invalidation is asserted
+// at this layer because the primitives are what scope it: hook-level value
+// movement on ancestor writes (a whole-branch replace under a leaf read) is
+// covered end-to-end by the useFieldArray leaf-generation suite. Placed in
+// this file (not a new one) because the scoped hooks it exercises live in
+// src/hooks/form.tsx.
 describe('onPathEvent / onKeyEvent primitives', () => {
   it('leaf scope fires on own, ancestor and payload-less emits', () => {
     const emitter = createEmitter();

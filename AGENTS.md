@@ -44,6 +44,8 @@ Key exports: `createForm`, `getValues`, `getValue`, `setValue` (4th `options?: S
 
 `getValues` merges the values Map over `initialValues` with copy-on-write ownership tracking (`setOwned` in util.ts): each distinct container on a written path is allocated once and shared by all paths through it, then removes tombstoned paths immutably (`unset`).
 
+Generation semantics of whole-branch writes: `setValueByPath` at a path P drops the values Map keys under P (they belong to a replaced generation — they would shadow the new value on exact-key reads or re-apply over it in `getValues`' insertion-ordered merge), and `getValueByPath` resolves a missing key through the nearest live ancestor entry before falling back to `parsedValues ?? initialValues` — so leaf readers (`useField` at `items.0.name`) follow a wholesale replace (`setValue(form, 'items', …)`, every `useFieldArray` operation) instead of seeing the pre-edit snapshot. Paths the ancestor's value does not carry read `undefined`; the baseline never fills holes inside a replaced branch. `set`/`setOwned` copy with the array rule for numeric segments in either form (numbers, or the string form dotted paths parse to: `a.0`), so merging into an array branch keeps it an array.
+
 `getDirtyFields` is memoized per form through a module-level `dirtyFieldsCaches: WeakMap<Form, DirtyFieldsCache>`: `setValue`/`reset` etc. bump a `version` counter (mutation since last compute) while reads reset it and cache the result — a non-zero version means stale, so the next read recomputes.
 
 ### Path System (`src/path.ts`, `src/util.ts`, `src/types.ts`)

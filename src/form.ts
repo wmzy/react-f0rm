@@ -286,12 +286,29 @@ export function getValueByPath(
   {initialValues, parsedValues, values, deleted}: Form,
   path: Path
 ): any {
-  if (values.has(path.key)) return values.get(path.key);
+  const {key, value: segments} = path;
+  if (values.has(key)) return values.get(key);
   // Unregistered path: the tombstone blocks the initialValues fallback.
-  if (deleted.has(path.key)) return undefined;
+  if (deleted.has(key)) return undefined;
+  // A live ancestor key is a whole-branch write (setValue at a parent
+  // path, every useFieldArray operation): it replaces the subtree below
+  // it, the same way getValues' merge layers it over the baseline, so
+  // reads under it resolve from that stored value instead of falling
+  // back to the pre-edit initialValues snapshot. Nearest ancestor first:
+  // a finer write is layered over a coarser one (setValueByPath drops the
+  // superseded descendant keys), so the closest live ancestor is the
+  // newest generation. Paths the ancestor's value does not carry read
+  // undefined — the baseline must not fill holes inside a replaced
+  // branch.
+  for (let i = segments.length - 1; i > 0; i--) {
+    const ancestorKey = JSON.stringify(segments.slice(0, i));
+    if (values.has(ancestorKey)) {
+      return get(values.get(ancestorKey), segments.slice(i));
+    }
+  }
   // Same layering as getValues: parsed values (when present) are the
   // baseline above initialValues.
-  return get(parsedValues ?? initialValues, path.value);
+  return get(parsedValues ?? initialValues, segments);
 }
 
 /** Options accepted by {@link setValue} / {@link setValueByPath} / {@link
@@ -348,6 +365,13 @@ export function setValueByPath(
 ): void {
   const {emitter, values, deleted} = form;
   values.set(path.key, value);
+  // The write replaces the whole subtree below it, so descendant keys in
+  // the values Map belong to an older generation of that subtree: without
+  // this prune they would shadow the new value on exact-key reads and
+  // double-apply over it in getValues' insertion-ordered merge (a stale
+  // `a.b` would survive a fresh `a` write, or corrupt an array branch
+  // into an object when applied later).
+  pruneDescendantKeys(values, path);
   reviveBranch(deleted, path);
   // Baselines under the replaced subtree die with it — before the emit, so
   // subscribers reading dirty state inside the emission never see a stale
@@ -956,6 +980,21 @@ function hasLiveBranch(
     if (key.startsWith(stem)) return true;
   }
   return false;
+}
+
+/**
+ * Writing a value replaces the subtree below the written path, so drop the
+ * values Map keys under it: they were set against an older generation of
+ * that subtree and would otherwise shadow the fresh value (exact-key reads
+ * in {@link getValueByPath}) or re-apply over it (getValues' merge).
+ * Deleting while iterating `keys()` is safe for a Map.
+ */
+function pruneDescendantKeys(values: Map<string, any>, {key}: Path): void {
+  if (!values.size) return;
+  const stem = `${key.slice(0, -1)},`;
+  for (const k of values.keys()) {
+    if (k.startsWith(stem)) values.delete(k);
+  }
 }
 
 /**

@@ -90,6 +90,65 @@ describe('getValue / setValue', () => {
     expect(getValueByPath(form, path)).toBe('test@example.com');
   });
 
+  it('leaf read resolves through a live ancestor write, not initialValues', () => {
+    // A whole-branch replace (setValue at a parent path, every array
+    // operation) must not leave leaf readers on the pre-edit snapshot:
+    // the live ancestor key shadows the baseline exactly like getValues'
+    // merge layers it over initialValues.
+    const form = createForm({initialValues: {items: [{name: 'old'}]}});
+    setValue(form, 'items', [{name: 'new'}]);
+    expect(getValue(form, 'items.0.name')).toBe('new');
+    expect(getValues(form)).toEqual({items: [{name: 'new'}]});
+  });
+
+  it('paths missing from a replaced branch read undefined, not the baseline', () => {
+    // The initial snapshot must not fill holes inside a live branch: the
+    // wholesale write dropped qty, so qty reads undefined even though
+    // initialValues still carries it.
+    const form = createForm({
+      initialValues: {items: [{name: 'old', qty: 1}]}
+    });
+    setValue(form, 'items', [{name: 'new'}]);
+    expect(getValue(form, 'items.0.qty')).toBeUndefined();
+  });
+
+  it('a replaced branch supersedes earlier leaf edits at that branch', () => {
+    // The typed leaf key belongs to the replaced generation: reads and the
+    // getValues merge must both settle on the new value, and the array
+    // container must survive the merge as an array.
+    const form = createForm({initialValues: {items: [{name: 'old'}]}});
+    setValue(form, 'items.0.name', 'typed');
+    setValue(form, 'items.0', {name: 'new'});
+    expect(getValue(form, 'items.0.name')).toBe('new');
+    expect(getValues(form)).toEqual({items: [{name: 'new'}]});
+  });
+
+  it('a re-written ancestor supersedes descendant edits regardless of write order', () => {
+    // Insertion order must not decide the winner: the latest write at the
+    // coarsest path is the newest generation of the subtree.
+    const form = createForm({initialValues: {}});
+    setValue(form, 'a', {b: 1});
+    setValue(form, 'a.b', 2);
+    setValue(form, 'a', {c: 3});
+    expect(getValue(form, 'a.b')).toBeUndefined();
+    expect(getValues(form)).toEqual({a: {c: 3}});
+  });
+
+  it('a finer write still layers over an earlier ancestor write', () => {
+    const form = createForm({initialValues: {items: [{name: 'old'}]}});
+    setValue(form, 'items.0', {name: 'new', qty: 2});
+    setValue(form, 'items.0.qty', 3);
+    expect(getValue(form, 'items.0.name')).toBe('new');
+    expect(getValue(form, 'items.0.qty')).toBe(3);
+    expect(getValues(form)).toEqual({items: [{name: 'new', qty: 3}]});
+  });
+
+  it('tombstone still blocks the baseline when no ancestor is live', () => {
+    const form = createForm({initialValues: {items: [{name: 'old'}]}});
+    removeField(form, 'items.0.name');
+    expect(getValue(form, 'items.0.name')).toBeUndefined();
+  });
+
   it('does not validate or touch without options', () => {
     const form = createForm({initialValues: {}});
     form.validators.set(createPath('name').key, () => {
@@ -591,10 +650,13 @@ describe('isDirty', () => {
     setValue(form, ['tags', 1], 'B', {shouldDirty: false});
     expect(getDirtyFields(form)).toEqual({});
     // Array movers rewrite the parent path; the row-level commit died with
-    // the subtree it was committed against, so the surviving row edit
-    // compares against initialValues again.
+    // the subtree it was committed against, and the wholesale write also
+    // supersedes the row's live key (a later ancestor write replaces the
+    // subtree), so dirtiness reports at the array alone: the new array
+    // differs from initialValues, and no phantom row entry survives from
+    // the replaced generation.
     setValue(form, 'tags', ['a', 'B2']);
-    expect(getDirtyFields(form)).toEqual({tags: true, 'tags.1': true});
+    expect(getDirtyFields(form)).toEqual({tags: true});
   });
 
   it('getTouchedFields returns dotted paths of touched fields', () => {

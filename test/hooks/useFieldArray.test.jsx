@@ -2,6 +2,7 @@ import {describe, it, expect} from 'vitest';
 import {render, renderHook, act} from '@testing-library/react';
 import {FormProvider} from '../../src/context';
 import useFieldArray from '../../src/hooks/fieldArray';
+import useField from '../../src/hooks/field';
 import useForm from '../../src/hooks/form';
 import createForm, {
   getValueByPath,
@@ -300,5 +301,97 @@ describe('useFieldArray', () => {
     act(() => result.current.update(-1, 'x'));
     expect(getValues(form).items).toEqual(['a']);
     expect(result.current.fields).toHaveLength(1);
+  });
+
+  // Every array operation rewrites the parent path as a whole value, so
+  // leaf fields under the array read through the live ancestor key — the
+  // regression suite for the layering bug where a leaf useField fell back
+  // to the initialValues snapshot after update/replace and kept showing
+  // the pre-edit value.
+  describe('leaf useField stays on the array generation', () => {
+    function setup(initialValues) {
+      const form = createForm({initialValues});
+      const {result} = renderHook(() => {
+        const array = useFieldArray({name: 'items', form});
+        const firstName = useField({form, name: 'items.0.name'});
+        const secondName = useField({form, name: 'items.1.name'});
+        return {array, firstName, secondName};
+      });
+      return {form, result};
+    }
+
+    it('update moves a leaf field onto the new value', () => {
+      const {form, result} = setup({items: [{name: 'old'}]});
+      expect(result.current.firstName.value).toBe('old');
+      act(() => result.current.array.update(0, {name: 'new'}));
+      expect(result.current.firstName.value).toBe('new');
+      expect(getValues(form)).toEqual({items: [{name: 'new'}]});
+    });
+
+    it('update supersedes an earlier leaf edit (typed-then-update)', () => {
+      const {result} = setup({items: [{name: 'old'}]});
+      act(() => result.current.firstName.onChange('typed'));
+      expect(result.current.firstName.value).toBe('typed');
+      act(() => result.current.array.update(0, {name: 'new'}));
+      expect(result.current.firstName.value).toBe('new');
+    });
+
+    it('replace moves leaf fields onto the new array', () => {
+      const {form, result} = setup({items: [{name: 'old'}]});
+      act(() => result.current.array.replace([{name: 'x'}, {name: 'y'}]));
+      expect(result.current.firstName.value).toBe('x');
+      expect(result.current.secondName.value).toBe('y');
+      expect(getValues(form)).toEqual({items: [{name: 'x'}, {name: 'y'}]});
+    });
+
+    it('append/remove/swap after update stay consistent', () => {
+      const {form, result} = setup({items: [{name: 'a'}, {name: 'b'}]});
+      act(() => result.current.array.update(0, {name: 'A'}));
+      // swap: the leaf paths are index-addressed, so they read the
+      // post-swap rows — not the replaced generation's rows.
+      act(() => result.current.array.swap(0, 1));
+      expect(result.current.firstName.value).toBe('b');
+      expect(result.current.secondName.value).toBe('A');
+      // remove shifts rows up under the same leaf paths.
+      act(() => result.current.array.remove(1));
+      expect(result.current.firstName.value).toBe('b');
+      expect(getValues(form)).toEqual({items: [{name: 'b'}]});
+      // append re-grows the array; the untouched row does not fall back.
+      act(() => result.current.array.append({name: 'c'}));
+      expect(result.current.firstName.value).toBe('b');
+      expect(result.current.secondName.value).toBe('c');
+      expect(getValues(form)).toEqual({
+        items: [{name: 'b'}, {name: 'c'}]
+      });
+    });
+
+    it('leaf edits after an update layer over the array value', () => {
+      const {form, result} = setup({items: [{name: 'old'}]});
+      act(() => result.current.array.update(0, {name: 'new', qty: 2}));
+      act(() => result.current.firstName.onChange('edited'));
+      expect(result.current.firstName.value).toBe('edited');
+      expect(getValues(form)).toEqual({
+        items: [{name: 'edited', qty: 2}]
+      });
+    });
+
+    it('update keeps leaf fields on the new value under StrictMode', () => {
+      const form = createForm({initialValues: {items: [{name: 'old'}]}});
+      const {result} = renderHook(
+        () => {
+          const array = useFieldArray({name: 'items', form});
+          const firstName = useField({form, name: 'items.0.name'});
+          return {array, firstName};
+        },
+        {
+          wrapper: ({children}) => (
+            <React.StrictMode>{children}</React.StrictMode>
+          )
+        }
+      );
+      act(() => result.current.array.update(0, {name: 'new'}));
+      expect(result.current.firstName.value).toBe('new');
+      expect(getValues(form)).toEqual({items: [{name: 'new'}]});
+    });
   });
 });

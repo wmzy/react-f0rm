@@ -14,6 +14,11 @@ export function normalizePath(
   return value;
 }
 
+/** Does a bracket/dotted path segment denote an array index? Bracket
+ * syntax already parses these to numbers; dotted ones ('a.0') stay
+ * strings, so the tree helpers re-test with this when it matters. */
+const isIndex = (segment: string) => /^-?\d+$/.test(segment);
+
 function parsePath(path: string): (string | number)[] {
   const result: (string | number)[] = [];
   let identifier = '';
@@ -47,7 +52,7 @@ function parsePath(path: string): (string | number)[] {
           throw new TypeError(`Unterminated bracket in path: ${path}`);
         }
         const content = path.slice(i + 1, close);
-        result.push(/^-?\d+$/.test(content) ? Number(content) : content);
+        result.push(isIndex(content) ? Number(content) : content);
         i = close;
       }
     } else {
@@ -96,9 +101,18 @@ export function set(values: any, path: (string | number)[], value: any): any {
   if (!path.length) return value;
 
   const [prop, ...props] = path;
-  if (typeof prop === 'number') {
+  // A numeric segment lands with the array copy rule — numbers, and the
+  // string form dotted paths parse to ('a.0'), on an array container: an
+  // object spread there would corrupt the array into {'0': ...}.
+  const index =
+    typeof prop === 'number'
+      ? prop
+      : Array.isArray(values) && typeof prop === 'string' && isIndex(prop)
+        ? Number(prop)
+        : undefined;
+  if (index !== undefined) {
     const arr = Array.isArray(values) ? values.slice() : [];
-    arr[prop] = set(arr[prop], props, value);
+    arr[index] = set(arr[index], props, value);
     return arr;
   }
   return {...values, [prop]: set(values && values[prop], props, value)};
@@ -136,7 +150,10 @@ export function setOwned(
     const prop = path[i];
     if (!owned.has(container)) {
       let copy: any;
-      if (typeof prop === 'number') {
+      if (
+        typeof prop === 'number' ||
+        (Array.isArray(container) && typeof prop === 'string' && isIndex(prop))
+      ) {
         copy = Array.isArray(container) ? container.slice() : [];
       } else {
         copy = {...container};
