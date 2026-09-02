@@ -28,9 +28,10 @@ function isDescendant(key: string, ancestorKey: string): boolean {
  * Subscribe to `event`, invoking `cb` only when the emitted path is
  * relevant to `path`.
  *
- * Payload-less broadcasts (reset, removeFieldByPath, setInitialValues)
- * always invoke `cb` -- they are global syncs and the correctness
- * fallback. When the emit carries a path P:
+ * Payload-less broadcasts (reset, setInitialValues) always invoke `cb` --
+ * they are global syncs and the correctness fallback. (removeFieldByPath
+ * emits with its path: its mutations are bounded to that key, so the path
+ * matching below is exact.) When the emit carries a path P:
  * - `'leaf'`: P.key equals `path.key` or is one of its ancestors -- a leaf
  *   read falls back to ancestor values (getValueByPath), so ancestor
  *   writes must invalidate, while sibling and descendant writes cannot

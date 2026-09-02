@@ -73,9 +73,9 @@ Generation semantics of whole-branch writes: `setValueByPath` at a path P drops 
 
 ### Subscriptions (`src/subscribe.ts`)
 Path-scoped event subscription primitives — the reason a keystroke stays O(affected fields) instead of O(all subscribers):
-- `onPathEvent(emitter, event, path, scope, cb)` — `leaf` scope fires for writes at the path itself or an ancestor; `branch` scope additionally fires for descendants (array sections). Payload-less emits (reset, removeField, setInitialValues) always fire — the correctness fallback.
+- `onPathEvent(emitter, event, path, scope, cb)` — `leaf` scope fires for writes at the path itself or an ancestor; `branch` scope additionally fires for descendants (array sections). Payload-less emits (reset, setInitialValues) always fire — the correctness fallback.
 - `onKeyEvent(emitter, event, key, cb)` — exact-key match or payload-less; used by error/touched watches. Ancestor/descendant tests compare JSON path keys with a mandatory trailing comma so `["tagsX"]` never prefix-matches `["tags"]`.
-- Emit sites that mutate a single path carry the `Path` payload (`setValueByPath`, `setErrorByPath`, `setTouchedByPath`, `setValidating*`); bulk operations emit payload-less so every subscriber resyncs.
+- Emit sites that mutate a single path carry the `Path` payload (`setValueByPath`, `removeFieldByPath`, `setErrorByPath`, `setTouchedByPath`, `setValidating*`); bulk operations (reset, setInitialValues, clear-all) emit payload-less so every subscriber resyncs.
 
 ### Resolvers (`src/resolvers/`)
 Schema validation adapters (tree-shakeable, separate entry points):

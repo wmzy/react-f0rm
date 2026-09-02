@@ -1,5 +1,5 @@
 import {describe, it, expect, vi} from 'vitest';
-import {renderHook, render, act} from '@testing-library/react';
+import {renderHook, render, act, fireEvent, screen} from '@testing-library/react';
 import {on} from '@for-fun/event-emitter';
 import {FormProvider} from '../../src/context';
 import useField from '../../src/hooks/field';
@@ -147,6 +147,57 @@ describe('useField', () => {
     // initialValues.name ('test') after unmount.
     expect(getValues(form).name).toBeUndefined();
     expect('name' in getValues(form)).toBe(false);
+  });
+
+  it('unmounting one field does not re-render a sibling field component', () => {
+    // removeFieldByPath emits path-scoped events: a component watching
+    // field A must not re-render when field B unmounts (wizard/tab
+    // switches unmount whole field groups — that must stay local).
+    const form = createForm({initialValues: {a: '1', b: '2'}});
+    let aRenders = 0;
+    // memo: the toggle's state change re-renders the harness, but only a
+    // form-event wake (not the parent's re-render) may re-render FieldA —
+    // that is exactly the regression this test pins.
+    const FieldA = React.memo(function FieldA() {
+      aRenders++;
+      const {value} = useField({form, name: 'a'});
+      return <span data-testid="a">{value}</span>;
+    });
+    function Switchable({show, children}) {
+      return (
+        <>
+          <FieldA />
+          {show ? children : null}
+        </>
+      );
+    }
+    function Harness() {
+      const [showB, setShowB] = React.useState(true);
+      return (
+        <button data-testid="toggle" onClick={() => setShowB(v => !v)}>
+          <Switchable show={showB}>
+            <FieldB />
+          </Switchable>
+        </button>
+      );
+    }
+    function FieldB() {
+      const {value} = useField({form, name: 'b'});
+      return <span data-testid="b">{value}</span>;
+    }
+    render(<Harness />);
+    const rendersWithBMounted = aRenders;
+    act(() => {
+      fireEvent.click(screen.getByTestId('toggle'));
+    });
+    // B unmounted (removeFieldByPath ran in its cleanup) — A's render
+    // count must not have moved.
+    expect(aRenders).toBe(rendersWithBMounted);
+    // And remounting B re-registers without touching A either.
+    act(() => {
+      fireEvent.click(screen.getByTestId('toggle'));
+    });
+    expect(aRenders).toBe(rendersWithBMounted);
   });
 
   it('remounted field writes new values over its own tombstone', () => {

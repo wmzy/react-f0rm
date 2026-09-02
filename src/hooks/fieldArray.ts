@@ -102,8 +102,9 @@ export function useFieldArrayCore(
   // key itself, its ancestors (an ancestor write replaces what the leaf
   // read falls back to) and its descendants (item edits), so typing into
   // unrelated fields does not re-render the array component. Payload-less
-  // 'change' emits (reset, removeFieldByPath, setInitialValues) always
-  // sync. The comma-separated key prefix comparison lives in onPathEvent,
+  // 'change' emits (reset, setInitialValues) always sync, and a field
+  // unmounting inside the branch fires through the descendant match. The
+  // comma-separated key prefix comparison lives in onPathEvent,
   // which keeps lookalike sibling keys ('["tagsX"]') from matching.
   const [fields, syncFields] = useReducer(
     computeFields,

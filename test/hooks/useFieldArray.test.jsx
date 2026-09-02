@@ -1,5 +1,5 @@
-import {describe, it, expect} from 'vitest';
-import {render, renderHook, act} from '@testing-library/react';
+import {describe, it, expect, beforeEach} from 'vitest';
+import {render, renderHook, act, fireEvent, screen} from '@testing-library/react';
 import {FormProvider} from '../../src/context';
 import useFieldArray from '../../src/hooks/fieldArray';
 import useField from '../../src/hooks/field';
@@ -392,6 +392,63 @@ describe('useFieldArray', () => {
       act(() => result.current.array.update(0, {name: 'new'}));
       expect(result.current.firstName.value).toBe('new');
       expect(getValues(form)).toEqual({items: [{name: 'new'}]});
+    });
+  });
+
+  describe('unmount isolation (path-scoped removeField events)', () => {
+    // useFieldArray re-renders through a reducer dispatch (no equal-state
+    // bailout), so a payload-less 'change' wake costs a real render. A
+    // field unmounting OUTSIDE the branch must leave the array component
+    // alone; a field unmounting INSIDE it must re-sync it.
+    // memo + a stable form prop: the toggle's own state change re-renders
+    // the harness, but only the array's reducer dispatch (a form-event
+    // wake) may re-render CountingArray.
+    const CountingArray = React.memo(function CountingArray({form}) {
+      renders++;
+      const {fields} = useFieldArray({name: 'items', form});
+      return <div data-testid="count">{fields.length}</div>;
+    });
+
+    let renders;
+
+    function renderHarness(form, innerName) {
+      function Harness() {
+        const [show, setShow] = React.useState(true);
+        return (
+          <>
+            <CountingArray form={form} />
+            {show ? <InnerField form={form} /> : null}
+            <button data-testid="toggle" onClick={() => setShow(v => !v)} />
+          </>
+        );
+      }
+      function InnerField() {
+        useField({form, name: innerName, shouldUnregister: true});
+        return null;
+      }
+      render(<Harness />);
+      const baseline = renders;
+      act(() => {
+        fireEvent.click(screen.getByTestId('toggle'));
+      });
+      return baseline;
+    }
+
+    beforeEach(() => {
+      renders = 0;
+    });
+
+    it('a field unmounting outside the branch does not re-render the array', () => {
+      const form = createForm({initialValues: {items: ['a'], other: 'x'}});
+      const baseline = renderHarness(form, 'other');
+      expect(renders).toBe(baseline);
+    });
+
+    it('a field unmounting inside the branch re-renders the array', () => {
+      const form = createForm({initialValues: {items: [{name: 'a'}]}});
+      const baseline = renderHarness(form, 'items[0].name');
+      // One wake: the removed path is a descendant of the array branch.
+      expect(renders).toBe(baseline + 1);
     });
   });
 });

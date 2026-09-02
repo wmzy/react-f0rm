@@ -207,8 +207,8 @@ export function useValueByPath(form: Form, path: Path): any {
   // 'leaf' scope: a leaf read depends only on its own key and its
   // ancestors' (getValueByPath fallback chain), so writes elsewhere --
   // siblings, descendants, string-prefix lookalikes ('["a","bX"]') -- never
-  // invalidate the snapshot. Payload-less broadcasts (reset, removeField,
-  // setInitialValues) still sync everything.
+  // invalidate the snapshot. Payload-less broadcasts (reset,
+  // setInitialValues) still sync everything; removeField matches by path.
   const subscribeFactory = useCallback(
     (invalidate: () => void) =>
       onPathEvent(emitter, 'change', path, 'leaf', invalidate),

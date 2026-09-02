@@ -947,10 +947,8 @@ export function removeField(form: Form, name: Name): void {
  * @param form
  * @param path
  */
-export function removeFieldByPath(
-  form: Form,
-  {key, value: segments}: Path
-): void {
+export function removeFieldByPath(form: Form, path: Path): void {
+  const {key, value: segments} = path;
   const {emitter, values, touched, errors, validating, deleted} = form;
   values.delete(key);
   touched.delete(key);
@@ -966,10 +964,21 @@ export function removeFieldByPath(
   // array at the parent path) or a still-mounted descendant key.
   if (!hasLiveBranch(values, segments)) deleted.add(key);
   bumpDirtyVersion(form);
-  emit(emitter, 'change');
-  emit(emitter, 'touched');
-  emit(emitter, 'errors');
-  emit(emitter, 'validating');
+  // Path-payload emits, scoped exactly like the writes above: every
+  // mutation is bounded to this path's key (exact deletes in the four
+  // stores, an exact-key tombstone), so the same matching the write sites
+  // use decides who re-syncs. Leaf watchers on the path and BELOW it wake
+  // (their reads fall back through the removed key), branch watchers on
+  // ancestors wake (their subtree lost a leaf — the wizard/tab unmount
+  // case), and global listeners (`on`, useWatch aggregates like
+  // useDirtyFields/getValues readers) wake regardless — an emit with a
+  // payload still reaches every plain listener. Sibling fields stay
+  // asleep: unmounting one tab's fields no longer re-renders every other
+  // field's subscriber.
+  emit(emitter, 'change', path);
+  emit(emitter, 'touched', path);
+  emit(emitter, 'errors', path);
+  emit(emitter, 'validating', path);
 }
 
 /**
@@ -1176,8 +1185,9 @@ export function resetField<
   // A reset re-registers the branch, same as a write: tombstones on the
   // path or around it stop applying.
   reviveBranch(deleted, path);
-  // Payload-less like removeFieldByPath: reviveBranch can un-tombstone
-  // ancestor or descendant paths, whose readers must re-sync too.
+  // Payload-less by design (unlike removeFieldByPath, whose mutations are
+  // key-bounded): reviveBranch can un-tombstone ancestor or descendant
+  // paths, whose readers must re-sync too.
   emit(emitter, 'change');
   if (!options?.keepTouched && touched.delete(path.key)) {
     emit(emitter, 'touched', path);

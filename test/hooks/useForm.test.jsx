@@ -242,8 +242,9 @@ describe('useValue', () => {
   });
 
   it('syncs on payload-less broadcasts (removeField and reset)', () => {
-    // removeFieldByPath and reset emit 'change' without a path payload:
-    // scoped subscribers must treat that as a full sync, not stay stuck.
+    // reset emits 'change' without a path payload: scoped subscribers must
+    // treat that as a full sync, not stay stuck. removeField carries its
+    // path, so the exact-key match wakes this subscriber instead.
     const initialValues = {name: 'init'};
     const {result} = renderHook(() => {
       const form = useForm({initialValues});

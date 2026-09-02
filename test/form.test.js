@@ -755,6 +755,60 @@ describe('removeField', () => {
     // under the removed key.
     expect(getValues(form)).toEqual({a: {b: 1}});
   });
+
+  it('emits path-scoped events: sibling subscribers stay asleep', () => {
+    const form = createForm({initialValues: {a: 1, b: 2}});
+    setValue(form, 'a', 10);
+    setValue(form, 'b', 20);
+    const sibling = vi.fn();
+    const removed = vi.fn();
+    subscribe(form, {name: 'a', callback: sibling});
+    subscribe(form, {name: 'b', callback: removed});
+    removeField(form, 'b');
+    // 'b' carries a path payload: watchers on the sibling path 'a' (leaf
+    // and branch alike) do not re-sync.
+    expect(sibling).not.toHaveBeenCalled();
+    expect(removed).toHaveBeenCalledTimes(1);
+  });
+
+  it('emits path-scoped events: watchers on the path and below wake', () => {
+    const form = createForm({initialValues: {o: {p: 1, q: 2}}});
+    setValue(form, 'o.p', 10);
+    const exact = vi.fn();
+    const descendant = vi.fn();
+    const errors = vi.fn();
+    subscribe(form, {name: 'o', callback: exact});
+    subscribe(form, {name: 'o.p', callback: descendant});
+    subscribe(form, {name: 'o.p', event: 'errors', callback: errors});
+    setError(form, 'o.p', 'bad');
+    exact.mockClear();
+    descendant.mockClear();
+    errors.mockClear();
+    removeField(form, 'o.p');
+    // Branch watcher on the ancestor: its subtree lost a leaf.
+    expect(exact).toHaveBeenCalledTimes(1);
+    // Leaf watcher on the removed path itself, and its error watcher:
+    // exact-key matches both.
+    expect(descendant).toHaveBeenCalledTimes(1);
+    expect(errors).toHaveBeenCalledTimes(1);
+  });
+
+  it('emits path-scoped events: a leaf watcher below the removed path wakes', () => {
+    const form = createForm({initialValues: {}});
+    setValue(form, 'o', {p: 1});
+    let seen = 'stale';
+    subscribe(form, {
+      name: 'o.p',
+      scope: 'leaf',
+      callback: () => {
+        seen = getValue(form, 'o.p');
+      }
+    });
+    removeField(form, 'o');
+    // The leaf read falls back through the removed ancestor key, so the
+    // ancestor match must wake it — the value is gone, not stuck at 1.
+    expect(seen).toBeUndefined();
+  });
 });
 
 describe('setInitialValues', () => {
