@@ -188,6 +188,8 @@ function Tags() {
 
 The array only re-renders for changes touching its own branch — typing into unrelated fields does not re-render it.
 
+**Path syntax:** array access is bracket-only — `items[0]`, `items[0].name`. Dotted numeric segments (`items.0`) throw a `TypeError` whose message shows the bracket spelling to use; a quoted segment (`items["0"]`) explicitly names a string key instead of an index. Segment arrays (`['items', 0]`) remain the fully dynamic form.
+
 Besides the movers (`append`, `prepend`, `insert`, `remove`, `swap`, `move`), two bulk operations are available:
 
 ```jsx
@@ -894,7 +896,7 @@ interface Values {
   tags: string[];
 }
 
-// 'user' | 'user.name' | 'tags' | `tags.0` | `tags[0]` | ...
+// 'user' | 'user.name' | 'tags' | `tags[0]` | ...
 type ValuesPath = FieldPath<Values>;
 
 // string

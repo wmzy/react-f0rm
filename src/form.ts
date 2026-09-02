@@ -3,7 +3,15 @@ import type {EventEmitter} from '@for-fun/event-emitter';
 import createPath from './path';
 import type {Name, Path, PathSegments} from './path';
 import type {FieldPath, PathValueOf} from './types';
-import {get, isEqual, normalizePath, setOwned, unset, waitUntil} from './util';
+import {
+  get,
+  isEqual,
+  isIndex,
+  normalizePath,
+  setOwned,
+  unset,
+  waitUntil
+} from './util';
 
 export type {Name};
 export type {FieldPath, PathValue} from './types';
@@ -1284,7 +1292,14 @@ function setFormErrors(
   footprint?: Map<string, FieldError[]>
 ): void {
   Object.entries(result).forEach(([key, value]) => {
-    const path: PathSegments = [...segments, ...normalizePath(key)];
+    // Error-tree keys are explicit object keys, not path expressions:
+    // a numeric key ('0' — Standard Schema issue paths stringify array
+    // indices) stays a literal string segment instead of feeding the
+    // path parser, whose dotted-numeric rule governs path strings only.
+    const path: PathSegments = [
+      ...segments,
+      ...(isIndex(key) ? [key] : normalizePath(key))
+    ];
     if (typeof value === 'string') {
       if (value) {
         setError(form, path, value);

@@ -26,6 +26,27 @@ describe('createPath', () => {
     expect(path.key).toBe('["items",0,"name"]');
   });
 
+  it('keeps quoted numeric segments as explicit string keys', () => {
+    const path = createPath('items["0"]');
+    expect(path.value).toEqual(['items', '0']);
+    expect(path.key).toBe('["items","0"]');
+  });
+
+  it('rejects dotted numeric segments with an actionable TypeError', () => {
+    expect(() => createPath('items.0')).toThrow(TypeError);
+    expect(() => createPath('items.0.name')).toThrow(TypeError);
+    expect(() => createPath('0')).toThrow(TypeError); // top level included
+    expect(() => createPath('items.-1')).toThrow(TypeError);
+    expect(() => createPath('items.0.name')).toThrow(
+      'Numeric path segment must use bracket notation: ' +
+        '"items.0" → "items[0]" (path: items.0.name)'
+    );
+    expect(() => createPath('0')).toThrow(
+      'Numeric path segment must use bracket notation: ' +
+        '"0" → "[0]" (path: 0)'
+    );
+  });
+
   it('creates path from array', () => {
     const path = createPath(['user', 'email']);
     expect(path.value).toEqual(['user', 'email']);

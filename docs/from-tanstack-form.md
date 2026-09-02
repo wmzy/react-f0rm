@@ -194,7 +194,8 @@ const {fields, append, remove} = useFieldArray({name: 'tags'});
 `pushValue` → `append`, `removeValue` → `remove`, `insertValue` → `insert`, `swapValues` →
 `swap`, `moveValue` → `move`, `replaceValue(i, v)` → `update(i, v)` (keeps the row id).
 Extras: `prepend(v)` and `replace(values)` — the full-list swap that regenerates every row
-id, the refetch shape. Nested paths are dotted strings or segment arrays, both
+id, the refetch shape. Nested paths are bracket-notation strings (`people[0].name` — dotted
+numerics like `people.0.name` throw a `TypeError`) or segment arrays, both
 `FieldPath<Values>`-checked.
 
 ## Subscriptions

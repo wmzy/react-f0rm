@@ -1,8 +1,10 @@
 /**
  * Compile-time field path utilities: `FieldPath<T>` enumerates the valid
- * path strings for a values shape `T` ('a', 'a.b', 'a[0]', 'a.0.b', 'a[b]',
- * ...), and `PathValue<T, P>` resolves the leaf type a path points at.
- * The grammar mirrors the paths accepted at runtime by `normalizePath`.
+ * path strings for a values shape `T` ('a', 'a.b', 'a[0]', 'a[b]', ...),
+ * and `PathValue<T, P>` resolves the leaf type a path points at.
+ * The grammar mirrors the paths accepted at runtime by `normalizePath`:
+ * numeric segments are bracket-only ('a[0]', never 'a.0' — dotted
+ * numerics throw a TypeError at runtime).
  */
 
 /** `true` only for the `any` type (`0 extends 1 & any`). */
@@ -17,8 +19,11 @@ type Prev = [never, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 type MaxDepth = 9;
 
 /**
- * Valid path continuations after a segment: `.k` / `.0` / `[k]` / `[0]`,
+ * Valid path continuations after a segment: `.k` / `[k]` / `[0]`,
  * optionally followed by deeper continuations into the child node.
+ * Numeric segments are bracket-only (`.0` throws at runtime); object
+ * keys that are themselves numeric strings likewise enumerate just the
+ * bracket subscript.
  */
 type Continue<T, D extends number> = [D] extends [never]
   ? never
@@ -27,15 +32,14 @@ type Continue<T, D extends number> = [D] extends [never]
     : T extends Primitive | Function
       ? never
       : T extends readonly (infer U)[]
-        ? | `.${number}`
-          | `[${number}]`
-          | `.${number}${Continue<U, Prev[D]>}`
-          | `[${number}]${Continue<U, Prev[D]>}`
+        ? `[${number}]` | `[${number}]${Continue<U, Prev[D]>}`
         : {
             [K in Extract<keyof T, string>]:
-              | `.${K}`
+              | (K extends `${number}` ? never : `.${K}`)
               | `[${K}]`
-              | `.${K}${Continue<T[K], Prev[D]>}`
+              | (K extends `${number}`
+                  ? never
+                  : `.${K}${Continue<T[K], Prev[D]>}`)
               | `[${K}]${Continue<T[K], Prev[D]>}`;
           }[Extract<keyof T, string>];
 
@@ -49,10 +53,11 @@ export type FieldPath<T> =
     : T extends Primitive | Function
       ? never
       : T extends readonly (infer U)[]
-        ? `${number}` | `${number}${Continue<U, MaxDepth>}`
+        ? `[${number}]` | `[${number}]${Continue<U, MaxDepth>}`
         : {
-            [K in Extract<keyof T, string>]:
-              K | `${K}${Continue<T[K], MaxDepth>}`;
+            [K in Extract<keyof T, string>]: K extends `${number}`
+              ? never
+              : K | `${K}${Continue<T[K], MaxDepth>}`;
           }[Extract<keyof T, string>];
 
 /** Resolve `T[K]` for one bare segment: array index -> element, object key -> value. */
@@ -119,8 +124,8 @@ type SelfCheckPath = {
   containsBracketIndex: Check<
     'a[0].c' extends FieldPath<{a: {c: number}[]}> ? true : false
   >;
-  containsDotIndex: Check<
-    'a.0.c' extends FieldPath<{a: {c: number}[]}> ? true : false
+  rejectsDotIndex: Check<
+    'a.0.c' extends FieldPath<{a: {c: number}[]}> ? false : true
   >;
   rejectsUnknownPath: Check<
     'a.z' extends FieldPath<{a: {b: string}}> ? false : true
@@ -131,7 +136,7 @@ type SelfCheckValue = {
   dottedLeaf: Check<Equal<PathValue<{a: {b: string}}, 'a.b'>, string>>;
   bracketLeaf: Check<Equal<PathValue<{a: {b: string}}, 'a[b]'>, string>>;
   indexLeaf: Check<Equal<PathValue<{a: {c: number}[]}, 'a[0].c'>, number>>;
-  dotIndexLeaf: Check<Equal<PathValue<{a: {c: number}[]}, 'a.0.c'>, number>>;
+  bracketRootLeaf: Check<Equal<PathValue<{c: number}[], '[0].c'>, number>>;
   intermediateNode: Check<Equal<PathValue<{a: {b: string}}, 'a'>, {b: string}>>;
   arrayItself: Check<Equal<PathValue<{a: {c: number}[]}, 'a'>, {c: number}[]>>;
   arrayElement: Check<Equal<PathValue<{a: string[]}, 'a[1]'>, string>>;

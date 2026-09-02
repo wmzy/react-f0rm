@@ -14,15 +14,34 @@ export function normalizePath(
   return value;
 }
 
-/** Does a bracket/dotted path segment denote an array index? Bracket
- * syntax already parses these to numbers; dotted ones ('a.0') stay
- * strings, so the tree helpers re-test with this when it matters. */
-const isIndex = (segment: string) => /^-?\d+$/.test(segment);
+/** Does a segment string denote an integer array index (optionally
+ * negative)? The parser feeds it bracket contents ('items[0]' → number)
+ * and rejects dotted numerics outright ('items.0' throws), so parsed
+ * paths never carry index-looking strings. Its remaining duty is
+ * defending programmatic segments: normalizePath also accepts raw
+ * (string | number)[] arrays, and index-shaped strings can still arrive
+ * from internal callers (error-tree keys) or array containers met
+ * during set/setOwned walks. */
+export const isIndex = (segment: string) => /^-?\d+$/.test(segment);
 
 function parsePath(path: string): (string | number)[] {
   const result: (string | number)[] = [];
   let identifier = '';
   const flushIdentifier = () => {
+    if (isIndex(identifier)) {
+      // Rebuild both spellings for an actionable message: the dotted
+      // form the caller wrote vs. the bracket form the parser accepts.
+      const dotted = [...result.map(String), identifier].join('.');
+      const bracket = result.reduce(
+        (acc: string, seg: string | number) =>
+          acc +
+          (typeof seg === 'number' ? `[${seg}]` : `${acc ? '.' : ''}${seg}`),
+        ''
+      );
+      throw new TypeError(
+        `Numeric path segment must use bracket notation: "${dotted}" → "${bracket}[${identifier}]" (path: ${path})`
+      );
+    }
     result.push(identifier);
     identifier = '';
   };

@@ -42,7 +42,7 @@ interface Values {
 }
 
 type P = FieldPath<Values>;
-// 'user' | 'user.name' | 'tags' | 'tags.0' | 'tags[0]' | ...
+// 'user' | 'user.name' | 'tags' | `tags[0]` | ...
 
 type V = PathValue<Values, 'user.name'>; // string
 ```
@@ -58,4 +58,4 @@ setValue(form, 'user.name', 'Ann');  // value must be a string
 // setValue(form, 'user.name', 42);  // compile error
 ```
 
-Paths accept dot notation and bracket subscripts (`'tags.0'`, `'tags[0]'`) — both index forms are valid `FieldPath` members for array types. Quoted subscripts (`a['b c']`) are supported by the runtime path parser but are not enumerated by `FieldPath`. When `T` is `any` (the default), paths fall back to plain `string` and values to `any`, so untyped usage keeps working.
+Paths accept dot notation for object keys and bracket subscripts for array indices (`'user.name'`, `'tags[0]'`). Numeric segments are bracket-only: dotted `'tags.0'` throws a `TypeError` at runtime (the message suggests the bracket spelling) and is not a `FieldPath` member. Quoted subscripts (`a['b c']`, and `items["0"]` to explicitly name a string key rather than an index) are supported by the runtime path parser but are not enumerated by `FieldPath`. When `T` is `any` (the default), paths fall back to plain `string` and values to `any`, so untyped usage keeps working.

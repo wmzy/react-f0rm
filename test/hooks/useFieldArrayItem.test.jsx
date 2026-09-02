@@ -230,7 +230,7 @@ describe('useFieldArrayItem', () => {
     const s = setup();
     const [id0, id1, id2] = s.ids();
     const before = [s.count(id0), s.count(id1), s.count(id2)];
-    act(() => setValue(s.form, 'tags.1', 'B'));
+    act(() => setValue(s.form, 'tags[1]', 'B'));
     expect(s.count(id0)).toBe(before[0]);
     expect(s.count(id1)).toBe(before[1]);
     expect(s.count(id2)).toBe(before[2]);

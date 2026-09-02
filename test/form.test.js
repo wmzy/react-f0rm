@@ -97,7 +97,7 @@ describe('getValue / setValue', () => {
     // merge layers it over initialValues.
     const form = createForm({initialValues: {items: [{name: 'old'}]}});
     setValue(form, 'items', [{name: 'new'}]);
-    expect(getValue(form, 'items.0.name')).toBe('new');
+    expect(getValue(form, 'items[0].name')).toBe('new');
     expect(getValues(form)).toEqual({items: [{name: 'new'}]});
   });
 
@@ -109,7 +109,7 @@ describe('getValue / setValue', () => {
       initialValues: {items: [{name: 'old', qty: 1}]}
     });
     setValue(form, 'items', [{name: 'new'}]);
-    expect(getValue(form, 'items.0.qty')).toBeUndefined();
+    expect(getValue(form, 'items[0].qty')).toBeUndefined();
   });
 
   it('a replaced branch supersedes earlier leaf edits at that branch', () => {
@@ -117,9 +117,9 @@ describe('getValue / setValue', () => {
     // getValues merge must both settle on the new value, and the array
     // container must survive the merge as an array.
     const form = createForm({initialValues: {items: [{name: 'old'}]}});
-    setValue(form, 'items.0.name', 'typed');
-    setValue(form, 'items.0', {name: 'new'});
-    expect(getValue(form, 'items.0.name')).toBe('new');
+    setValue(form, 'items[0].name', 'typed');
+    setValue(form, 'items[0]', {name: 'new'});
+    expect(getValue(form, 'items[0].name')).toBe('new');
     expect(getValues(form)).toEqual({items: [{name: 'new'}]});
   });
 
@@ -136,17 +136,17 @@ describe('getValue / setValue', () => {
 
   it('a finer write still layers over an earlier ancestor write', () => {
     const form = createForm({initialValues: {items: [{name: 'old'}]}});
-    setValue(form, 'items.0', {name: 'new', qty: 2});
-    setValue(form, 'items.0.qty', 3);
-    expect(getValue(form, 'items.0.name')).toBe('new');
-    expect(getValue(form, 'items.0.qty')).toBe(3);
+    setValue(form, 'items[0]', {name: 'new', qty: 2});
+    setValue(form, 'items[0].qty', 3);
+    expect(getValue(form, 'items[0].name')).toBe('new');
+    expect(getValue(form, 'items[0].qty')).toBe(3);
     expect(getValues(form)).toEqual({items: [{name: 'new', qty: 3}]});
   });
 
   it('tombstone still blocks the baseline when no ancestor is live', () => {
     const form = createForm({initialValues: {items: [{name: 'old'}]}});
-    removeField(form, 'items.0.name');
-    expect(getValue(form, 'items.0.name')).toBeUndefined();
+    removeField(form, 'items[0].name');
+    expect(getValue(form, 'items[0].name')).toBeUndefined();
   });
 
   it('does not validate or touch without options', () => {
@@ -710,16 +710,16 @@ describe('removeField', () => {
     setValue(form, 'items', ['b', 'c']);
     // Item fields unmount after the array rewrite; their tombstones must
     // not punch holes in the live array.
-    removeField(form, 'items.0');
-    removeField(form, 'items.1');
+    removeField(form, 'items[0]');
+    removeField(form, 'items[1]');
     expect(getValues(form)).toEqual({items: ['b', 'c']});
   });
 
   it('rewriting a parent path supersedes stale child tombstones', () => {
     const form = createForm({initialValues: {items: ['a', 'b', 'c']}});
-    setValue(form, 'items.2', 'typed');
-    removeField(form, 'items.0');
-    removeField(form, 'items.1');
+    setValue(form, 'items[2]', 'typed');
+    removeField(form, 'items[0]');
+    removeField(form, 'items[1]');
     setValue(form, 'items', ['b', 'c']);
     expect(getValues(form)).toEqual({items: ['b', 'c']});
   });
@@ -1204,6 +1204,18 @@ describe('form-level validation', () => {
     });
     await expect(ensureValidate(form)).rejects.toThrow('required');
     expect(getError(form, 'user.name')).toEqual({
+      type: 'custom',
+      message: 'required'
+    });
+  });
+
+  it('keeps numeric tree keys as explicit string segments (Standard Schema issue paths stringify array indices)', async () => {
+    const form = createForm({
+      initialValues: {items: [{name: ''}]},
+      validate: () => ({items: {0: {name: 'required'}}})
+    });
+    await expect(ensureValidate(form)).rejects.toThrow('required');
+    expect(getError(form, 'items["0"].name')).toEqual({
       type: 'custom',
       message: 'required'
     });

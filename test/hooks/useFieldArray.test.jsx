@@ -130,9 +130,9 @@ describe('useFieldArray', () => {
     act(() => setValue(form, 'other', 'y'));
     expect(renders).toBe(initialRenders);
     // Sanity: a change inside this array's branch still re-renders.
-    act(() => setValue(form, 'tags.0', 'b'));
+    act(() => setValue(form, 'tags[0]', 'b'));
     expect(renders).toBe(initialRenders + 1);
-    expect(getValueByPath(form, createPath('tags.0'))).toBe('b');
+    expect(getValueByPath(form, createPath('tags[0]'))).toBe('b');
   });
 
   it('still re-renders and syncs on its own append/remove/swap', () => {
@@ -216,9 +216,9 @@ describe('useFieldArray', () => {
     }
     render(<TagsArray />);
     const initialRenders = renders;
-    act(() => setValue(form, 'tags.0.name', 'b'));
+    act(() => setValue(form, 'tags[0].name', 'b'));
     expect(renders).toBe(initialRenders + 1);
-    expect(getValueByPath(form, createPath('tags.0.name'))).toBe('b');
+    expect(getValueByPath(form, createPath('tags[0].name'))).toBe('b');
   });
 
   it('scopes a nested array by its full multi-segment key', () => {
@@ -241,9 +241,9 @@ describe('useFieldArray', () => {
     act(() => setValue(form, 'a.tagsX', 'q'));
     expect(renders).toBe(initialRenders);
     // A descendant write re-syncs.
-    act(() => setValue(form, 'a.tags.0', 'b'));
+    act(() => setValue(form, 'a.tags[0]', 'b'));
     expect(renders).toBe(initialRenders + 1);
-    expect(getValueByPath(form, createPath('a.tags.0'))).toBe('b');
+    expect(getValueByPath(form, createPath('a.tags[0]'))).toBe('b');
     // Own writes (append) still re-sync.
     act(() => api.append('c'));
     expect(api.fields).toHaveLength(2);
@@ -313,8 +313,8 @@ describe('useFieldArray', () => {
       const form = createForm({initialValues});
       const {result} = renderHook(() => {
         const array = useFieldArray({name: 'items', form});
-        const firstName = useField({form, name: 'items.0.name'});
-        const secondName = useField({form, name: 'items.1.name'});
+        const firstName = useField({form, name: 'items[0].name'});
+        const secondName = useField({form, name: 'items[1].name'});
         return {array, firstName, secondName};
       });
       return {form, result};
@@ -380,7 +380,7 @@ describe('useFieldArray', () => {
       const {result} = renderHook(
         () => {
           const array = useFieldArray({name: 'items', form});
-          const firstName = useField({form, name: 'items.0.name'});
+          const firstName = useField({form, name: 'items[0].name'});
           return {array, firstName};
         },
         {

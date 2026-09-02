@@ -467,7 +467,7 @@ function Tags() {
 
 Method mapping: `pushValue` → `append`, `removeValue` → `remove`, `insertValue` → `insert`, `swapValues` → `swap`, `moveValue` → `move`, `replaceValue(index, value)` → `update(index, value)` (single-row rewrite, same arity), `clearValues` → `replace([])`. Two more on the react-f0rm side: `prepend(value)`, and `replace(values)` — a full-list swap that regenerates every row id (the refetch shape; TanStack has no single-call equivalent). Row keys are stable across reorders (`field.id`), where the TanStack example above keys by index.
 
-Nested paths: TanStack builds template strings (`people[${i}].name`); react-f0rm takes dotted strings or segment arrays, both checked against `FieldPath<Values>`:
+Nested paths: TanStack builds template strings (`people[${i}].name`); react-f0rm takes bracket-notation strings or segment arrays, both checked against `FieldPath<Values>`:
 
 ```tsx
 // After: react-f0rm
@@ -475,9 +475,11 @@ interface Values {
   people: {name: string}[];
 }
 
-// 'people.0.name' | segments ['people', 0, 'name'] — typos fail at compile time
-const name = useValue<Values, 'people.0.name'>(form, 'people.0.name');
+// 'people[0].name' | segments ['people', 0, 'name'] — typos fail at compile time
+const name = useValue<Values, 'people[0].name'>(form, 'people[0].name');
 ```
+
+When migrating from React Hook Form habits: dotted numeric paths (`'people.0.name'`) are rejected — they throw a `TypeError` naming the bracket spelling (`'people[0].name'`). Quoted brackets (`'items["0"]'`) explicitly address a string key.
 
 ## What Each Side Does NOT Cover
 

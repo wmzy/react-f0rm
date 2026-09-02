@@ -76,7 +76,7 @@ For the built-in path, pass `renderError` instead. When the field has an error, 
 <span id={id} role='alert'>{renderError(error, id)}</span>
 ```
 
-next to the input — same id (`fieldErrorId(name)`, derived from the field path, e.g. `'todos.0'` → `'todos-0'`), same wiring, no extra component. `renderError` receives the error **message string** and the generated `id`.
+next to the input — same id (`fieldErrorId(name)`, derived from the field path, e.g. `'todos[0]'` → `'todos-0'`), same wiring, no extra component. `renderError` receives the error **message string** and the generated `id`.
 
 ```tsx
 <Field

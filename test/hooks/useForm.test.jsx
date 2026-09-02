@@ -718,8 +718,8 @@ describe('onPathEvent / onKeyEvent primitives', () => {
     let calls = 0;
     onPathEvent(emitter, 'change', createPath('tags'), 'branch', () => calls++);
     emit(emitter, 'change', createPath('tags')); // own
-    emit(emitter, 'change', createPath('tags.0')); // direct child (array index)
-    emit(emitter, 'change', createPath('tags.0.name')); // deep descendant
+    emit(emitter, 'change', createPath('tags[0]')); // direct child (array index)
+    emit(emitter, 'change', createPath('tags[0].name')); // deep descendant
     emit(emitter, 'change', createPath('tagsX')); // prefix lookalike: silent
     expect(calls).toBe(3);
   });
