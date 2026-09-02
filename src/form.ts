@@ -1238,17 +1238,22 @@ export async function trigger(
   name?: Name | Name[]
 ): Promise<boolean> {
   // Never reject (an error landing is a normal outcome, not a failure), so
-  // waitUntil's isReject is permanently false. Waiting on every FIELD
-  // validator is deliberately conservative: it also rides out unrelated
-  // in-flight field validators rather than racing them. The form-level
-  // validate's own window is excluded (fieldsSettled) — callers wait that
-  // out through the kick's promise instead, so a pending window never
-  // gates the next kick.
-  const settle = () =>
+  // waitUntil's isReject is permanently false. Without a name the wait is
+  // deliberately conservative — every FIELD validator, unrelated in-flight
+  // ones included, because the round covers the whole form (and the
+  // form-level validate's own window is excluded via fieldsSettled —
+  // callers wait that out through the kick's promise instead, so a pending
+  // window never gates the next kick). With a name the wait narrows to the
+  // triggered keys only: a slow async validator on field B must not hold
+  // trigger('a') hostage when the round never reads B.
+  const settle = (keys?: string[]) =>
     waitUntil(
       form.emitter,
       'validating',
-      () => fieldsSettled(form),
+      () =>
+        keys === undefined
+          ? fieldsSettled(form)
+          : keys.every(key => !form.validating.has(key)),
       () => false
     );
 
@@ -1264,7 +1269,7 @@ export async function trigger(
       ? [createPath(name).key]
       : name.map(one => createPath(one).key);
   keys.forEach(key => form.validators.get(key)?.());
-  await settle();
+  await settle(keys);
   return keys.every(key => !form.errors.has(key));
 }
 

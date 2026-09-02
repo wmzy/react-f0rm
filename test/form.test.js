@@ -2254,6 +2254,65 @@ describe('trigger', () => {
     expect(hasErrors(form)).toBe(false);
   });
 
+  it('trigger(name) does not wait for an unrelated in-flight validator', async () => {
+    const form = createForm();
+    const slow = createPath('slow');
+    let slowSettled = false;
+    form.validators.set(slow.key, () => {
+      setValidatingByPath(form, slow);
+      setTimeout(() => {
+        slowSettled = true;
+        unsetValidatingByPath(form, slow);
+      }, 30);
+    });
+    form.validators.set('["a"]', () => {
+      setErrorByPath(form, createPath('a'), undefined);
+    });
+
+    // Kick the slow validator the way a user edit would, then trigger an
+    // unrelated field: the round never reads `slow`, so it must resolve
+    // while `slow` is still in flight.
+    form.validators.get(slow.key)();
+    expect(form.validating.has(slow.key)).toBe(true);
+    await expect(trigger(form, 'a')).resolves.toBe(true);
+    expect(slowSettled).toBe(false);
+    expect(form.validating.has(slow.key)).toBe(true);
+
+    // Without a name the wait stays whole-form: it rides `slow` out.
+    await expect(trigger(form)).resolves.toBe(true);
+    expect(slowSettled).toBe(true);
+    expect(form.validating.has(slow.key)).toBe(false);
+  });
+
+  it('trigger(names) waits for every triggered key before resolving', async () => {
+    const form = createForm();
+    const a = createPath('a');
+    const c = createPath('c');
+    let cSettled = false;
+    form.validators.set(a.key, () => {
+      setValidatingByPath(form, a);
+      setTimeout(() => {
+        setErrorByPath(form, a, undefined);
+        unsetValidatingByPath(form, a);
+      }, 10);
+    });
+    form.validators.set(c.key, () => {
+      setValidatingByPath(form, c);
+      setTimeout(() => {
+        cSettled = true;
+        setErrorByPath(form, c, undefined);
+        unsetValidatingByPath(form, c);
+      }, 30);
+    });
+
+    // Trigger a and c together: the promise must wait for BOTH triggered
+    // keys — the slow one included — so both marks are gone at resolution.
+    await expect(trigger(form, ['a', 'c'])).resolves.toBe(true);
+    expect(cSettled).toBe(true);
+    expect(form.validating.has(a.key)).toBe(false);
+    expect(form.validating.has(c.key)).toBe(false);
+  });
+
   it('waits out a pending debounce window before resolving', async () => {
     const form = createForm();
     const path = createPath('name');
