@@ -88,7 +88,7 @@ Schema validation adapters (tree-shakeable, separate entry points):
 
 ## Testing
 
-Tests use Vitest with jsdom environment. Test files are in `test/` directory with `.test.{ts,tsx,js,jsx}` extension. 424 tests across 20 files (per `npx vitest run`). Benchmarks live in `test/bench/*.bench.ts`.
+Tests use Vitest with jsdom environment. Test files are in test/ directory with `.test.{ts,tsx,js,jsx}` extension. Benchmarks live in `test/bench/*.bench.ts`.
 
 ## Key Patterns
 
