@@ -17,7 +17,7 @@ export * from './context';
 export * from './hooks/form';
 export {default as useForm} from './hooks/form';
 export {default as useField} from './hooks/field';
-export {default as useFieldArray} from './hooks/fieldArray';
+export {default as useFieldArray, useFieldArrayItem} from './hooks/fieldArray';
 export type {FieldRules} from './rules';
 
 export {subscribe} from './subscribe';

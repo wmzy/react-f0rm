@@ -199,6 +199,57 @@ update(1, 'B');           // overwrite one value, keeping that row's id — no k
 
 `replace(values)` is the refetch shape — a server response replaces the whole list — while `update(index, value)` rewrites a single row in place.
 
+### `useFieldArrayItem`
+
+Per-row subscription for large arrays — the counterpart of TanStack Form's field api that `useFieldArray` alone cannot offer. `useFieldArray` subscribes to the whole branch, so any row's edit re-renders the component holding the array (and, without memoization, every row). `useFieldArrayItem` gives one row — identified by the stable `id` from `fields[i].id` — a subscription of its own:
+
+```jsx
+import {useFieldArray, useFieldArrayItem} from 'react-f0rm';
+
+const Row = React.memo(function Row({id}) {
+  const item = useFieldArrayItem({name: 'tags', id});
+  return (
+    <div>
+      <input
+        value={item.value ?? ''}
+        onChange={e => item.setValue(e.target.value)}
+      />
+      {item.error && <span>{item.error}</span>}
+    </div>
+  );
+});
+
+function Tags() {
+  const {fields, append, remove} = useFieldArray({name: 'tags'});
+  return (
+    <div>
+      {fields.map(field => (
+        <div key={field.id}>
+          <Row id={field.id} />
+          <button type="button" onClick={() => remove(field.index)}>
+            Remove
+          </button>
+        </div>
+      ))}
+      <button type="button" onClick={() => append('')}>
+        Add Tag
+      </button>
+    </div>
+  );
+}
+```
+
+Editing row K re-renders only row K, and a whole-array rewrite (`update`, `append`) re-renders only rows whose value actually changed — untouched rows' renders stay at zero. Two requirements make that hold:
+
+- a `useFieldArray({name})` must be mounted at the same path — it publishes the id table rows resolve against;
+- the row component must be `React.memo` with stable props (`id`, optionally `form`): everything else comes from the hook, so the array component's own re-render cannot drag the rows along.
+
+Rows whose index migrates — `remove`/`move`/`swap`/`insert` reshuffles — re-render by design: the row's path contains the index, exactly like TanStack Form's per-field api. `replace` regenerates every id, so every row remounts. The win is single-row edits staying single-row.
+
+The hook returns `{value, setValue, errors, error, name, index, form}` — the `useField`-style shape plus `index` and `name` (the row's current path key, e.g. `["tags",0]`) for building nested fields. Value reads and writes live on the array layer — the same layer every `useFieldArray` operation touches — so `value`, `setValue` and `update`/`append`/… always agree with each other; editing through a leaf-path `useField({name: ['tags', i]})` writes a different layer and does not flow into `item.value`.
+
+Without a paired `useFieldArray` the row is inert rather than broken: `index` is `-1`, `value` is `undefined`, and `setValue` is a no-op.
+
 ### `createFormContext`
 
 The module-level context serves one form per subtree; nesting two forms (or reusing a component under a different form) makes them fight over it. `createFormContext` builds an isolated bundle of bindings, typed against your values shape:
@@ -220,7 +271,7 @@ function NameField() {
 }
 ```
 
-Each call returns `{context, FormProvider, useFormContext, useField, useFieldArray}` bound to a private React context — pass the form via `<ProfileForm.FormProvider form={form}>`, and providers from separate instances never see each other's forms.
+Each call returns `{context, FormProvider, useFormContext, useField, useFieldArray, useFieldArrayItem}` bound to a private React context — pass the form via `<ProfileForm.FormProvider form={form}>`, and providers from separate instances never see each other's forms.
 
 The bundle also carries its raw React context, so `<Form>` can provide into it while keeping its full submit machinery — validation, submit handling, focus-on-error — instead of you wiring `<FormProvider>` + `handleSubmit` by hand:
 

@@ -23,7 +23,9 @@ import {
   useValue,
   createForm,
   createFormContext,
-  type FormInstance
+  type FormInstance,
+  useFieldArrayItem,
+  type FieldError
 } from '../src/index';
 
 interface LoginValues {
@@ -257,3 +259,24 @@ const debounceOptionType: Expect<
 // @ts-expect-error validateDebounce is milliseconds — numbers only
 createForm<LoginValues>({validateDebounce: '300'});
 void [withMetaForm, debounceOptionType];
+
+// ---- goal 5: useFieldArrayItem row typing -------------------------------------
+
+// The row hook's TValue defaults to any (dynamic rows stay usable); an
+// explicit generic types value/setValue and the closed result shape keeps
+// typo'd property access a compile error.
+function TagRow() {
+  const form = useForm<LoginValues>();
+  const anyRow = useFieldArrayItem({name: 'tags', id: '_1', form});
+  const anyValue: Expect<Equal<typeof anyRow.value, any>> = true;
+  const typedRow = useFieldArrayItem<string>({name: 'tags', id: '_1', form});
+  const typedValue: Expect<Equal<typeof typedRow.value, string>> = true;
+  const rowName: Expect<Equal<typeof typedRow.name, string>> = true;
+  const rowIndex: Expect<Equal<typeof typedRow.index, number>> = true;
+  const rowErrors: Expect<Equal<typeof typedRow.errors, FieldError[]>> = true;
+  typedRow.setValue('x');
+  // @ts-expect-error setValue takes the declared row value type
+  typedRow.setValue(1);
+  void [anyValue, typedValue, rowName, rowIndex, rowErrors];
+  return null;
+}

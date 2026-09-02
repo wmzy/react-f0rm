@@ -104,7 +104,11 @@ export interface Form<T extends Record<string, any> = any> {
    * validation kick. Path-based writes with user-change semantics
    * ({@link changeValueByPath}) route through the registered handler; the
    * effective per-field mode and live-error view live inside the field's
-   * closure, so this map is the only channel that can reproduce them. */
+   * closure, so this map is the only channel that can reproduce them.
+   * Multiple fields mounted at the same path compete for the slot
+   * last-wins — the latest mount's handler answers every user-change
+   * write; the unmount guard in `useField` keeps a later owner's
+   * registration intact when the earlier field goes away. */
   changeHandlers: Map<string, (value: any) => void>;
   validating: Set<string>;
   /** Parsed values from the last successful schema validation: the

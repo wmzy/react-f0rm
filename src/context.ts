@@ -4,7 +4,12 @@ import {
   type UseFieldOptions,
   type UseFieldResult
 } from './hooks/field';
-import {useFieldArrayCore, type UseFieldArrayResult} from './hooks/fieldArray';
+import {
+  useFieldArrayCore,
+  useFieldArrayItemCore,
+  type UseFieldArrayResult,
+  type UseFieldArrayItemResult
+} from './hooks/fieldArray';
 import type {Form} from './form';
 import type {Name} from './path';
 import type {FieldPath} from './types';
@@ -30,8 +35,8 @@ export function useFormContext<T extends Record<string, any> = any>(): Form<T> {
 
 /**
  * Create an isolated bundle of form-context bindings: its own React context
- * plus `useField` / `useFieldArray` / `useFormContext` hooks that resolve
- * their form from it.
+ * plus `useField` / `useFieldArray` / `useFieldArrayItem` /
+ * `useFormContext` hooks that resolve their form from it.
  *
  * Why: the module-level {@link FormContext} works fine for a single form per
  * subtree, but nesting two forms (or reusing a component inside a different
@@ -80,6 +85,13 @@ export function createFormContext<TValues extends Record<string, any> = any>() {
     return useFieldArrayCore(options as {name: Name}, Context);
   }
 
+  function useFieldArrayItem<TValue = any>(options: {
+    name: FieldPath<TValues> | Name;
+    id: string;
+  }): UseFieldArrayItemResult<TValue> {
+    return useFieldArrayItemCore(options as {name: Name; id: string}, Context);
+  }
+
   // The raw React context, for `<Form context={...}>`: the component keeps
   // its submit machinery while providing into this instance's private
   // context, so the bound hooks above resolve the form it manages.
@@ -88,7 +100,8 @@ export function createFormContext<TValues extends Record<string, any> = any>() {
     FormProvider,
     useFormContext,
     useField,
-    useFieldArray
+    useFieldArray,
+    useFieldArrayItem
   };
 }
 
