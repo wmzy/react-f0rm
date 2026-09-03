@@ -1,6 +1,12 @@
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  // src uses the __DEV__ flag rollup replaces at build time (see
+  // rollup.config.js); tests run with it on so the DEV-only warnings are
+  // exercised.
+  define: {
+    __DEV__: true
+  },
   test: {
     environment: 'jsdom',
     globals: true,

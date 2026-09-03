@@ -202,6 +202,51 @@ describe('useField', () => {
     expect(aRenders).toBe(rendersWithBMounted);
   });
 
+  it('warns in DEV when two fields compete for one changeHandler slot', () => {
+    const form = createForm({initialValues: {name: ''}});
+    const w = ({children}) => (
+      <FormProvider value={form}>{children}</FormProvider>
+    );
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const first = renderHook(() => useField({form, name: 'name'}), {
+        wrapper: w
+      });
+      expect(spy).not.toHaveBeenCalled();
+      const second = renderHook(() => useField({form, name: 'name'}), {
+        wrapper: w
+      });
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0][0]).toContain('react-f0rm');
+      expect(spy.mock.calls[0][0]).toContain('["name"]');
+      // The later mount owns the slot; the earlier field's unmount must
+      // not steal it back — changeValue still routes to the survivor.
+      first.unmount();
+      act(() => changeValue(form, 'name', 'bridged'));
+      expect(second.result.current.value).toBe('bridged');
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('does not warn for a StrictMode double effect on a single field', () => {
+    const form = createForm({initialValues: {name: ''}});
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      renderHook(() => useField({form, name: 'name'}), {
+        wrapper: ({children}) => (
+          <React.StrictMode>
+            <FormProvider value={form}>{children}</FormProvider>
+          </React.StrictMode>
+        )
+      });
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('remounted field writes new values over its own tombstone', () => {
     const form = createForm({initialValues: {name: 'test'}});
     const w = ({children}) => (

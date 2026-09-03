@@ -25,6 +25,10 @@ import type {Validator} from './validate';
 import {useStageFn} from './stage';
 import {isPromise} from '../util';
 
+/** Dev-only flag, replaced at build time (rollup.config.js `replace`);
+ * defined for the test environment in vitest.config.ts. */
+declare const __DEV__: boolean;
+
 export interface UseFieldOptions<
   TValues extends Record<string, any> = any,
   TPath extends FieldPath<TValues> | Name = Name
@@ -303,6 +307,20 @@ export function useFieldCore<
   // staged fn is stable and its closure always latest, so one registration
   // per mount suffices.
   useEffect(() => {
+    // Two fields mounted at the same path compete for the changeHandler
+    // slot last-wins: from here on every changeValue write routes to the
+    // latest mount, so the earlier field's mode/reValidateMode gating
+    // silently stops applying. That is almost always a bug (a stray
+    // duplicate name, a remount racing the old instance) — say so in DEV.
+    if (__DEV__ && form.changeHandlers.has(path.key)) {
+      // eslint-disable-next-line no-console -- the whole point of this branch
+      console.warn(
+        `react-f0rm: two fields are mounted at the same path ${path.key}. ` +
+          `The latest mount's change handler owns the slot, so changeValue ` +
+          `writes route to it and the earlier field's validation mode no ` +
+          `longer applies. Use distinct names if both must stay mounted.`
+      );
+    }
     form.changeHandlers.set(path.key, onChange);
     return () => {
       // Guard: a later mount on the same path may own the slot now — only
