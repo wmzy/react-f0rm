@@ -1015,6 +1015,34 @@ describe('reset', () => {
     expect(isDirty(form)).toBe(false);
   });
 
+  it('keepDirtyValues survives field names containing dots', () => {
+    // A literal 'a.b' name segment is addressable through bracket syntax
+    // or a segments array, never through the dotted spelling (that parses
+    // as nesting). The reset snapshot must carry the structured segments.
+    const form = createForm({initialValues: {}});
+    setValue(form, '["a.b"]', 'typed');
+    setValue(form, ['user', 'full.name'], 'nested typed');
+    reset(form, {'a.b': 'fresh', user: {'full.name': 'fresh'}}, {
+      keepDirtyValues: true
+    });
+    expect(getValue(form, ['a.b'])).toBe('typed');
+    expect(getValue(form, ['user', 'full.name'])).toBe('nested typed');
+    expect(getValues(form)).toEqual({
+      'a.b': 'typed',
+      user: {'full.name': 'nested typed'}
+    });
+    // The nested write must not have leaked a wrongly-parsed branch.
+    expect(getValue(form, 'a')).toBeUndefined();
+  });
+
+  it('keepDirtyValues survives quoted field names', () => {
+    const form = createForm({initialValues: {}});
+    setValue(form, "['it\"s']", 'typed');
+    reset(form, {}, {keepDirtyValues: true});
+    expect(getValue(form, ['it"s'])).toBe('typed');
+    expect(getValues(form)).toEqual({'it"s': 'typed'});
+  });
+
   it('keeps touched state with keepTouched', () => {
     const form = createForm();
     setTouched(form, 'name');

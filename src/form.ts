@@ -1171,13 +1171,23 @@ export function reset(
 ): void {
   // Snapshot dirty fields' live values before the wipe: dirtiness is
   // measured against the pre-reset initialValues, so capture must happen
-  // before form.values and form.initialValues are touched.
-  const dirtyValues = options?.keepDirtyValues
-    ? Object.keys(getDirtyFields(form)).map(key => ({
-        key,
-        value: getValue(form, key)
-      }))
-    : [];
+  // before form.values and form.initialValues are touched. The snapshot
+  // carries structured segments, not dotted strings — a name segment may
+  // itself contain '.' or quotes, and the dotted spelling does not
+  // round-trip through the parser (dotted keys stay display-only, like
+  // getDirtyFields' output).
+  const dirtyValues: {segments: PathSegments; value: any}[] = [];
+  if (options?.keepDirtyValues) {
+    for (const [key, value] of form.values) {
+      const segments = JSON.parse(key) as PathSegments;
+      // Same predicate as getDirtyFields/forEachDirtyField: a live value
+      // differing from its effective baseline (committed baselines read
+      // clean and are not kept).
+      if (getDirtyBaseline(form, key, segments) !== value) {
+        dirtyValues.push({segments, value});
+      }
+    }
+  }
   form.initialValues = initialValues;
   // The fresh baseline drops any schema parse from the previous cycle.
   form.parsedValues = undefined;
@@ -1195,8 +1205,8 @@ export function reset(
   bumpValuesVersion(form);
   // Write the kept dirty values back over the fresh baseline: plain
   // setValueByPath, so no validation fires and nothing is marked touched.
-  for (const {key, value} of dirtyValues) {
-    setValueByPath(form, createPath(key), value);
+  for (const {segments, value} of dirtyValues) {
+    setValueByPath(form, createPath(segments), value);
   }
   emit(emitter, 'change');
   emit(emitter, 'touched');
