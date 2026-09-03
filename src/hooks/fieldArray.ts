@@ -8,9 +8,15 @@ import {useFieldErrorsByPath} from './form';
 import usePath from './path';
 import useStage, {useStageFn} from './stage';
 
-let idCounter = 0;
-function generateId(): string {
-  return `_${++idCounter}`;
+/** Per-form row-id counter. A module-level counter would grow across
+ * every form on the page — and, on the server, across requests (ids like
+ * `_4701` after a day of SSR). Keyed weakly so it dies with the form. */
+const idCounters = new WeakMap<Form, number>();
+
+function generateId(form: Form): string {
+  const next = (idCounters.get(form) ?? 0) + 1;
+  idCounters.set(form, next);
+  return `_${next}`;
 }
 
 /**
@@ -90,13 +96,13 @@ export function useFieldArrayCore(
   const computeFields = useCallback(() => {
     const arr = getArray();
     while (idsRef.current.length < arr.length) {
-      idsRef.current.push(generateId());
+      idsRef.current.push(generateId(form));
     }
     while (idsRef.current.length > arr.length) {
       idsRef.current.pop();
     }
     return idsRef.current.map((id, index) => ({id, index}));
-  }, [getArray]);
+  }, [getArray, form]);
 
   // Subscribe to 'change' events scoped to this array's branch: the array
   // key itself, its ancestors (an ancestor write replaces what the leaf
@@ -139,19 +145,19 @@ export function useFieldArrayCore(
 
   const append = useStageFn((value: any) => {
     const arr = getArray();
-    idsRef.current.push(generateId());
+    idsRef.current.push(generateId(form));
     setArray([...arr, value]);
   });
 
   const prepend = useStageFn((value: any) => {
     const arr = getArray();
-    idsRef.current.unshift(generateId());
+    idsRef.current.unshift(generateId(form));
     setArray([value, ...arr]);
   });
 
   const insert = useStageFn((index: number, value: any) => {
     const arr = getArray();
-    idsRef.current.splice(index, 0, generateId());
+    idsRef.current.splice(index, 0, generateId(form));
     const newArr = [...arr.slice(0, index), value, ...arr.slice(index)];
     setArray(newArr);
   });
@@ -187,7 +193,7 @@ export function useFieldArrayCore(
   // replace is a full swap (length may change), so every row is conceptually
   // a new row: regenerate all ids to remount them, mirroring how reset works.
   const replace = useStageFn((values: any[]) => {
-    idsRef.current = values.map(() => generateId());
+    idsRef.current = values.map(() => generateId(form));
     setArray([...values]);
   });
 

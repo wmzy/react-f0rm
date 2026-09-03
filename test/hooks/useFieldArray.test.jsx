@@ -48,6 +48,22 @@ describe('useFieldArray', () => {
     expect(result.current.fields).toHaveLength(2);
   });
 
+  it('generates row ids from a per-form counter, not a module global', () => {
+    // The module-level counter made ids grow across every form on the
+    // page — and across SSR requests. Each form instance starts at _1.
+    const formA = createForm({initialValues: {items: []}});
+    const a = renderHook(() => useFieldArray({name: 'items', form: formA}));
+    act(() => a.result.current.append('x'));
+    expect(a.result.current.fields[0].id).toBe('_1');
+
+    const formB = createForm({initialValues: {items: []}});
+    const b = renderHook(() => useFieldArray({name: 'items', form: formB}));
+    act(() => b.result.current.append('y'));
+    expect(b.result.current.fields[0].id).toBe('_1');
+    act(() => b.result.current.append('z'));
+    expect(b.result.current.fields[1].id).toBe('_2');
+  });
+
   it('keeps ids unique under StrictMode double render', () => {
     const wrapper = createWrapper({items: ['a', 'b']});
     const {result} = renderHook(() => useFieldArray({name: 'items'}), {
