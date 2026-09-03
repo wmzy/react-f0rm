@@ -239,9 +239,17 @@ export default function create<T extends Record<string, any> = any>(
  * paths through it, instead of re-copying the whole branch for every key.
  * One owned set spans the whole merge, so containers borrowed from the
  * parsedValues tree are copied before mutation exactly like initialValues
- * ones. The result is still a freshly merged tree per call, with untouched
+ * ones. The result is a freshly merged tree per mutation, with untouched
  * branches sharing references with the baseline exactly like chained
- * `set` did -- callers may treat it as their own copy.
+ * `set` did.
+ *
+ * Memoized per form like {@link getDirtyFields}: every value write bumps a
+ * `version` counter ({@link bumpValuesVersion}) while reads reset it, so
+ * consecutive reads hand back the same reference (submit, changeValue and
+ * form-level validate all read the whole tree, often several times per
+ * interaction). Treat the result as read-only — the next read after a
+ * write returns a fresh tree, but between writes the cached one is shared
+ * with every other reader.
  *
  * parsedValues is the schema's complete output tree: once validation
  * succeeds it replaces the initialValues baseline (fields the schema
@@ -255,6 +263,18 @@ export default function create<T extends Record<string, any> = any>(
 export function getValues<T extends Record<string, any> = any>(
   form: Form<T>
 ): T {
+  let cache = valuesCaches.get(form);
+  if (!cache) {
+    cache = {version: 0, result: computeValues(form)};
+    valuesCaches.set(form, cache);
+  } else if (cache.version > 0) {
+    cache.result = computeValues(form);
+    cache.version = 0;
+  }
+  return cache.result as T;
+}
+
+function computeValues(form: Form): any {
   const {initialValues, parsedValues, values, deleted} = form;
   const owned = new Set<object>();
   let merged = parsedValues ?? initialValues;
@@ -271,6 +291,27 @@ export function getValues<T extends Record<string, any> = any>(
     merged = unset(merged, JSON.parse(key));
   }
   return merged;
+}
+
+/** Per-form memoization of {@link getValues}, the same version-bump/read
+ * pattern {@link dirtyFieldsCaches} gives {@link getDirtyFields}. */
+interface ValuesCache {
+  version: number;
+  result: any;
+}
+
+const valuesCaches = new WeakMap<Form, ValuesCache>();
+
+/**
+ * Invalidate `form`'s cached {@link getValues} result. Called at every
+ * point that can change values, parsedValues or initialValues
+ * (setValueByPath, removeFieldByPath, setInitialValues, reset, resetField,
+ * setParsedValues) so repeated reads hand back a stable reference until
+ * the next write.
+ */
+function bumpValuesVersion(form: Form): void {
+  const cache = valuesCaches.get(form);
+  if (cache) cache.version++;
 }
 
 /**
@@ -387,6 +428,7 @@ export function setValueByPath(
   pruneDirtyBaselines(form, path);
   if (options?.shouldDirty === false) setDirtyBaseline(form, path, value);
   bumpDirtyVersion(form);
+  bumpValuesVersion(form);
   if (options?.shouldTouch) setTouchedByPath(form, path);
   if (options?.shouldValidate) form.validators.get(path.key)?.();
   emit(emitter, 'change', path);
@@ -964,6 +1006,7 @@ export function removeFieldByPath(form: Form, path: Path): void {
   // array at the parent path) or a still-mounted descendant key.
   if (!hasLiveBranch(values, segments)) deleted.add(key);
   bumpDirtyVersion(form);
+  bumpValuesVersion(form);
   // Path-payload emits, scoped exactly like the writes above: every
   // mutation is bounded to this path's key (exact deletes in the four
   // stores, an exact-key tombstone), so the same matching the write sites
@@ -1058,6 +1101,7 @@ export function setInitialValues(form: Form, initialValues: any): void {
   // ...and every baseline committed against the old one.
   clearDirtyBaselines(form);
   bumpDirtyVersion(form);
+  bumpValuesVersion(form);
   emit(form.emitter, 'change');
 }
 
@@ -1116,6 +1160,7 @@ export function reset(
   if (!options?.keepSubmitCount) form.submitCount = 0;
   if (!options?.keepIsSubmitted) form.isSubmitSuccessful = undefined;
   bumpDirtyVersion(form);
+  bumpValuesVersion(form);
   // Write the kept dirty values back over the fresh baseline: plain
   // setValueByPath, so no validation fires and nothing is marked touched.
   for (const {key, value} of dirtyValues) {
@@ -1196,6 +1241,7 @@ export function resetField<
     emit(emitter, 'errors', path);
   }
   bumpDirtyVersion(form);
+  bumpValuesVersion(form);
 }
 
 /**
@@ -1356,6 +1402,10 @@ function recordFootprint(
 function setParsedValues(form: Form, values: any): void {
   if (values === undefined || values === form.parsedValues) return;
   form.parsedValues = values;
+  // parsedValues is a getValues layer above initialValues, so a new parse
+  // invalidates the cached merge (dirty state is untouched — parsing is
+  // not an edit, hence no bumpDirtyVersion here).
+  bumpValuesVersion(form);
   emit(form.emitter, 'change');
 }
 

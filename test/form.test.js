@@ -254,15 +254,59 @@ describe('getValues', () => {
     expect(getValues(form)).toEqual({a: {b: 2, keep: true}});
   });
 
-  it('returns a fresh merged tree per call (no result caching)', () => {
+  it('memoizes per form: same reference between writes, fresh after one', () => {
     const form = createForm({initialValues: {a: 1}});
     setValue(form, 'b', 2);
     const first = getValues(form);
+    // Consecutive reads hit the cache (submit, changeValue and form-level
+    // validate all re-read the whole tree between writes).
+    expect(getValues(form)).toBe(first);
+    expect(getValues(form)).toBe(first);
+    // Any write invalidates: the next read re-merges and hands back a
+    // fresh tree with the new content.
+    setValue(form, 'b', 3);
     const second = getValues(form);
-    expect(first).not.toBe(second);
-    first.b = 'mutated';
-    expect(getValues(form)).toEqual({a: 1, b: 2});
-    expect(form.initialValues).toEqual({a: 1});
+    expect(second).not.toBe(first);
+    expect(second).toEqual({a: 1, b: 3});
+    // Mutating the cached result is unsupported (read-only contract):
+    // between writes every reader shares the same reference.
+  });
+
+  it('cache invalidation covers every value-mutating entry point', async () => {
+    // setValue/removeField/setInitialValues/reset/resetField and a schema
+    // round's parsedValues each must drop the cached merge.
+    const form = createForm({initialValues: {a: 1, b: 2, c: 3, d: 4}});
+    getValues(form);
+
+    setValue(form, 'a', 10);
+    expect(getValues(form)).toEqual({a: 10, b: 2, c: 3, d: 4});
+
+    removeField(form, 'b');
+    expect(getValues(form)).toEqual({a: 10, c: 3, d: 4});
+
+    // setInitialValues re-seeds: live edits (a: 10) and tombstones (b)
+    // are cleared, fields fall back to the new baseline.
+    setInitialValues(form, {a: 0, c: 0, d: 0});
+    expect(getValues(form)).toEqual({a: 0, c: 0, d: 0});
+
+    setValue(form, 'c', 30);
+    resetField(form, 'c', {value: 33});
+    expect(getValues(form)).toEqual({a: 0, c: 33, d: 0});
+
+    reset(form, {a: 1});
+    expect(getValues(form)).toEqual({a: 1});
+  });
+
+  it('a schema round\'s parsedValues invalidates the cache too', async () => {
+    const form = createForm({
+      initialValues: {a: 1},
+      validate: () => ({[VALIDATION_OUTCOME]: true, values: {a: 'parsed'}})
+    });
+    expect(getValues(form)).toEqual({a: 1});
+    await trigger(form);
+    // parsedValues layers over initialValues in the merge — the cached
+    // pre-parse tree must not shadow it.
+    expect(getValues(form)).toEqual({a: 'parsed'});
   });
 
   it('flows the form type to the returned record (typed context)', () => {
