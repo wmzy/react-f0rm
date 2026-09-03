@@ -8,6 +8,7 @@ import {
   isEqual,
   isPromise,
   normalizePath,
+  pathCacheSize,
   waitUntil
 } from '../src/util';
 import createForm, {setValue} from '../src/form';
@@ -163,6 +164,30 @@ describe('normalizePath', () => {
 
   it('throws TypeError for missing bracket after quoted segment', () => {
     expect(() => normalizePath('a["b"')).toThrow(TypeError);
+  });
+
+  // —— pathCache 上界（FIFO 1e4）——
+  // 动态拼 key（'items[' + id + ']' 类字符串）会让模块级缓存永久增长；
+  // 静态字段名场景几乎不增长，上界只是动态 key 的兜底。
+
+  it('caps the path cache at 1e4 entries (FIFO) for dynamic keys', () => {
+    for (let i = 0; i < 11000; i++) {
+      normalizePath(`dynamic[${i}].name`);
+    }
+    expect(pathCacheSize()).toBe(10000);
+  });
+
+  it('reparses evicted paths to equal results and re-caches them', () => {
+    const first = normalizePath('items[42].label');
+    expect(normalizePath('items[42].label')).toBe(first); // 命中缓存
+    // 把它挤出有界缓存，再重新解析
+    for (let i = 0; i < 10001; i++) {
+      normalizePath(`flush[${i}]`);
+    }
+    const second = normalizePath('items[42].label');
+    expect(second).not.toBe(first); // 旧引用已舍弃，走重新解析
+    expect(second).toEqual(first); // 行为等价：结果一致
+    expect(normalizePath('items[42].label')).toBe(second); // 重新命中
   });
 });
 

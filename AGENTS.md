@@ -50,7 +50,7 @@ Generation semantics of whole-branch writes: `setValueByPath` at a path P drops 
 
 ### Path System (`src/path.ts`, `src/util.ts`, `src/types.ts`)
 - `src/path.ts` — `create(name)` returns a `Path` `{value: segments, key: JSON-stringified segments}`; `key` is the Map/Set lookup key
-- `src/util.ts` — `parsePath` tokenizer accepts dotted (`a.b`), bracket (`a[0]`, `a["b c"]`, `a['b']`) syntax; numeric segments are bracket-only (`items.0` throws a `TypeError` suggesting `items[0]`), and a quoted segment (`items["0"]`) keeps an explicit string key. `normalizePath` caches parsed strings in a module-level `pathCache` Map (throwing paths are never cached). Also `get`/`set`/`unset`/`setOwned` immutable tree helpers
+- `src/util.ts` — `parsePath` tokenizer accepts dotted (`a.b`), bracket (`a[0]`, `a["b c"]`, `a['b']`) syntax; numeric segments are bracket-only (`items.0` throws a `TypeError` suggesting `items[0]`), and a quoted segment (`items["0"]`) keeps an explicit string key. `normalizePath` caches parsed strings in a module-level `pathCache` Map (throwing paths are never cached); the cache is FIFO-bounded at 1e4 entries — a backstop for dynamic keys only, since eviction just costs a re-parse and never changes behavior. Also `get`/`set`/`unset`/`setOwned` immutable tree helpers
 - `src/types.ts` — compile-time path types: `FieldPath<T>` enumerates valid path strings for a values shape, `PathValue<T, P>` resolves the value type at a path; includes self-check types verified by `tsc --noEmit`
 
 ### Hooks Layer (`src/hooks/`)

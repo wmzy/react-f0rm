@@ -1,7 +1,22 @@
 import {on} from '@for-fun/event-emitter';
 import type {EventEmitter} from '@for-fun/event-emitter';
 
+/** FIFO bound for {@link pathCache}. Static field names ('user.email')
+ * number in the dozens per app, so the cache barely grows in practice;
+ * the cap is only a backstop for dynamic keys ('items[' + id + ']'
+ * style — array inputs skip the cache entirely), where long-lived forms
+ * would otherwise accumulate entries forever. Map preserves insertion
+ * order, so eviction drops the oldest entry; a dropped string only
+ * costs a re-parse the next time normalizePath sees it — results are
+ * deterministic, so eviction affects performance, never behavior. */
+const PATH_CACHE_LIMIT = 1e4;
+
 const pathCache = new Map<string, (string | number)[]>();
+
+/** Test-only view of the path cache size. Not re-exported from the
+ * package entry — tests import this module directly to assert the
+ * FIFO bound above. */
+export const pathCacheSize = () => pathCache.size;
 
 export function normalizePath(
   path: string | (string | number)[]
@@ -10,6 +25,12 @@ export function normalizePath(
   const cached = pathCache.get(path);
   if (cached) return cached;
   const value = parsePath(path);
+  if (pathCache.size >= PATH_CACHE_LIMIT) {
+    // Insertion order is FIFO order; the cache is non-empty here
+    // because size >= 1e4.
+    const oldest = pathCache.keys().next();
+    if (!oldest.done) pathCache.delete(oldest.value);
+  }
   pathCache.set(path, value);
   return value;
 }
