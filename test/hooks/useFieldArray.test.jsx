@@ -1,5 +1,11 @@
 import {describe, it, expect, beforeEach} from 'vitest';
-import {render, renderHook, act, fireEvent, screen} from '@testing-library/react';
+import {
+  render,
+  renderHook,
+  act,
+  fireEvent,
+  screen
+} from '@testing-library/react';
 import {FormProvider} from '../../src/context';
 import useFieldArray from '../../src/hooks/fieldArray';
 import useField from '../../src/hooks/field';
@@ -400,6 +406,8 @@ describe('useFieldArray', () => {
     // bailout), so a payload-less 'change' wake costs a real render. A
     // field unmounting OUTSIDE the branch must leave the array component
     // alone; a field unmounting INSIDE it must re-sync it.
+    let renders;
+
     // memo + a stable form prop: the toggle's own state change re-renders
     // the harness, but only the array's reducer dispatch (a form-event
     // wake) may re-render CountingArray.
@@ -408,8 +416,6 @@ describe('useFieldArray', () => {
       const {fields} = useFieldArray({name: 'items', form});
       return <div data-testid="count">{fields.length}</div>;
     });
-
-    let renders;
 
     function renderHarness(form, innerName) {
       function Harness() {

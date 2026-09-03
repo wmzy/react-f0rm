@@ -1,5 +1,11 @@
 import {describe, it, expect, vi} from 'vitest';
-import {renderHook, render, act, fireEvent, screen} from '@testing-library/react';
+import {
+  renderHook,
+  render,
+  act,
+  fireEvent,
+  screen
+} from '@testing-library/react';
 import {on} from '@for-fun/event-emitter';
 import {FormProvider} from '../../src/context';
 import useField from '../../src/hooks/field';

@@ -1850,6 +1850,22 @@ export function revalidateDependentsOnChange(
   }
 }
 
+/** The Error {@link ensureValidate} rejects with: `message` is the first
+ * error's display text ({@link getFirstError}) — the long-standing shape
+ * — and `.errors` carries the complete flattened error list ({@link
+ * getErrors}: `{path, type, message}` entries, dotted display paths) so
+ * catchers can branch on types and locate fields without re-reading the
+ * form. */
+export type FormValidationError = Error & {errors: FieldErrorEntry[]};
+
+/** Build {@link ensureValidate}'s rejection: first error's message, every
+ * error attached. */
+function validationError(form: Form): FormValidationError {
+  const error = new Error(getFirstError(form)) as FormValidationError;
+  error.errors = getErrors(form);
+  return error;
+}
+
 /**
  * Validate and throw if any field error.
  * @param form
@@ -1864,12 +1880,12 @@ export async function ensureValidate(form: Form): Promise<void> {
     () => fieldsSettled(form),
     () => hasErrors(form)
   ).catch(() => {
-    throw new Error(getFirstError(form));
+    throw validationError(form);
   });
 
   if (form.validate) {
     await runFormValidate(form);
-    if (hasErrors(form)) throw new Error(getFirstError(form));
+    if (hasErrors(form)) throw validationError(form);
   }
 }
 

@@ -26,6 +26,7 @@ import createForm, {
   reset,
   getValues,
   ensureValidate,
+  validate,
   setValidatingByPath,
   unsetValidatingByPath,
   setIsSubmitting,
@@ -297,7 +298,7 @@ describe('getValues', () => {
     expect(getValues(form)).toEqual({a: 1});
   });
 
-  it('a schema round\'s parsedValues invalidates the cache too', async () => {
+  it("a schema round's parsedValues invalidates the cache too", async () => {
     const form = createForm({
       initialValues: {a: 1},
       validate: () => ({[VALIDATION_OUTCOME]: true, values: {a: 'parsed'}})
@@ -1022,9 +1023,13 @@ describe('reset', () => {
     const form = createForm({initialValues: {}});
     setValue(form, '["a.b"]', 'typed');
     setValue(form, ['user', 'full.name'], 'nested typed');
-    reset(form, {'a.b': 'fresh', user: {'full.name': 'fresh'}}, {
-      keepDirtyValues: true
-    });
+    reset(
+      form,
+      {'a.b': 'fresh', user: {'full.name': 'fresh'}},
+      {
+        keepDirtyValues: true
+      }
+    );
     expect(getValue(form, ['a.b'])).toBe('typed');
     expect(getValue(form, ['user', 'full.name'])).toBe('nested typed');
     expect(getValues(form)).toEqual({
@@ -1250,6 +1255,42 @@ describe('ensureValidate', () => {
       setErrorByPath(form, path, 'required');
     });
     await expect(ensureValidate(form)).rejects.toThrow('required');
+  });
+
+  it('attaches the full error list to the rejection error', async () => {
+    // Field-validator failure: message stays the first error's text; the
+    // .errors side-channel carries every error with type and path.
+    const form = createForm();
+    setError(form, 'other', 'preexisting');
+    form.validators.set('name', () => {
+      setErrorByPath(form, createPath('name'), [
+        {type: 'required', message: 'first'},
+        {type: 'custom', message: 'second'}
+      ]);
+    });
+    const error = await ensureValidate(form).catch(e => e);
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toBe('preexisting');
+    expect(error.errors).toEqual([
+      {path: 'other', type: 'custom', message: 'preexisting'},
+      {path: 'name', type: 'required', message: 'first'},
+      {path: 'name', type: 'custom', message: 'second'}
+    ]);
+  });
+
+  it('attaches the full error list on the form-level branch too', async () => {
+    const form = createForm({
+      initialValues: {a: 1, b: 2},
+      validate: () => ({a: 'a is bad', b: {type: 'custom', message: 'b too'}})
+    });
+    const error = await ensureValidate(form).catch(e => e);
+    expect(error.message).toBe('a is bad');
+    expect(error.errors).toEqual([
+      {path: 'a', type: 'custom', message: 'a is bad'},
+      {path: 'b', type: 'custom', message: 'b too'}
+    ]);
+    // validate()'s catch-path keeps returning the message string only.
+    await expect(validate(form)).resolves.toBe('a is bad');
   });
 
   it('waits for async validators', async () => {
