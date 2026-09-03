@@ -3,12 +3,13 @@ import {renderHook, render, act, fireEvent, screen} from '@testing-library/react
 import {on} from '@for-fun/event-emitter';
 import {FormProvider} from '../../src/context';
 import useField from '../../src/hooks/field';
-import useForm from '../../src/hooks/form';
+import useForm, {useValue} from '../../src/hooks/form';
 import createForm, {
   getValues,
   getValue,
   setValue,
   changeValue,
+  setInitialValues,
   getError,
   setError,
   trigger,
@@ -75,7 +76,103 @@ describe('useField', () => {
         )
       }
     );
+    // Exactly one 'change': the render-time seed is emit-free and the
+    // post-commit announce fires once for the whole StrictMode mount
+    // (the second render sees the value already seeded; the sticky flag
+    // carries the one announce through).
     expect(spy).toHaveBeenCalledTimes(1);
+    expect(getValues(form)).toEqual({email: 'default@test.com'});
+  });
+
+  it('first render already carries initialValue (render-time seed)', () => {
+    // No form initialValues and no effects involved in the assertion: the
+    // value the hook returns on its very first render must be the seed —
+    // the write happened during render, before the value subscription
+    // took its first snapshot.
+    const form = createForm();
+    let firstRenderValue;
+    const Probe = () => {
+      const field = useField({form, name: 'email', initialValue: 'seed@x'});
+      firstRenderValue ??= field.value;
+      return null;
+    };
+    render(
+      <FormProvider value={form}>
+        <Probe />
+      </FormProvider>
+    );
+    expect(firstRenderValue).toBe('seed@x');
+  });
+
+  it('a render-time seed announces to subscribers from earlier commits', () => {
+    // The seed cannot emit while rendering, but a watcher mounted in an
+    // earlier commit must still see the value land: the post-commit
+    // announce (a path-carrying 'change') wakes it.
+    const form = createForm();
+    const w = ({children}) => (
+      <FormProvider value={form}>{children}</FormProvider>
+    );
+    const watcher = renderHook(() => useValue(form, 'email'), {wrapper: w});
+    expect(watcher.result.current).toBeUndefined();
+    renderHook(() => useField({form, name: 'email', initialValue: 'seed@x'}), {
+      wrapper: w
+    });
+    expect(watcher.result.current).toBe('seed@x');
+  });
+
+  it('remount with the value kept does not re-seed or re-announce', () => {
+    const form = createForm();
+    const provider = ({children}) => (
+      <FormProvider value={form}>{children}</FormProvider>
+    );
+    const first = renderHook(
+      () =>
+        useField({
+          form,
+          name: 'email',
+          initialValue: 'default@test.com',
+          shouldUnregister: false
+        }),
+      {wrapper: provider}
+    );
+    act(() => first.result.current.onChange('typed@test.com'));
+    const spy = vi.fn();
+    on(form.emitter, 'change', spy);
+    first.unmount();
+    // Value survives the unmount (shouldUnregister: false), so the
+    // remount's seed guard fails: no write, no announce event.
+    const second = renderHook(
+      () =>
+        useField({
+          form,
+          name: 'email',
+          initialValue: 'default@test.com',
+          shouldUnregister: false
+        }),
+      {wrapper: provider}
+    );
+    expect(second.result.current.value).toBe('typed@test.com');
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('re-seeds on the next render after a setInitialValues wipe', () => {
+    // Master-detail re-seed (setInitialValues clears the values Map): the
+    // mounted field's declared initialValue is its initial value, so the
+    // guard re-seeds on the next render and the announce wakes watchers.
+    const form = createForm();
+    const w = ({children}) => (
+      <FormProvider value={form}>{children}</FormProvider>
+    );
+    const watcher = renderHook(() => useValue(form, 'email'), {wrapper: w});
+    const field = renderHook(
+      () => useField({form, name: 'email', initialValue: 'seed@x'}),
+      {wrapper: w}
+    );
+    expect(field.result.current.value).toBe('seed@x');
+    act(() => setInitialValues(form, {other: 1}));
+    expect(watcher.result.current).toBe('seed@x');
+    expect(field.result.current.value).toBe('seed@x');
+    expect(getValues(form)).toEqual({other: 1, email: 'seed@x'});
   });
 
   it('does not overwrite an existing value with initialValue', () => {

@@ -230,6 +230,27 @@ export default function create<T extends Record<string, any> = any>(
   };
 }
 
+/** Per-form memoization of {@link getValues}, the same version-bump/read
+ * pattern {@link dirtyFieldsCaches} gives {@link getDirtyFields}. */
+interface ValuesCache {
+  version: number;
+  result: any;
+}
+
+const valuesCaches = new WeakMap<Form, ValuesCache>();
+
+/**
+ * Invalidate `form`'s cached {@link getValues} result. Called at every
+ * point that can change values, parsedValues or initialValues
+ * (setValueByPath, removeFieldByPath, setInitialValues, reset, resetField,
+ * setParsedValues) so repeated reads hand back a stable reference until
+ * the next write.
+ */
+function bumpValuesVersion(form: Form): void {
+  const cache = valuesCaches.get(form);
+  if (cache) cache.version++;
+}
+
 /**
  * Get form values: the values Map layered over parsedValues (when a schema
  * validation produced them) layered over initialValues.
@@ -291,27 +312,6 @@ function computeValues(form: Form): any {
     merged = unset(merged, JSON.parse(key));
   }
   return merged;
-}
-
-/** Per-form memoization of {@link getValues}, the same version-bump/read
- * pattern {@link dirtyFieldsCaches} gives {@link getDirtyFields}. */
-interface ValuesCache {
-  version: number;
-  result: any;
-}
-
-const valuesCaches = new WeakMap<Form, ValuesCache>();
-
-/**
- * Invalidate `form`'s cached {@link getValues} result. Called at every
- * point that can change values, parsedValues or initialValues
- * (setValueByPath, removeFieldByPath, setInitialValues, reset, resetField,
- * setParsedValues) so repeated reads hand back a stable reference until
- * the next write.
- */
-function bumpValuesVersion(form: Form): void {
-  const cache = valuesCaches.get(form);
-  if (cache) cache.version++;
 }
 
 /**
@@ -431,6 +431,38 @@ export function setValueByPath(
   bumpValuesVersion(form);
   if (options?.shouldTouch) setTouchedByPath(form, path);
   if (options?.shouldValidate) form.validators.get(path.key)?.();
+  emit(emitter, 'change', path);
+}
+
+/**
+ * The write of {@link setValueByPath} minus the `'change'` emit: the
+ * render-time {@link useField} `initialValue` seed. The field's first
+ * paint (SSR included — effects never run on the server) must already
+ * carry the value, so the write happens during render where emitting is
+ * illegal; the seeding field announces it from its post-commit effect
+ * through {@link emitChangeByPath} instead.
+ *
+ * Everything else matches a plain write: descendant keys of the seeded
+ * path are pruned, the branch's tombstones and committed baselines are
+ * revived/dropped, and both memo caches are invalidated. Like the effect
+ * seed it replaces, the caller guards it to paths with no value yet.
+ */
+export function seedValueByPath(form: Form, path: Path, value: any): void {
+  const {values, deleted} = form;
+  values.set(path.key, value);
+  pruneDescendantKeys(values, path);
+  reviveBranch(deleted, path);
+  pruneDirtyBaselines(form, path);
+  bumpDirtyVersion(form);
+  bumpValuesVersion(form);
+}
+
+/** Announce a {@link seedValueByPath} that happened during render: the
+ * payload-carrying `'change'` emit {@link setValueByPath} would have
+ * fired, split out so it can run post-commit where emitting is safe.
+ * Subscribers that rendered after the seed re-read an unchanged snapshot
+ * and bail; subscribers from earlier commits resync. */
+export function emitChangeByPath({emitter}: Form, path: Path): void {
   emit(emitter, 'change', path);
 }
 

@@ -34,6 +34,22 @@ function ProfileForm() {
   );
 }
 
+// Field-level initialValue (no form initialValues): the seed must land
+// during render, because renderToString never runs effects.
+function SeededForm() {
+  const form = useForm();
+  const email = useField({form, name: 'email', initialValue: 'seed@x.io'});
+  return (
+    <form>
+      <input
+        data-testid="email"
+        value={email.value ?? ''}
+        onChange={e => email.onChange(e.target.value)}
+      />
+    </form>
+  );
+}
+
 const HYDRATION_ISSUE = /hydrat|did not match|mismatch/i;
 const roots = [];
 const containers = [];
@@ -89,6 +105,35 @@ describe('SSR', () => {
       fireEvent.change(input, {target: {value: 'grace'}});
     });
     expect(input.value).toBe('grace');
+
+    errorSpy.mockRestore();
+  });
+
+  it('renderToString carries a field-level initialValue (render-time seed)', async () => {
+    // The old effect-based seed never ran on the server, so the first
+    // paint rendered an empty input. The seed is a render-time write now,
+    // so server markup — and the hydrated client — carry the value.
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const html = renderToString(<SeededForm />);
+    expect(html).toContain('value="seed@x.io"');
+
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    container.innerHTML = html;
+    containers.push(container);
+
+    await act(async () => {
+      roots.push(hydrateRoot(container, <SeededForm />));
+    });
+
+    expect(
+      errorSpy.mock.calls
+        .map(args => args.join(' '))
+        .filter(m => HYDRATION_ISSUE.test(m))
+    ).toEqual([]);
+    const input = container.querySelector('[data-testid="email"]');
+    expect(input.value).toBe('seed@x.io');
 
     errorSpy.mockRestore();
   });

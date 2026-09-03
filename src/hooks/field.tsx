@@ -1,13 +1,15 @@
-import {useContext, useEffect, useState} from 'react';
+import {useContext, useEffect, useRef, useState} from 'react';
 import type {Context} from 'react';
 import {FormContext} from '../context';
 import {
+  emitChangeByPath,
   getValueByPath,
   hasTouchedByPath,
   registerFieldValidateDeps,
   removeFieldByPath,
   revalidateDependentsOnChange,
   revalidateFormOnChange,
+  seedValueByPath,
   setTouchedByPath,
   setValueByPath,
   unregisterFieldValidateDeps
@@ -236,6 +238,37 @@ export function useFieldCore<
   if (!form) throw new Error('no form provided');
   const path = usePath(name);
 
+  // Seed initialValue during render, not in an effect: the first paint
+  // (SSR included — effects never run on the server) must already carry
+  // the value, so the write lands here — before the value subscription
+  // below takes its first snapshot. The write is emit-free (see
+  // seedValueByPath) because emitting while rendering is illegal; the
+  // post-commit effect announces it. The `=== undefined` guard keeps user
+  // input and committed values safe across re-renders and remounts.
+  const seededRef = useRef(false);
+  const seeded =
+    initialValue !== undefined && getValueByPath(form, path) === undefined;
+  if (seeded) {
+    seedValueByPath(form, path, initialValue);
+    // Sticky until the announce effect consumes it, so StrictMode's second
+    // render (which sees the value already seeded) still announces once.
+    seededRef.current = true;
+  }
+  useEffect(() => {
+    // Dep-less on purpose: the seed can land on a later render too (a
+    // setInitialValues/reset wiped it; the guard re-seeds), and the
+    // announcement must follow every actual seed. The flag makes the
+    // steady state a cheap check.
+    if (!seededRef.current) return;
+    seededRef.current = false;
+    // Wake path-scoped subscribers that rendered before this field in an
+    // earlier commit — their snapshots predate the seed. Same-commit
+    // subscribers self-heal through useSyncExternalStore's post-subscribe
+    // snapshot check, and subscribers that already saw the seeded value
+    // re-read an unchanged snapshot and bail out.
+    emitChangeByPath(form, path);
+  });
+
   // Undeclared options are dropped on purpose: the return value carries
   // only the fields declared on UseFieldResult, so nothing rides it back
   // onto DOM elements through a component's prop spread.
@@ -265,16 +298,6 @@ export function useFieldCore<
   // A field-declared mode replaces the form-level one for this field only;
   // the reValidateMode kicks below stay form-level for every field.
   const mode = modeOption ?? form.mode;
-
-  // Seed initialValue in an effect (never during render, so no 'change' is
-  // emitted while rendering) and only when the field has no value yet, so
-  // user input survives re-renders and remounts.
-  useEffect(() => {
-    if (initialValue === undefined) return;
-    if (getValueByPath(form, path) === undefined) {
-      setValueByPath(form, path, initialValue);
-    }
-  }, [form, path, initialValue]);
 
   const onChange = useStageFn((v: any) => {
     setValueByPath(form, path, v);

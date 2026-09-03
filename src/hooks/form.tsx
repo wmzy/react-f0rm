@@ -62,6 +62,10 @@ export default function useForm<T extends Record<string, any> = any>(
     seededRef.current = {done: false, source: undefined};
 
   useEffect(() => {
+    // undefined = no baseline requested (createForm already defaulted to
+    // {}): installing it would clear the values Map on mount for no
+    // semantic gain — wiping any render-time useField initialValue seeds.
+    if (initialValues === undefined) return;
     const seeded = seededRef.current!;
     if (
       seeded.done &&
