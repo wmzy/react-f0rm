@@ -938,10 +938,36 @@ describe('reset', () => {
     setError(form, 'name', 'error');
     setTouched(form, 'name');
     reset(form);
-    expect(getValue(form, 'name')).toBeUndefined();
+    // Reset without values returns fields to the current initialValues —
+    // not to undefined.
+    expect(getValue(form, 'name')).toBe('initial');
+    expect(getValues(form)).toEqual({name: 'initial'});
     expect(getError(form, 'name')).toBeUndefined();
     expect(hasTouched(form, 'name')).toBe(false);
     expect(form.values.size).toBe(0);
+  });
+
+  it('keeps initialValues when reset receives no values', () => {
+    const form = createForm({initialValues: {a: 1}});
+    setValue(form, 'a', 9);
+    reset(form);
+    expect(form.initialValues).toEqual({a: 1});
+    expect(getValue(form, 'a')).toBe(1);
+    expect(getValues(form)).toEqual({a: 1});
+    // Writes after the reset still merge over the kept baseline.
+    setValue(form, 'b', 2);
+    expect(getValues(form)).toEqual({a: 1, b: 2});
+  });
+
+  it('keeps initialValues when reset receives only options', () => {
+    const form = createForm({initialValues: {a: 1}});
+    setValue(form, 'a', 9);
+    setError(form, 'a', 'error');
+    reset(form, undefined, {keepErrors: true});
+    expect(form.initialValues).toEqual({a: 1});
+    expect(getValue(form, 'a')).toBe(1);
+    expect(getValues(form)).toEqual({a: 1});
+    expect(getError(form, 'a')).toEqual({type: 'custom', message: 'error'});
   });
 
   it('updates initialValues when provided', () => {

@@ -1161,7 +1161,9 @@ export interface ResetOptions {
 /**
  * Reset form
  * @param form
- * @param initialValues
+ * @param initialValues new baseline — omitted (or undefined), the form
+ *        keeps its current initialValues and fields simply return to them
+ *        (react-hook-form's reset-without-values semantics)
  * @param options keep-flags to preserve slices of state through the reset
  */
 export function reset(
@@ -1188,7 +1190,11 @@ export function reset(
       }
     }
   }
-  form.initialValues = initialValues;
+  // Omitting values is a return-to-initialValues reset, not a wipe: an
+  // undefined baseline would make getValues() return undefined (and every
+  // consumer of it crash), so the current baseline survives when no new
+  // one is provided.
+  form.initialValues = initialValues ?? form.initialValues;
   // The fresh baseline drops any schema parse from the previous cycle.
   form.parsedValues = undefined;
   if (!options?.keepErrors) clearErrors(form);
