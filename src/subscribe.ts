@@ -93,10 +93,22 @@ export function onKeyEvent(
 
 /** Events {@link subscribe} can watch. `'errors'` and `'touched'` are
  * stored per exact key, so they match exact keys ({@link onKeyEvent});
- * `'change'`, `'submitting'` and `'submitCount'` carry paths and go
- * through {@link onPathEvent}. */
+ * `'change'`, `'validating'`, `'submitting'`, `'submitCount'`,
+ * `'disabled'` and `'submitSuccessful'` go through
+ * {@link onPathEvent}. `'validating'` carries paths (one per async
+ * validator round) and matches by path exactly like `'change'`;
+ * `'submitting'`, `'submitCount'`, `'disabled'` and
+ * `'submitSuccessful'` are payload-less broadcasts, so `name` never
+ * narrows them — every subscriber hears every emission. */
 export type SubscribeEvent =
-  'change' | 'errors' | 'touched' | 'submitting' | 'submitCount';
+  | 'change'
+  | 'errors'
+  | 'touched'
+  | 'validating'
+  | 'submitting'
+  | 'submitCount'
+  | 'submitSuccessful'
+  | 'disabled';
 
 /** Options accepted by {@link subscribe}. */
 export type SubscribeOptions = {
@@ -109,10 +121,11 @@ export type SubscribeOptions = {
   /** Event to watch. Defaults to `'change'`. */
   event?: SubscribeEvent;
   /** Which writes around `name` are relevant — `'leaf'` or `'branch'`.
-   * Only meaningful for `'change'`: `'errors'`/`'touched'` match exact
-   * keys and `'submitting'`/`'submitCount'` are payload-less. Defaults to
-   * `'branch'` — the intuitive linkage semantics, where subscribing to
-   * `'tags'` means the whole branch. */
+   * Only meaningful for the path-carrying events `'change'` and
+   * `'validating'`: `'errors'`/`'touched'` match exact keys and
+   * `'submitting'`/`'submitCount'`/`'disabled'`/`'submitSuccessful'`
+   * are payload-less. Defaults to `'branch'` — the intuitive linkage
+   * semantics, where subscribing to `'tags'` means the whole branch. */
   scope?: WatchScope;
   /** Invoked with no arguments after each matching emission. Read fresh
    * state through the `get*` readers inside it. */
@@ -138,11 +151,15 @@ function isNameList(name: Name | Name[]): name is Name[] {
  * broadcasts (reset, setInitialValues) included. With `name`, matching
  * follows the event's shape: `'errors'`/`'touched'` match the exact key
  * ({@link onKeyEvent}) — another field's error never wakes this
- * subscriber — while `'change'`/`'submitting'`/`'submitCount'` go through
+ * subscriber — while `'change'`/`'validating'`/`'submitting'`/
+ * `'submitCount'`/`'disabled'`/`'submitSuccessful'` go through
  * {@link onPathEvent}, so the default `'branch'` scope wakes a `'tags'`
- * subscriber when any `tags.*` descendant is written. A `name` array
- * builds one subscription per path and the returned function unsubscribes
- * them all.
+ * subscriber when any `tags.*` descendant is written. `'validating'`
+ * carries a path per validator round and narrows by path like
+ * `'change'`; `'disabled'`/`'submitSuccessful'` (like `'submitting'`)
+ * are payload-less broadcasts that every named subscriber receives. A
+ * `name` array builds one subscription per path and the returned
+ * function unsubscribes them all.
  *
  * @param form the form to watch
  * @param options event, name(s), scope and callback

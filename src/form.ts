@@ -26,6 +26,12 @@ export interface FieldError {
 /** A flattened entry from {@link getErrors}. */
 export type FieldErrorEntry = {path: string; type: string; message: string};
 
+/** Reserved top-level path segment for form-level errors. The Standard
+ * Schema form-level adapter lands path-less issues under this key; the
+ * exported constant replaces the magic string, and readers consume it via
+ * getError(form, FORM_ERROR) / getFieldErrors(form, FORM_ERROR). */
+export const FORM_ERROR = '_form';
+
 /** When a field is validated:
  * - `'onSubmit'` (default): only on submit
  * - `'onBlur'`: when the field loses focus
@@ -1299,6 +1305,16 @@ export function hasErrors({errors}: Form): boolean {
   return errors.size > 0;
 }
 
+/** Options accepted by {@link trigger}. `shouldTouch` defaults to `false`;
+ * omitting the options object entirely keeps the plain validate-only
+ * behavior, so the historical two-argument calls are untouched. */
+export interface TriggerOptions {
+  /** Mark every path in the triggered scope as touched — even when
+   * validation fails — once the round settles. Mirrors react-hook-form's
+   * trigger `shouldTouch`. Defaults to `false`. */
+  shouldTouch?: boolean;
+}
+
 /**
  * Trigger field validation.
  *
@@ -1309,6 +1325,12 @@ export function hasErrors({errors}: Form): boolean {
  * one segments path only when it mixes in numbers (`['items', 0]`); pure
  * string arrays are name lists, so `['a', 'b']` triggers fields `a` and
  * `b`, not the nested path `a.b`.
+ *
+ * `options.shouldTouch` marks the triggered scope — the given names, or
+ * every registered field when `name` is omitted — as touched after the
+ * round settles, whether validation passed or failed. The wait/settle
+ * logic is untouched: the marking rides on top of the settled round, so
+ * subscribers observe errors and touched together rather than mid-flight.
  *
  * The returned promise waits for the triggered validation to settle —
  * async validators included — so their errors have already landed in
@@ -1325,11 +1347,14 @@ export function hasErrors({errors}: Form): boolean {
  *
  * @param form
  * @param name field name(s) to trigger, or all fields when omitted
+ * @param options extra behavior toggles ({@link TriggerOptions}); omitted,
+ *        validation alone runs — no touched marking
  * @return whether the triggered scope is error-free once validation settles
  */
 export async function trigger(
   form: Form,
-  name?: Name | Name[]
+  name?: Name | Name[],
+  options?: TriggerOptions
 ): Promise<boolean> {
   // Never reject (an error landing is a normal outcome, not a failure), so
   // waitUntil's isReject is permanently false. Without a name the wait is
@@ -1355,6 +1380,9 @@ export async function trigger(
     form.validators.forEach(validator => validator());
     await settle();
     if (form.validate) await runFormValidate(form);
+    // shouldTouch marks the whole registered scope — every key the round
+    // could have validated — pass or fail alike.
+    if (options?.shouldTouch) touchKeys(form, [...form.validators.keys()]);
     return !hasErrors(form);
   }
 
@@ -1364,7 +1392,18 @@ export async function trigger(
       : name.map(one => createPath(one).key);
   keys.forEach(key => form.validators.get(key)?.());
   await settle(keys);
+  if (options?.shouldTouch) touchKeys(form, keys);
   return keys.every(key => !form.errors.has(key));
+}
+
+/** trigger's `shouldTouch` marking: touch every key in the triggered scope
+ * through {@link setTouchedByPath}, which no-ops on already-touched keys
+ * and emits the path-carrying 'touched' event per newly touched one. Keys
+ * are the stored JSON-stringified segments shape, so parse them back into
+ * Path — normalizePath passes segment arrays through untouched, making the
+ * key round-trip exact. */
+function touchKeys(form: Form, keys: string[]): void {
+  keys.forEach(key => setTouchedByPath(form, createPath(JSON.parse(key))));
 }
 
 /** Numbers only occur inside a segments path (`['a', 0]`), never as

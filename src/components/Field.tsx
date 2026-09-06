@@ -1,5 +1,4 @@
 import * as React from 'react';
-import {on} from '@for-fun/event-emitter';
 import useField from '../hooks/field';
 import type {Validator} from '../hooks/validate';
 import type {Form, ValidationMode} from '../form';
@@ -191,13 +190,6 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
   ) => {
     const innerRef = React.useRef<HTMLInputElement | null>(null);
     const [nativeInvalidCount, setNativeInvalidCount] = React.useState(0);
-    const mergedRef = React.useCallback(
-      (node: HTMLInputElement | null) => {
-        innerRef.current = node;
-        setRef(ref, node);
-      },
-      [ref]
-    );
     // Only declared options go into the hook; DOM props stay in `props` and
     // are spread onto the element below — useField no longer echoes unknown
     // options back, so `as`/`valueToProps`/DOM props are destructured here
@@ -207,9 +199,9 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
       onChange,
       onBlur,
       error,
-      form,
       name: fieldKey,
-      disabled: isDisabled
+      disabled: isDisabled,
+      focusRef
     } = useField({
       name: name!,
       form: formProp,
@@ -232,6 +224,19 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
         if (validate) return validate(...params);
       }
     });
+    // One merged ref, three duties: the private innerRef (validate's
+    // setCustomValidity above), the focus channel (useField's focusRef —
+    // setFocus and a failed submit's shouldFocusError focus through it),
+    // and the user's forwarded ref. focusRef is identity-stable, so the
+    // deps behave exactly as the previous [ref] did.
+    const mergedRef = React.useCallback(
+      (node: HTMLInputElement | null) => {
+        innerRef.current = node;
+        focusRef(node);
+        setRef(ref, node);
+      },
+      [ref, focusRef]
+    );
     const Component = as || 'input';
 
     React.useEffect(() => {
@@ -248,28 +253,6 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
     React.useEffect(() => {
       if (nativeInvalidCount > 0) innerRef.current?.reportValidity();
     }, [nativeInvalidCount]);
-
-    // Focus this input when a failed submit names it as the first error:
-    // handleSubmit emits 'focusError' with the first error's path key.
-    // setFocus rides the same channel and may pass {shouldSelect} as a
-    // second, optional argument to select the text after focusing.
-    React.useEffect(
-      () =>
-        on(
-          form.emitter,
-          'focusError',
-          (key: string, options?: {shouldSelect?: boolean}) => {
-            if (key !== fieldKey) return;
-            const el = innerRef.current;
-            if (!el || typeof el.focus !== 'function') return;
-            el.focus();
-            if (options?.shouldSelect && typeof el.select === 'function') {
-              el.select();
-            }
-          }
-        ),
-      [form, fieldKey]
-    );
 
     const toValue = eventToValue ?? ((e: any) => e.target.value);
 

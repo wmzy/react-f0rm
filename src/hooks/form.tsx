@@ -4,6 +4,7 @@ import {on} from '@for-fun/event-emitter';
 import type {EventEmitter} from '@for-fun/event-emitter';
 import {onKeyEvent, onPathEvent} from '../subscribe';
 import createForm, {
+  FORM_ERROR,
   getErrorByPath,
   getFieldErrorsByPath,
   getValueByPath,
@@ -121,10 +122,19 @@ interface WatchCache<T> {
  * cache, then notify React) and returns its unsubscribe function, so the
  * core stays identical whether the subscription is global or scoped to
  * one path.
+ *
+ * The optional `isEqual` comparator redirects `invalidate`: instead of
+ * dropping the cache and waking React unconditionally, an event first
+ * recomputes the getter and asks `isEqual` whether anything observable
+ * changed — an equal verdict keeps the cached snapshot and skips the
+ * notify entirely (no render at all), an unequal one stores the fresh
+ * snapshot and notifies. Omitted, the historical drop-and-notify pipeline
+ * runs byte-for-byte unchanged.
  */
 function useWatchCore<T>(
   subscribeFactory: (invalidate: () => void) => () => void,
-  getter: () => T
+  getter: () => T,
+  isEqual?: (prev: T, next: T) => boolean
 ): T {
   // useSyncExternalStore requires getSnapshot to return the same reference
   // until the store actually changed, otherwise React warns and loops.
@@ -139,6 +149,11 @@ function useWatchCore<T>(
   // recomputing with the most recent getter when the cache is invalid.
   const getterRef = useRef(getter);
   getterRef.current = getter;
+  // Same freshness treatment for the comparator: invalidate is created once
+  // per subscription, so it must read the latest isEqual through a ref
+  // rather than capturing whichever instance the first render passed.
+  const isEqualRef = useRef(isEqual);
+  isEqualRef.current = isEqual;
 
   const getSnapshot = useCallback(() => {
     if (!cache.hasValue) {
@@ -156,6 +171,20 @@ function useWatchCore<T>(
       // fresh value differs from the committed snapshot.
       cache.hasValue = false;
       const invalidate = () => {
+        const compare = isEqualRef.current;
+        if (compare && cache.hasValue) {
+          // Custom comparator: decide before waking React. Equal means the
+          // fresh getter result is observably the same — keep the cached
+          // reference and return without notifying, so React never even
+          // schedules a render. Unequal stores the fresh snapshot up front,
+          // so React's own post-notify Object.is check reads it without
+          // recomputing the getter.
+          const next = getterRef.current();
+          if (compare(cache.value as T, next)) return;
+          cache.value = next;
+          notify();
+          return;
+        }
         cache.hasValue = false;
         notify();
       };
@@ -179,17 +208,30 @@ function useWatchCore<T>(
  * Built on useSyncExternalStore, so snapshots taken while React renders are
  * guaranteed consistent (no tearing under concurrent rendering) and changes
  * emitted before the subscription effect runs are still picked up.
+ *
+ * By default the re-render surface is the event's own scope: every emit
+ * the subscription hears drops the snapshot cache and wakes React, which
+ * then bails out when the recomputed snapshot is reference-identical
+ * (Object.is) — the path/leaf scoping every built-in reader relies on.
+ * The optional `isEqual` comparator exists for wide-scope getters that
+ * return a fresh reference per call (a whole-values selector, say): each
+ * event recomputes the getter and asks `isEqual` whether the result is
+ * observably the same, and an equal verdict skips notifying React
+ * altogether — no render, not even a bailed-out one. An unequal verdict
+ * stores the new snapshot and re-renders. Same contract as TanStack's
+ * `useSelector` compare. Omitted, behavior is unchanged.
  */
 export function useWatch<T>(
   emitter: EventEmitter,
   event: string,
-  getter: () => T
+  getter: () => T,
+  isEqual?: (prev: T, next: T) => boolean
 ): T {
   const subscribeFactory = useCallback(
     (invalidate: () => void) => on(emitter, event, invalidate),
     [emitter, event]
   );
-  return useWatchCore(subscribeFactory, getter);
+  return useWatchCore(subscribeFactory, getter, isEqual);
 }
 
 /**
@@ -380,4 +422,66 @@ export function useCanSubmit(form: Form): boolean {
 
 export function useSubmitCount(form: Form): number {
   return useWatch(form.emitter, 'submitCount', () => form.submitCount);
+}
+
+/**
+ * Get whether any validation round is currently running: a field
+ * validator's pending `validateDebounce` window, an async field validator
+ * still in flight, or the form-level validate's debounce window / in-flight
+ * round — every one of them holds a key in `form.validating`, and the
+ * 'validating' events they emit (field rounds with a path payload, the
+ * form-level round as a payload-less broadcast) are what this subscribes
+ * to. The boolean snapshot is Object.is-stable, so churn among the marks
+ * (a second field opening while the first settles) costs no render while
+ * the flag holds. This is the flag a submit button disables itself on, or
+ * spins a spinner with, through the pre-submit validation pass — it flips
+ * true the moment the first round opens and back false when the last one
+ * settles.
+ */
+export function useIsValidating(form: Form): boolean {
+  return useWatch(form.emitter, 'validating', () => form.validating.size > 0);
+}
+
+/**
+ * Get whether the last submit succeeded: `true` once a submit's validation
+ * and `onSubmit` completed without throwing, `false` after a failed submit
+ * (validation rejection or a thrown callback) and before any submit ran —
+ * the falsy reading of the undefined initial/reset state. Subscribes to
+ * the 'submitSuccessful' event the core's setSubmitSuccessful emits, so
+ * the flag flips in the same tick the outcome lands: the usual consumers
+ * are a success banner and a redirect-on-success effect.
+ */
+export function useIsSubmitSuccessful(form: Form): boolean {
+  return useWatch(
+    form.emitter,
+    'submitSuccessful',
+    () => !!form.isSubmitSuccessful
+  );
+}
+
+/**
+ * Get the form-level error message: the first error stored under the
+ * reserved {@link FORM_ERROR} key, as display text — or undefined while
+ * the slot is clean. That key is where a form-level `validate` record's
+ * `_form` entry lands and where the Standard Schema adapter drops
+ * path-less issues, so errors that belong to no single field still have a
+ * reader. The classic usage renders it once above the submit button —
+ * `useFormError(form) || null` — and the imperative twin is
+ * `getError(form, FORM_ERROR)`.
+ */
+export function useFormError(form: Form): string | undefined {
+  return useErrorByPath(form, createPath(FORM_ERROR))?.message;
+}
+
+/**
+ * Get every form-level error: all errors stored under the reserved
+ * {@link FORM_ERROR} key (insertion order), an empty array when the slot
+ * is clean. The plural twin of {@link useFormError} for forms that stack
+ * several form-level issues — each path-less Standard Schema issue lands
+ * in this slot. The array reference is stable between unrelated events
+ * (the stored array or a shared empty constant), so consumers can memo on
+ * it; the imperative counterpart is `getFieldErrors(form, FORM_ERROR)`.
+ */
+export function useFormErrors(form: Form): FieldError[] {
+  return useFieldErrorsByPath(form, createPath(FORM_ERROR));
 }

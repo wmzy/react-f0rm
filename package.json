@@ -31,6 +31,11 @@
       "types": "./dist/devtools/index.d.ts",
       "import": "./dist/devtools/index.mjs",
       "require": "./dist/devtools/index.cjs.js"
+    },
+    "./server": {
+      "types": "./dist/server/index.d.ts",
+      "import": "./dist/server/index.mjs",
+      "require": "./dist/server/index.cjs.js"
     }
   },
   "types": "dist/index.d.ts",
@@ -156,7 +161,7 @@
     },
     {
       "path": "dist/index.mjs",
-      "limit": "10 KB",
+      "limit": "10.5 KB",
       "gzip": true
     }
   ]

@@ -1,4 +1,4 @@
-import {VALIDATION_OUTCOME} from '../form';
+import {FORM_ERROR, VALIDATION_OUTCOME} from '../form';
 import type {FieldError, ValidationOutcome} from '../form';
 import type {Validator} from '../hooks/validate';
 
@@ -68,7 +68,9 @@ export function standardSchemaResolver(schema: StandardSchemaV1): Validator {
  * failure `errors` carries the nested shape Options.validate expects
  * ({a: {b: FieldError[]}}; ensureValidate flattens it back to per-field
  * errors, keeping every issue of a path). Issues without a path are
- * form-level errors and land on the '_form' key. On success `values`
+ * form-level errors and land on the FORM_ERROR key, whose value (the
+ * reserved _form field name) is exported from this library so consumers
+ * read the errors back via getError(form, FORM_ERROR). On success `values`
  * carries the schema's parsed output (coerce/transform results included),
  * which the form stores as its parsedValues baseline — the layer getValues
  * reads above initialValues, mirroring how react-hook-form's zodResolver
@@ -97,10 +99,11 @@ export function standardSchemaFormValidator<T extends Record<string, any>>(
       if (segments.length) {
         assignAtPath(errors, segments, toFieldError(issue));
       } else {
-        // Pathless issues are all form-level: they accumulate on '_form'
-        // instead of the first shadowing the rest. (A nested path literally
-        // named '_form' would have made the slot a branch — skip then.)
-        const slot = (errors._form ??= []);
+        // Pathless issues are all form-level: they accumulate on the
+        // FORM_ERROR slot instead of the first shadowing the rest. (A nested
+        // path literally named like FORM_ERROR would have made the slot a
+        // branch — skip then.)
+        const slot = (errors[FORM_ERROR] ??= []);
         if (Array.isArray(slot)) slot.push(toFieldError(issue));
       }
     }

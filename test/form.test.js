@@ -2488,6 +2488,76 @@ describe('trigger', () => {
     await expect(pending).resolves.toBe(true);
     expect(getError(form, 'name')).toBeUndefined();
   });
+
+  it('marks the named field touched only when shouldTouch is set', async () => {
+    const form = createForm();
+    form.validators.set('["a"]', () => {});
+
+    await trigger(form, 'a');
+    expect(hasTouched(form, 'a')).toBe(false);
+
+    await trigger(form, 'a', {shouldTouch: true});
+    expect(hasTouched(form, 'a')).toBe(true);
+  });
+
+  it('marks every triggered name touched for a name array', async () => {
+    const form = createForm();
+    form.validators.set('["a"]', () => {});
+    form.validators.set('["b"]', () => {});
+    form.validators.set('["c"]', () => {});
+
+    await trigger(form, ['a', 'b'], {shouldTouch: true});
+
+    expect(hasTouched(form, 'a')).toBe(true);
+    expect(hasTouched(form, 'b')).toBe(true);
+    // `c` is out of the triggered scope.
+    expect(hasTouched(form, 'c')).toBe(false);
+  });
+
+  it('marks every registered field touched when no name is given', async () => {
+    const form = createForm();
+    form.validators.set('["a"]', () => {});
+    form.validators.set('["items",0,"qty"]', () => {});
+
+    await trigger(form, undefined, {shouldTouch: true});
+
+    expect(hasTouched(form, 'a')).toBe(true);
+    // Registered keys keep their segments shape — index segments included.
+    expect(hasTouched(form, ['items', 0, 'qty'])).toBe(true);
+  });
+
+  it('still marks touched when validation fails', async () => {
+    const form = createForm();
+    form.validators.set('["a"]', () => {
+      setError(form, 'a', 'required');
+    });
+
+    await expect(trigger(form, 'a', {shouldTouch: true})).resolves.toBe(false);
+    expect(getError(form, 'a')).toEqual({type: 'custom', message: 'required'});
+    expect(hasTouched(form, 'a')).toBe(true);
+  });
+
+  it('applies shouldTouch only after the round settles', async () => {
+    vi.useFakeTimers();
+    try {
+      const form = createForm();
+      const path = createPath('a');
+      form.validators.set(path.key, () => {
+        setValidatingByPath(form, path);
+        setTimeout(() => unsetValidatingByPath(form, path), 20);
+      });
+
+      const pending = trigger(form, 'a', {shouldTouch: true});
+      // Round still in flight: nothing is touched mid-wait.
+      expect(hasTouched(form, 'a')).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(20);
+      await expect(pending).resolves.toBe(true);
+      expect(hasTouched(form, 'a')).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('setFocus', () => {
@@ -2636,6 +2706,66 @@ describe('subscribe', () => {
     setError(form, 'user', 'Required');
     expect(callback).not.toHaveBeenCalled();
     setError(form, ['user', 0], 'Required');
+    expect(callback).toHaveBeenCalledTimes(1);
+  });
+
+  it('validating subscriptions wake on the watched path only', async () => {
+    vi.useFakeTimers();
+    try {
+      const form = createForm();
+      const callback = vi.fn();
+      subscribe(form, {name: 'email', event: 'validating', callback});
+      const email = createPath('email');
+      const name = createPath('name');
+      form.validators.set(email.key, () => {
+        setValidatingByPath(form, email);
+        setTimeout(() => {
+          setErrorByPath(form, email, 'taken');
+          unsetValidatingByPath(form, email);
+        }, 10);
+      });
+      form.validators.set(name.key, () => {
+        setValidatingByPath(form, name);
+        setTimeout(() => unsetValidatingByPath(form, name), 10);
+      });
+
+      // A sibling field's round emits 'validating' with the name path;
+      // path matching (like 'change') keeps the email subscriber asleep.
+      trigger(form, 'name');
+      expect(callback).not.toHaveBeenCalled();
+
+      // email's own round emits 'validating' when it starts and again
+      // when it settles — both carry the email path, both wake it.
+      const pending = trigger(form, 'email');
+      await vi.advanceTimersByTimeAsync(10);
+      await pending;
+      expect(callback).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('validating subscriptions without a name hear reset broadcasts', () => {
+    const form = createForm();
+    const callback = vi.fn();
+    subscribe(form, {event: 'validating', callback});
+    reset(form);
+    expect(callback).toHaveBeenCalledTimes(1);
+  });
+
+  it('notifies named subscribers on payload-less disabled broadcasts', () => {
+    const form = createForm();
+    const callback = vi.fn();
+    subscribe(form, {name: 'email', event: 'disabled', callback});
+    setDisabled(form, true);
+    expect(callback).toHaveBeenCalledTimes(1);
+  });
+
+  it('notifies named subscribers on payload-less submitSuccessful events', async () => {
+    const form = createForm({initialValues: {email: 'a@b.c'}});
+    const callback = vi.fn();
+    subscribe(form, {name: 'email', event: 'submitSuccessful', callback});
+    await handleSubmit(form, {onSubmit: () => {}})();
     expect(callback).toHaveBeenCalledTimes(1);
   });
 });

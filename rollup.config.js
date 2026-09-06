@@ -81,7 +81,8 @@ export default [
       'resolvers/standard-schema': 'src/resolvers/standard-schema.ts',
       'resolvers/zod': 'src/resolvers/zod.ts',
       'resolvers/yup': 'src/resolvers/yup.ts',
-      'devtools/index': 'src/devtools/index.ts'
+      'devtools/index': 'src/devtools/index.ts',
+      'server/index': 'src/server.ts'
     },
     external,
     plugins,
@@ -116,7 +117,8 @@ export default [
       'resolvers/standard-schema': 'src/resolvers/standard-schema.ts',
       'resolvers/zod': 'src/resolvers/zod.ts',
       'resolvers/yup': 'src/resolvers/yup.ts',
-      'devtools/index': 'src/devtools/index.ts'
+      'devtools/index': 'src/devtools/index.ts',
+      'server/index': 'src/server.ts'
     },
     plugins: [dts({ tsconfig: './tsconfig.build.json' })],
     output: [

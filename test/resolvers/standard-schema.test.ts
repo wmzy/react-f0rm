@@ -12,6 +12,7 @@ import {
 } from '../../src/resolvers/standard-schema';
 import createForm, {
   ensureValidate,
+  FORM_ERROR,
   getError,
   getFieldErrors,
   getValues
@@ -121,7 +122,7 @@ describe('standardSchemaFormValidator', () => {
       mockSchema([{message: 'form broken'}, {message: 'later'}])
     );
     expect((await validator({})).errors).toEqual({
-      _form: [
+      [FORM_ERROR]: [
         {type: 'standard', message: 'form broken'},
         {type: 'standard', message: 'later'}
       ]
@@ -204,7 +205,7 @@ describe('standardSchemaFormValidator', () => {
       validate: standardSchemaFormValidator(schema)
     });
     await expect(ensureValidate(form)).rejects.toThrow('form broken');
-    expect(getError(form, '_form')).toEqual({
+    expect(getError(form, FORM_ERROR)).toEqual({
       type: 'standard',
       message: 'form broken'
     });
@@ -293,7 +294,7 @@ describe('standardSchemaFormValidator', () => {
     );
     const outcome = await validator({});
     expect(outcome.errors).toEqual({
-      _form: [{type: 'standard', message: 'Validation failed'}]
+      [FORM_ERROR]: [{type: 'standard', message: 'Validation failed'}]
     });
   });
 });

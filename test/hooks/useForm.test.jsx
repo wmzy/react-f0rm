@@ -12,9 +12,15 @@ import useForm, {
   useHasErrors,
   useIsSubmitting,
   useCanSubmit,
-  useSubmitCount
+  useSubmitCount,
+  useIsValidating,
+  useIsSubmitSuccessful,
+  useFormError,
+  useFormErrors,
+  useWatch
 } from '../../src/hooks/form';
 import createForm, {
+  FORM_ERROR,
   setValue,
   setError,
   setTouched,
@@ -676,6 +682,190 @@ describe('useSubmitCount', () => {
     expect(result.current.submitCount).toBe(1);
     act(() => incrementSubmitCount(result.current.form));
     expect(result.current.submitCount).toBe(2);
+  });
+});
+
+describe('useIsValidating', () => {
+  it('spans a field debounce window and its in-flight async round, settling false at the end', async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveValidation;
+      const form = createForm({initialValues: {name: ''}});
+      renderHook(() =>
+        useField({
+          form,
+          name: 'name',
+          validate: () =>
+            new Promise(resolve => {
+              resolveValidation = resolve;
+            }),
+          validateDebounce: 30
+        })
+      );
+      const {result} = renderHook(() => useIsValidating(form));
+      expect(result.current).toBe(false);
+
+      // The trigger kick opens the 30ms debounce window: the pending
+      // timer already holds a slot in form.validating.
+      let pending;
+      act(() => {
+        pending = trigger(form);
+      });
+      expect(result.current).toBe(true);
+
+      // Window fired: the async validator is now in flight — the flag
+      // must hold through the whole span.
+      act(() => {
+        vi.advanceTimersByTime(30);
+      });
+      expect(result.current).toBe(true);
+
+      await act(async () => {
+        resolveValidation(undefined);
+        await pending;
+      });
+      expect(result.current).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('useIsSubmitSuccessful', () => {
+  it('flips true on a successful submit and back false when a submit fails', async () => {
+    const {result} = renderHook(() => {
+      const form = useForm({initialValues: {a: ''}});
+      return {form, isSubmitSuccessful: useIsSubmitSuccessful(form)};
+    });
+    expect(result.current.isSubmitSuccessful).toBe(false);
+
+    const ok = handleSubmit(result.current.form, {onSubmit: () => {}});
+    await act(async () => {
+      await ok();
+    });
+    expect(result.current.isSubmitSuccessful).toBe(true);
+
+    // A thrown onSubmit is swallowed into isSubmitSuccessful=false: the
+    // flag must flip back so success UI does not outlive a failed retry.
+    const failing = handleSubmit(result.current.form, {
+      onSubmit: () => {
+        throw new Error('boom');
+      }
+    });
+    await act(async () => {
+      await failing();
+    });
+    expect(result.current.isSubmitSuccessful).toBe(false);
+  });
+});
+
+describe('useFormError / useFormErrors', () => {
+  it('reads the form-level slot a form validate lands through a _form key', async () => {
+    const {result} = renderHook(() => {
+      const form = useForm({
+        initialValues: {password: '', confirm: 'x'},
+        validate: values =>
+          values.password === values.confirm
+            ? {}
+            : {[FORM_ERROR]: 'Passwords do not match'}
+      });
+      return {
+        form,
+        error: useFormError(form),
+        errors: useFormErrors(form)
+      };
+    });
+    expect(result.current.error).toBeUndefined();
+    expect(result.current.errors).toEqual([]);
+
+    await act(async () => {
+      await trigger(result.current.form);
+    });
+    expect(result.current.error).toBe('Passwords do not match');
+    expect(result.current.errors).toEqual([
+      {type: 'custom', message: 'Passwords do not match'}
+    ]);
+  });
+
+  it('reads manual setError writes to the reserved key', () => {
+    const {result} = renderHook(() => {
+      const form = useForm({initialValues: {}});
+      return {
+        form,
+        error: useFormError(form),
+        errors: useFormErrors(form)
+      };
+    });
+    act(() => setError(result.current.form, FORM_ERROR, ['first', 'second']));
+    expect(result.current.error).toBe('first');
+    expect(result.current.errors.map(e => e.message)).toEqual([
+      'first',
+      'second'
+    ]);
+  });
+});
+
+describe('useWatch isEqual', () => {
+  // A wide-scope getter woken by every 'change': each call returns a fresh
+  // object, so reference identity is useless as the change signal and the
+  // comparator carries the decision.
+  function useValuesSize(form, isEqual) {
+    return useWatch(
+      form.emitter,
+      'change',
+      () => ({size: form.values.size}),
+      isEqual
+    );
+  }
+
+  it('suppresses re-renders for comparator-equal snapshots and re-renders on real change', () => {
+    let renders = 0;
+    const {result} = renderHook(() => {
+      renders++;
+      const form = useForm({initialValues: {a: 0}});
+      return {
+        form,
+        snapshot: useValuesSize(form, (prev, next) => prev.size === next.size)
+      };
+    });
+    const afterMount = renders;
+    expect(result.current.snapshot).toEqual({size: 0});
+
+    // A new key: content genuinely changed — one re-render.
+    act(() => setValue(result.current.form, 'a', 1));
+    expect(result.current.snapshot).toEqual({size: 1});
+    expect(renders).toBe(afterMount + 1);
+    const afterGrow = renders;
+
+    // Overwriting an existing key: fresh object reference, equal content —
+    // the equal verdict must skip the notify entirely, no render at all.
+    act(() => setValue(result.current.form, 'a', 2));
+    expect(renders).toBe(afterGrow);
+    expect(result.current.snapshot).toEqual({size: 1});
+
+    // Growing again re-renders: the comparator still gates real changes.
+    act(() => setValue(result.current.form, 'b', 'x'));
+    expect(result.current.snapshot).toEqual({size: 2});
+    expect(renders).toBe(afterGrow + 1);
+  });
+
+  it('without isEqual the wide-scope getter re-renders on every event (unchanged behavior)', () => {
+    let renders = 0;
+    const {result} = renderHook(() => {
+      renders++;
+      const form = useForm({initialValues: {a: 0}});
+      return {form, snapshot: useValuesSize(form)};
+    });
+    const afterMount = renders;
+
+    act(() => setValue(result.current.form, 'a', 1));
+    expect(renders).toBe(afterMount + 1);
+    // Content-equal but a fresh reference: the default pipeline cannot
+    // know that, so every wake re-renders — the cost isEqual exists to
+    // remove.
+    act(() => setValue(result.current.form, 'a', 2));
+    expect(renders).toBe(afterMount + 2);
+    expect(result.current.snapshot).toEqual({size: 1});
   });
 });
 

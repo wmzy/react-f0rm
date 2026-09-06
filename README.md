@@ -16,7 +16,7 @@ Coming from TanStack Form? [Migrating from TanStack Form](./docs/from-tanstack-f
 - **One schema adapter for every library.** The Standard Schema resolver covers zod (v3.24+/v4), valibot v1, arktype and any other Standard Schema v1 implementation through a single tree-shakeable entry point.
 - **Headless, with accessibility hooks.** You own the markup. When you opt into error rendering via `renderError`, `aria-invalid` and `aria-describedby` are wired up automatically.
 - **Tombstone unregister.** Unmounted fields drop out of `getValues()` instead of silently reviving their initial values on the next read.
-- **Copy-on-write `getValues()`.** An ownership-tracked merge allocates each container once per read instead of re-copying whole branches for every key.
+- **Copy-on-write `getValues()`.** An ownership-tracked merge allocates each container once per read instead of re-copying whole branches for every key. The result shares references across reads, so treat it as read-only — `structuredClone` the tree when you need a mutable copy.
 - **Multiple errors per field.** Each field stores an ordered `FieldError[]` — `getFieldErrors`/`useFieldErrors` read them all, and schema resolvers forward every issue instead of stopping at the first.
 - **Async validation with cancellation.** `validateDebounce` per field — and on the form-level `validate` — plus an `AbortSignal` handed to every validator: a superseded round aborts its in-flight fetch, and pending debounce windows count as validating so submit waits them out.
 - **Precise lifecycle control.** `reset(form, values, {keepDirtyValues, …})` covers refetch-without-clobbering-dirty-drafts, `setFocus(form, name)` focuses programmatically, and `trigger(form, name?)` resolves `Promise<boolean>` once validation settles.
@@ -72,16 +72,16 @@ react-f0rm vs the established options. react-f0rm figures come from this repo (s
 | Async validation | `validateDebounce` per field + `meta.signal` (`AbortSignal`) handed to every validator — superseded rounds cancel their in-flight work; pending debounce counts as validating so submit waits | Async validators supported, but no built-in debounce and no cancellation signal — both are hand-rolled per project | Built in: `asyncDebounceMs` debounces and the validator meta carries an `AbortSignal` | Async `validate` supported; no debounce, no signal |
 | Multiple errors per field | Native: every field holds `FieldError[]`; `getFieldErrors`/`useFieldErrors` read them; resolvers forward every schema issue | `criteriaMode: 'all'` collects all failing rules per field | Errors are arrays of messages per field | — |
 | SSR / hydration | `renderToString` renders initial values out of the box; server snapshot matches the client's first render | SSR-safe | SSR-safe | SSR-safe |
-| React 19 / Server Actions | Bridge pattern: dispatch the action from `onValidSubmit` via `startTransition`/`useActionState`, passing the values object rather than FormData (see the stance above and the React 19 Server Actions guide); no submit before JS loads — first-class `action` prop support is not on the 0.x roadmap | `<Form>` accepts a function `action` prop (server-action-style submit) since v7.84, and ships a `react-server` export | Documented server action integration (`createServerValidate` for server-side validation, Next.js examples) | — |
-| Bundle size | 11.18 KB gzip (7.1 KB brotli, minified), full core | ~11 KB gzip | ~17.5 KB gzip | ~12.8 KB gzip |
+| React 19 / Server Actions | Bridge pattern: dispatch the action from `onValidSubmit` via `startTransition`/`useActionState`, passing the values object rather than FormData (see the stance above and the React 19 Server Actions guide); the `react-f0rm/server` entry's `validateValues` re-validates payloads server-side without wrapping them in an action; no submit before JS loads — first-class `action` prop support is not on the 0.x roadmap | `<Form>` accepts a function `action` prop (server-action-style submit) since v7.84, and ships a `react-server` export | Documented server action integration (`createServerValidate` for server-side validation, Next.js examples) | — |
+| Bundle size | 10.05 KB gzip minified (9.16 KB brotli), full core | ~11 KB gzip | ~17.5 KB gzip | ~12.8 KB gzip |
 | Devtools | `<Devtools />` from `react-f0rm/devtools` — separate entry point, tree-shakeable, never lands in the main bundle | `@hookform/devtools` (separate package) | Built-in devtools panel | None (official) |
 | Ecosystem maturity | New, 0.x — small audience, few integrations so far | Most mature: massive adoption, resolvers, UI-kit integrations, abundant examples and answers | Backed by the TanStack family, actively growing | Maintenance mode; the author recommends considering RHF or Final Form for new projects |
 
-Bundle-size basis: every column is gzip. react-f0rm is measured on the local build — gzip of the shipped, unminified `dist/index.mjs` after `npm run build` (minified, the same file gzips to ~7.88 KB; 7.1 KB brotli via size-limit, which minifies and tree-shakes). Competitor figures are Bundlephobia observations of minified+gzip bundles — so ours is the conservative number, not the flattering one.
+Bundle-size basis: every column is gzip. react-f0rm is measured on the local build — gzip of the shipped, unminified `dist/index.mjs` after `npm run build` is 10.33 KB (minified, the same file gzips to 10.05 KB; 9.16 KB brotli via size-limit, which minifies and tree-shakes). Competitor figures are Bundlephobia observations of minified+gzip bundles — so ours is the conservative number, not the flattering one.
 
 ### Which one should you use?
 
-**Pick react-f0rm** when you want controlled components with true per-field subscriptions (design systems, editor-like forms), one Standard Schema adapter instead of a package per validator, compile-time-checked paths, and a small core (11.18 KB gzip / 7.1 KB brotli) — and you are comfortable with a young 0.x library.
+**Pick react-f0rm** when you want controlled components with true per-field subscriptions (design systems, editor-like forms), one Standard Schema adapter instead of a package per validator, compile-time-checked paths, and a small core (10.05 KB minified gzip / 9.16 KB brotli) — and you are comfortable with a young 0.x library.
 
 **Pick React Hook Form** when uncontrolled inputs are an option: its raw `register` performs no per-field re-render at all and floors at 21µs/change vs our 113µs (see [Benchmarks](#benchmarks)) — uncontrolled is simply a cheaper rendering model. RHF is also the right call when you need its mature ecosystem of resolvers, UI-library integrations and community answers today. TanStack Form sits in between: choose it when the deepest possible type inference (including validator signatures) matters more to you than bundle size.
 
@@ -134,6 +134,13 @@ const form = useForm({initialValues: {email: ''}});
 const {value, onChange} = useField({form, name: 'email'});
 ```
 
+The result also carries `focusRef` — a stable callback ref for the input element. `setFocus` and a failed submit's first-error auto-focus ([Focusing the first error](#focusing-the-first-error)) ride the `'focusError'` event, which reaches your element through this ref; leave it off and focus requests aimed at the field are silent no-ops. It only matters for headless callers building their own input — `<Field>` wires it internally, so its users never see it:
+
+```jsx
+const {value, onChange, focusRef} = useField({name: 'email'});
+<input ref={focusRef} value={value} onChange={e => onChange(e.target.value)} />
+```
+
 ### `subscribe`
 
 Linked fields and other non-render side effects — province changed → clear city, autosave, analytics — should not require a mounted watching component. `subscribe` exposes the event core imperatively:
@@ -155,13 +162,13 @@ const unsubscribe = subscribe(form, {
 | Option | Type | Default |
 |---|---|---|
 | `name` | field path, or an array of them | omitted — every emission of `event`, payload-less broadcasts (reset, …) included |
-| `event` | `'change'` \| `'errors'` \| `'touched'` \| `'submitting'` \| `'submitCount'` | `'change'` |
+| `event` | `'change'` \| `'errors'` \| `'touched'` \| `'validating'` \| `'submitting'` \| `'submitCount'` \| `'submitSuccessful'` \| `'disabled'` | `'change'` |
 | `scope` | `'leaf'` \| `'branch'` | `'branch'` |
 | `callback` | `() => void`, fired with no arguments | required |
 
-Matching follows the event's shape. `'change'` walks the path tree: the default `'branch'` scope wakes a `'tags'` subscriber when any `tags.*` descendant is written, while `'leaf'` matches only the exact key and its ancestors. `'errors'` and `'touched'` always match the exact key — another field's error never wakes this subscriber. `'submitting'`/`'submitCount'` are payload-less, so a `name` narrows nothing. An array of names creates one subscription per path, and the returned function unsubscribes them all. A number-bearing array (`['tags', 0]`) is one segments path, not a name list — the same rule `trigger` uses.
+Matching follows the event's shape. `'change'` walks the path tree: the default `'branch'` scope wakes a `'tags'` subscriber when any `tags.*` descendant is written, while `'leaf'` matches only the exact key and its ancestors. `'validating'` carries a path per async validator round and narrows by path exactly like `'change'` — the imperative counterpart of a per-field validating indicator. `'errors'` and `'touched'` always match the exact key — another field's error never wakes this subscriber. `'submitting'`/`'submitCount'`/`'submitSuccessful'`/`'disabled'` are payload-less, so a `name` narrows nothing. An array of names creates one subscription per path, and the returned function unsubscribes them all. A number-bearing array (`['tags', 0]`) is one segments path, not a name list — the same rule `trigger` uses.
 
-**`subscribe` vs `useWatch`:** `useWatch` (and the `useValue`/`useError`/… readers built on it) feeds rendering — it returns a snapshot and re-renders the component when it changes. `subscribe` runs imperative code and renders nothing. Use `subscribe` for linkages and effects; reach for a hook only when the watched value itself must appear on screen.
+**`subscribe` vs `useWatch`:** `useWatch` (and the `useValue`/`useError`/… readers built on it) feeds rendering — it returns a snapshot and re-renders the component when it changes. `subscribe` runs imperative code and renders nothing. Use `subscribe` for linkages and effects; reach for a hook only when the watched value itself must appear on screen. `useWatch` itself takes an optional fourth argument — `isEqual(prev, next)` — aimed at wide-scope getters that return a fresh reference per call (a whole-values selector, say): on each event the getter recomputes, and an equal verdict keeps the cached snapshot without notifying React at all — no render, not even a bailed-out one (the same contract TanStack's `useSelector` `compare` option has).
 
 ### `useFieldArray`
 
@@ -384,6 +391,19 @@ function Profile({onSave}) {
 
 It is `false` for the whole async `onSubmit` span (not just the validation pass) and whenever any field holds an error — client validation or server backfill (`setServerErrors` lands there too). Deliberately no dirty or validating semantics: an untouched-but-clean form can submit. The snapshot recomputes on either input's event and re-renders only when the boolean itself flips. The underlying readers stay exported — `useIsSubmitting`, `useHasErrors`, `useSubmitCount` — for UIs that need the parts separately.
 
+For the validation span itself reach for `useIsValidating(form)` — `true` while any field's async validator or pending debounce window is open and while the form-level validate round is in flight (the same marks `trigger` and submit wait out). The classic consumers are a spinner and a double-click guard on the same button:
+
+```jsx
+import {useIsValidating} from 'react-f0rm';
+
+const isValidating = useIsValidating(form);
+<button disabled={!canSubmit || isValidating} onClick={submit}>
+  {isValidating ? 'Checking…' : 'Save'}
+</button>
+```
+
+`useCanSubmit` stays validating-free on purpose (see above), so combine the two flags when you want the stricter gate. The submission-outcome sibling `useIsSubmitSuccessful(form)` is exported alongside: `true` once `onSubmit`/`onValidSubmit` resolved without throwing, `false` when validation failed or a handler threw, `undefined` before the first submit — the usual success-banner/redirect trigger.
+
 ### Focusing the first error
 
 After a failed submit, the offending field is focused automatically — pass `shouldFocusError: false` (on `<Form>` or `handleSubmit`) to disable; it defaults to `true`. Custom validation failures focus the first errored field through a `'focusError'` event that bound fields (like `Field`) subscribe to; native constraint failures focus the submitted form's first `:invalid` control directly.
@@ -480,6 +500,12 @@ if (await trigger(form, 'email')) {
 ```
 
 Without `name` the scope is all fields plus the form-level `validate` result; with `name` only those fields' own errors count and form-level `validate` is skipped (RHF semantics). Fire-and-forget callers may ignore the promise — the validator kicks still happen synchronously.
+
+The third argument opts into touched marking: `trigger(form, name, {shouldTouch: true})` marks every path in the triggered scope — the given names, or all registered fields when `name` is omitted — as touched once the round settles, whether validation passed or failed (react-hook-form's `trigger` semantics). Omitted, `trigger` stays validate-only:
+
+```jsx
+await trigger(form, 'email', {shouldTouch: true}); // 'email' is now touched, error or not
+```
 
 ### Async validation
 
@@ -652,6 +678,21 @@ const form = useForm({
 ```
 
 The `AbortSignal` fires as soon as the round is superseded — a newer round started, which under a positive `validateDebounce` means a kick landed during the in-flight round's window — so async validators can cancel their underlying work instead of racing a stale result home. Stale results are dropped independently by the round gate, so validators that ignore the signal stay correct too. Without `validateDebounce` (`0`/omitted) the validate runs once per `trigger`/submit exactly as before; it still receives the meta argument, but nothing supersedes an immediate round, so its signal never fires.
+
+#### Reading form-level errors
+
+Errors that belong to no single field need a slot to land in: a form-level `validate` record may return a `_form` entry, and the Standard Schema adapter drops every path-less issue there (see [Schema validation](#schema-validation)). That reserved key is exported as `FORM_ERROR`, so the magic string never has to be hand-written:
+
+```jsx
+import {FORM_ERROR, useFormError, useFormErrors} from 'react-f0rm';
+
+function FormErrorBanner({form}) {
+  const error = useFormError(form); // first form-level error's message
+  return error ? <p role="alert">{error}</p> : null;
+}
+```
+
+`useFormError(form)` reads the slot's first message (`undefined` while clean) — the classic consumer is one banner above the submit button. `useFormErrors(form)` reads every error stored under the key (`FieldError[]`, stable reference between unrelated events). The imperative twins are `getError(form, FORM_ERROR)` and `getFieldErrors(form, FORM_ERROR)`, and writes go through the same `setError(form, FORM_ERROR, …)` every field uses.
 
 #### Re-running on dependent field changes (`validateDeps`)
 
@@ -920,6 +961,38 @@ async function onSubmit(values) {
 
 The message then renders under the field through the same error machinery (`renderError`, `useError` — see [Accessibility](#accessibility)), and the field's `aria-invalid`/`aria-describedby` wiring kicks in automatically. Existing errors are cleared first — a fresh response describes the current state; pass `{keepExisting: true}` to layer instead. String values land as one error, string arrays as several; an empty array clears that field.
 
+## Server-side validation
+
+The client-side gate is UX, not security — payloads must be re-validated where they arrive. `react-f0rm/server` is the entry for that: a separate module graph with zero React, safe to import from Server Actions, RSC and plain Node, and — like the resolvers and devtools — never re-exported from the main entry, so client builds that never validate server-side stay at baseline size. Its export is one function:
+
+```jsx
+import {validateValues} from 'react-f0rm/server';
+
+// A Server Action — or any handler that receives a payload
+export async function saveProfile(values) {
+  const {valid, values: parsed, errors} = await validateValues(values, {
+    validate: values =>
+      values.email.includes('@') ? undefined : {email: 'Invalid email'}
+  });
+  if (!valid) return {errors};
+  return save(parsed);
+}
+```
+
+`validateValues(values, options?)` spins up one throwaway form from `options` (its `initialValues` forced to `values`), runs a whole-form `trigger`, and reads the outcome back — async validators and `validateDebounce` windows are awaited, so the result is settled, never a mid-flight snapshot. The rules come from `options.validate`, the form-level validator: field validators register through mounted fields and nothing is mounted on the server, so pass `standardSchemaFormValidator(schema)` (from `react-f0rm/resolvers/standard-schema`) or a hand-written `validate`. The result carries:
+
+- `valid` — `trigger`'s boolean. An invalid payload is a normal outcome, never a rejection: both branches are interesting on the server (persist vs. bounce back).
+- `values` — the tree after the round. A schema validator's parsed output (coerce/transform included) becomes the baseline, so this is the tree to persist, not necessarily the object passed in.
+- `errors` — the flat `{path, type, message}` entries, the same list `getErrors` hands out on the client. A one-liner lands a failed round back on the client form through the [Server-side errors](#server-side-errors) channel:
+
+```jsx
+setServerErrors(form, Object.fromEntries(errors.map(e => [e.path, e.message])));
+```
+
+The entry also re-exports `VALIDATION_OUTCOME`/`ValidationOutcome` for building branded validator results server-side without importing the package root (which would drag the React graph back in).
+
+TanStack Form's counterpart is `createServerValidate`; theirs wraps the round inside a generated server action, while `validateValues` stays a plain function over values. That is the same stance as the client bridge — no `action` prop, no generated handler ("Server Actions: bridge, not first-class" in [Which one should you use?](#which-one-should-you-use), and the [React 19 Server Actions guide](docs-site/docs/guides/react19-server-actions.md) for the why): react-f0rm composes into your framework's handler instead of owning it.
+
 ## TypeScript
 
 `FieldPath<T>` and `PathValue<T, P>` make field names and value types compile-time checked:
@@ -1006,6 +1079,17 @@ import {Select} from 'react-f0rm';
   <option value="a">Tag A</option>
   <option value="b">Tag B</option>
 </Select>
+```
+
+**File inputs.** The DOM keeps `<input type="file">`'s `value` read-only — it holds a fake file path string and throws if you assign to it, so the control cannot be driven like other inputs. The controlled model adapts by storing the selection itself: leave the input uncontrolled and commit the chosen `File` object on change:
+
+```jsx
+function AvatarPicker() {
+  const {onChange} = useField({name: 'avatar'});
+  return <input type="file" accept="image/*" onChange={e => onChange(e.target.files?.[0])} />;
+}
+// getValues(form).avatar is now the File itself — on submit it is
+// ready for the request body (FormData/multipart), no DOM read needed.
 ```
 
 ## Server-side Rendering

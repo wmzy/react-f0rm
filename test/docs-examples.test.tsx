@@ -9,11 +9,14 @@ import {
   createFormContext,
   trigger,
   getFieldErrors,
+  getError,
   useForm,
   useCanSubmit,
+  useField,
   handleSubmit
 } from '../src/index';
 import createForm, {setServerErrors} from '../src/form';
+import {validateValues} from '../src/server';
 import {Field, fieldErrorId} from '../src/components/Field';
 import {useError} from '../src/hooks/form';
 import {FormProvider} from '../src/context';
@@ -367,5 +370,234 @@ describe('doc example: useCanSubmit drives the submit button', () => {
     });
     expect(onSave).toHaveBeenCalledTimes(1);
     expect(onSave.mock.calls[0][0]).toEqual({email: 'ada@lovelace.dev'});
+  });
+});
+
+// ---- README "Server-side validation" snippet ---------------------------------
+
+describe('doc example: validateValues (react-f0rm/server)', () => {
+  // The README example's shape: a Server Action (or any payload handler)
+  // that bounces invalid payloads back as {errors} and persists valid ones.
+  async function saveProfile(values, save) {
+    const {
+      valid,
+      values: parsed,
+      errors
+    } = await validateValues(values, {
+      validate: values =>
+        values.email.includes('@') ? undefined : {email: 'Invalid email'}
+    });
+    if (!valid) return {errors};
+    save(parsed);
+    return {ok: true};
+  }
+
+  it('settles the round: valid flag, flat error entries, values flow through', async () => {
+    const save = vi.fn();
+    const bad = await saveProfile({email: 'nope'}, save);
+    expect(bad).toEqual({
+      errors: [{path: 'email', type: 'custom', message: 'Invalid email'}]
+    });
+    expect(save).not.toHaveBeenCalled();
+
+    const good = await saveProfile({email: 'ada@lovelace.dev'}, save);
+    expect(good).toEqual({ok: true});
+    expect(save).toHaveBeenCalledWith({email: 'ada@lovelace.dev'});
+  });
+
+  it('a failed round lands on the client form through setServerErrors', async () => {
+    const {errors} = await validateValues(
+      {email: 'nope'},
+      {
+        validate: values =>
+          values.email.includes('@') ? undefined : {email: 'Invalid email'}
+      }
+    );
+    const form = createForm({initialValues: {email: 'nope'}});
+    setServerErrors(
+      form,
+      Object.fromEntries(errors.map(e => [e.path, e.message]))
+    );
+    expect(getError(form, 'email')).toEqual({
+      type: 'server',
+      message: 'Invalid email'
+    });
+  });
+});
+
+// ---- README "focusRef" snippet ------------------------------------------------
+
+describe('doc example: headless useField focusRef', () => {
+  // The README recipe: a headless useField consumer wires its input via
+  // focusRef; a failed submit's first-error auto-focus then reaches the
+  // element. withoutRef exercises the documented no-op contrast.
+  function HeadlessEmail({form, withoutRef = false}) {
+    const {value, onChange, focusRef} = useField({
+      form,
+      name: 'email',
+      validate: v => (v.includes('@') ? undefined : 'Invalid email')
+    });
+    return (
+      <input
+        {...(withoutRef ? {} : {ref: focusRef})}
+        data-testid="email"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+      />
+    );
+  }
+
+  it('a failed submit focuses the headless input wired through focusRef', async () => {
+    const form = createForm({initialValues: {email: ''}});
+    render(<HeadlessEmail form={form} />);
+    const input = screen.getByTestId('email');
+    expect(document.activeElement).not.toBe(input);
+
+    await act(async () => {
+      await handleSubmit(form, {})();
+    });
+    expect(getFieldErrors(form, 'email')).toEqual([
+      {type: 'custom', message: 'Invalid email'}
+    ]);
+    expect(document.activeElement).toBe(input);
+  });
+
+  it('without focusRef the focus request is a silent no-op', async () => {
+    const form = createForm({initialValues: {email: ''}});
+    render(<HeadlessEmail form={form} withoutRef />);
+    const input = screen.getByTestId('email');
+
+    await act(async () => {
+      await handleSubmit(form, {})();
+    });
+    expect(getFieldErrors(form, 'email')).toEqual([
+      {type: 'custom', message: 'Invalid email'}
+    ]);
+    expect(document.activeElement).not.toBe(input);
+  });
+});
+
+// ---- guides/ui-integration.md "Control Adapter Pattern" snippet -------------
+
+function TextField({form, name, label, validate, ...rest}) {
+  const {value, onChange, onBlur, disabled, error} = useField({
+    form,
+    name,
+    validate
+  });
+  const inputId = `${name}-input`;
+  const errorId = `${name}-error`;
+  return (
+    <div>
+      <label htmlFor={inputId}>{label}</label>
+      <input
+        {...rest}
+        id={inputId}
+        value={value ?? ''}
+        onChange={e => onChange(e.target.value)}
+        onBlur={onBlur}
+        disabled={disabled}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errorId : undefined}
+      />
+      {error && (
+        <span id={errorId} role="alert">
+          {error}
+        </span>
+      )}
+    </div>
+  );
+}
+
+describe('doc example: ui-integration generic TextField adapter', () => {
+  it('renders labeled, accepts input, shows/clears the error with aria wiring', async () => {
+    const form = createForm({initialValues: {email: ''}, mode: 'onChange'});
+    render(
+      <TextField
+        form={form}
+        name="email"
+        label="Email"
+        data-testid="email"
+        validate={v => (v.includes('@') ? undefined : 'Invalid email')}
+      />
+    );
+
+    const input = screen.getByTestId('email');
+    expect(input).toBe(screen.getByLabelText('Email'));
+    expect(input.value).toBe('');
+
+    await act(async () => {
+      fireEvent.change(input, {target: {value: 'nope'}});
+    });
+    expect(input.value).toBe('nope');
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toBe('Invalid email');
+    expect(alert.id).toBe('email-error');
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    expect(input.getAttribute('aria-describedby')).toBe('email-error');
+
+    await act(async () => {
+      fireEvent.change(input, {target: {value: 'ada@lovelace.dev'}});
+    });
+    expect(input.value).toBe('ada@lovelace.dev');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(input.getAttribute('aria-invalid')).toBeNull();
+
+    // The same adapter forwards the merged disabled flag (form-level here).
+    const disabledForm = createForm({
+      initialValues: {nickname: ''},
+      disabled: true
+    });
+    render(
+      <TextField
+        form={disabledForm}
+        name="nickname"
+        label="Nickname"
+        data-testid="nickname"
+      />
+    );
+    expect(screen.getByTestId('nickname').disabled).toBe(true);
+  });
+});
+
+// ---- guides/testing.md "Validating on Demand" snippet ------------------------
+
+function EmailField({form, debounce}) {
+  const {value, onChange, error} = useField({
+    form,
+    name: 'email',
+    validateDebounce: debounce,
+    validate: v => (v.includes('@') ? undefined : 'Invalid email')
+  });
+  return (
+    <div>
+      <input
+        data-testid="email"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+      />
+      {error && <span role="alert">{error}</span>}
+    </div>
+  );
+}
+
+describe('doc example: testing guide trigger + getError pattern', () => {
+  it('trigger settles the round, getters expose the error, a fix re-runs clean', async () => {
+    const form = createForm({initialValues: {email: 'nope'}});
+    render(<EmailField form={form} />);
+
+    expect(await trigger(form, 'email')).toBe(false);
+    expect(getFieldErrors(form, 'email')).toEqual([
+      {type: 'custom', message: 'Invalid email'}
+    ]);
+
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('email'), {
+        target: {value: 'ada@lovelace.dev'}
+      });
+    });
+    expect(await trigger(form, 'email')).toBe(true);
+    expect(getError(form, 'email')).toBeUndefined();
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });

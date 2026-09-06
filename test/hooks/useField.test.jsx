@@ -20,7 +20,9 @@ import createForm, {
   setError,
   trigger,
   ensureValidate,
-  setDisabled
+  setDisabled,
+  handleSubmit,
+  setFocus
 } from '../../src/form';
 import React from 'react';
 
@@ -684,6 +686,7 @@ describe('useField', () => {
       'error',
       'errorObject',
       'errors',
+      'focusRef',
       'form',
       'name',
       'onBlur',
@@ -1368,6 +1371,77 @@ describe('useField', () => {
       // after the unmount kick nothing and throw nothing.
       act(() => password.current.onChange('b'));
       expect(confirmValidate).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('focusRef (headless focus channel)', () => {
+    it('focuses the headless input after a failed submit', async () => {
+      const form = createForm({
+        initialValues: {name: ''},
+        validate: values => (values.name ? {} : {name: 'required'})
+      });
+      const Probe = () => {
+        const field = useField({form, name: 'name'});
+        return <input data-testid="name-input" ref={field.focusRef} />;
+      };
+      render(
+        <FormProvider value={form}>
+          <Probe />
+        </FormProvider>
+      );
+      const input = screen.getByTestId('name-input');
+
+      await act(async () => {
+        await handleSubmit(form)();
+      });
+
+      // handleSubmit's failed round emitted 'focusError' with the first
+      // error's path key; the headless field's own subscription focused
+      // the element focusRef is attached to.
+      expect(document.activeElement).toBe(input);
+    });
+
+    it('focuses and selects via setFocus({shouldSelect})', () => {
+      const form = createForm({initialValues: {name: 'hello'}});
+      const Probe = () => {
+        const field = useField({form, name: 'name'});
+        return <input data-testid="name-input" ref={field.focusRef} />;
+      };
+      render(
+        <FormProvider value={form}>
+          <Probe />
+        </FormProvider>
+      );
+      const input = screen.getByTestId('name-input');
+      const selectSpy = vi.spyOn(input, 'select');
+
+      act(() => {
+        setFocus(form, 'name', {shouldSelect: true});
+      });
+
+      expect(document.activeElement).toBe(input);
+      expect(selectSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves focus requests a silent no-op when focusRef is not attached', () => {
+      const form = createForm({initialValues: {name: 'hello'}});
+      const Probe = () => {
+        const field = useField({form, name: 'name'});
+        // No ref={field.focusRef}: the field is headless and unbound.
+        return <input data-testid="name-input" value={field.value} readOnly />;
+      };
+      render(
+        <FormProvider value={form}>
+          <Probe />
+        </FormProvider>
+      );
+
+      expect(() =>
+        act(() => {
+          setFocus(form, 'name', {shouldSelect: true});
+        })
+      ).not.toThrow();
+      expect(document.activeElement).not.toBe(screen.getByTestId('name-input'));
     });
   });
 });

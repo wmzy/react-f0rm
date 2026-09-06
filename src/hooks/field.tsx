@@ -1,5 +1,7 @@
-import {useContext, useEffect, useRef, useState} from 'react';
+import {useCallback, useContext, useEffect, useRef, useState} from 'react';
 import type {Context} from 'react';
+import {on} from '@for-fun/event-emitter';
+import type {EventEmitter} from '@for-fun/event-emitter';
 import {FormContext} from '../context';
 import {
   emitChangeByPath,
@@ -138,6 +140,16 @@ export interface UseFieldResult<
    * toggled by `setDisabled`) OR-ed with this field's own `disabled`
    * option, updated live through the form's event core. */
   disabled: boolean;
+  /**
+   * Callback ref carrying the focus channel: attach it to your input
+   * element (`<input ref={field.focusRef} />`) so `setFocus` and a failed
+   * submit's first-error auto-focus (`shouldFocusError`) can focus this
+   * headless field — the same 'focusError' wiring `<Field>` performs for
+   * its own input. Without it, focus requests aimed at this field are
+   * silent no-ops, matching `setFocus`'s contract: focusing a field
+   * whose element is not bound neither throws nor focuses anything.
+   */
+  focusRef: (el: any) => void;
 }
 
 /** Does `rules` declare any constraint? `messages` alone does not
@@ -411,6 +423,40 @@ export function useFieldCore<
       validator();
   });
 
+  // The focus channel. 'focusError' carries the target's path key —
+  // emitted by handleSubmit's failed round (the first error's key, gated
+  // by shouldFocusError) and by setFocus (with an optional
+  // {shouldSelect} second argument). Subscribing here rather than inside
+  // <Field> means headless useField consumers get focus support by
+  // attaching focusRef; <Field> merely forwards it through its merged
+  // ref. The callback ref is identity-stable, so re-renders never detach
+  // the element, and the null guard keeps unbound fields silent no-ops.
+  const elementRef = useRef<any>(null);
+  const focusRef = useCallback((el: any) => {
+    elementRef.current = el;
+  }, []);
+  useEffect(
+    () =>
+      // `form` widens to `any` through Context<any>, and `on`'s Param
+      // degenerates to a zero-arg Handler for an `any` table — cast the
+      // emitter to its default [any, any[]] instantiation (its real
+      // runtime shape; the same workaround form.ts applies to emit).
+      on(
+        form.emitter as EventEmitter,
+        'focusError',
+        (key: string, options?: {shouldSelect?: boolean}) => {
+          if (key !== path.key) return;
+          const el = elementRef.current;
+          if (!el || typeof el.focus !== 'function') return;
+          el.focus();
+          if (options?.shouldSelect && typeof el.select === 'function') {
+            el.select();
+          }
+        }
+      ),
+    [form, path.key]
+  );
+
   useEffect(
     () => () => {
       if (shouldUnregister !== false) {
@@ -429,7 +475,8 @@ export function useFieldCore<
     onChange,
     onBlur,
     name: path.key,
-    disabled: formDisabled || !!disabled
+    disabled: formDisabled || !!disabled,
+    focusRef
   };
 }
 
