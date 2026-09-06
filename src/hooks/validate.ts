@@ -34,16 +34,43 @@ export type Validator = (
   | undefined
   | Promise<string | FieldError | (string | FieldError)[] | undefined>;
 
+/**
+ * Synchronous pre-validator for {@link useValidate}'s `sync` option —
+ * declarative `required` rules compiled by `rulesToValidator` in practice,
+ * but any sync-only check works. Runs on every kick, never debounced: its
+ * errors land immediately and, while present, short-circuit the debounced
+ * validator for that kick (the expensive check never sees a value the gate
+ * already rejects). Must be synchronous — unlike a {@link Validator} it
+ * may not return a Promise — and its meta carries no `signal`: there is
+ * nothing to abort in a synchronous check.
+ */
+export type SyncValidator = (
+  value: any,
+  meta: {form: Form; path: Path}
+) => string | FieldError | (string | FieldError)[] | undefined;
+
 /** Options for {@link useValidate}. */
 export interface UseValidateOptions {
   /**
    * Delay in milliseconds before a validation kick actually runs the
-   * validator. `0` (default) runs immediately; a positive value debounces
-   * rapid kicks (e.g. typing) so only the last one executes. While the
-   * timer is pending the field counts as validating, so `trigger` /
-   * `ensureValidate` wait out the window.
+   * debounced validator. `0` (default) runs immediately; a positive value
+   * debounces rapid kicks (e.g. typing) so only the last one executes.
+   * While the timer is pending the field counts as validating, so
+   * `trigger` / `ensureValidate` wait out the window. The `sync`
+   * pre-validator is exempt: it runs immediately on every kick and never
+   * waits out the window.
    */
   debounce?: number;
+  /**
+   * Synchronous pre-validator run immediately on every kick — never
+   * debounced. While it returns errors, the debounced `validate` is
+   * skipped for that kick (its errors land and the expensive check never
+   * runs), and any pending debounce window or in-flight round is
+   * superseded. When it passes, a stale error it produced earlier clears
+   * at once, and a registration with no `validate` treats the passing
+   * check as the whole round and clears the field's errors.
+   */
+  sync?: SyncValidator;
 }
 
 export default function useValidate(
@@ -64,6 +91,10 @@ export default function useValidate(
   // re-subscribe the validator mid-flight.
   const debounceRef = useRef(options?.debounce ?? 0);
   debounceRef.current = options?.debounce ?? 0;
+  // The synchronous gate is read through a ref too: field rules recompile
+  // every render and must not re-subscribe the validator mid-flight.
+  const syncRef = useRef(options?.sync);
+  syncRef.current = options?.sync;
 
   useEffect(() => {
     // The pending debounce timer and the current round's controller live in
@@ -76,6 +107,17 @@ export default function useValidate(
     // including a later sync round that supersedes an in-flight async one
     // (its own .finally is lock-gated out by then).
     let marked = false;
+    // Which source wrote the error currently on display — the sync gate or
+    // the debounced validator. Tracked so a passing sync check can clear
+    // its own stale error immediately instead of leaving it on screen until
+    // the debounced round lands. External writers (setError, form-level
+    // validate) are invisible here; a passing round clearing them matches
+    // the long-standing "a field validator owns its whole key" contract.
+    let errorSource: 'sync' | 'validator' | null = null;
+    /** Does a validator result land errors? `[]` normalizes away exactly
+     * like undefined in setErrorByPath. */
+    const hasErrors = (errors: any): boolean =>
+      errors !== undefined && !(Array.isArray(errors) && errors.length === 0);
     const mark = () => {
       if (marked) return;
       marked = true;
@@ -87,8 +129,47 @@ export default function useValidate(
       unsetValidatingByPath(form, path);
     };
 
-    const run = () => {
-      timer = null;
+    /** Run the synchronous gate on the field's current value. Its errors
+     * land immediately — the gate is never debounced. Returns true when
+     * errors landed (the kick's whole outcome for the debounced validator).
+     * A passing gate clears the field's errors when they were its own from
+     * an earlier kick, or when no debounced validator exists to own the
+     * round. */
+    const runSync = (): boolean => {
+      const sync = syncRef.current;
+      if (!sync) return false;
+      const errors = sync(getValueByPath(form, path), {form, path});
+      if (!hasErrors(errors)) {
+        // A stale error the gate itself wrote is answered by the gate
+        // alone; a rules-only registration's passing check is the whole
+        // round. With a debounced validator registered, its upcoming round
+        // owns the outcome and lands it later.
+        if (!validateRef.current || errorSource === 'sync') {
+          setErrorByPath(form, path, undefined);
+          errorSource = null;
+        }
+        return false;
+      }
+      setErrorByPath(form, path, errors);
+      errorSource = 'sync';
+      return true;
+    };
+
+    /** Drop any pending window or in-flight round without landing it: the
+     * sync gate now owns the outcome, so the debounced validator must not
+     * run for this value. */
+    const supersede = () => {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      controller?.abort();
+      lockRef.current = {};
+    };
+
+    /** Run the debounced validator on the field's current value and land
+     * its result — the sync gate has already passed. */
+    const runValidator = () => {
       const fn = validateRef.current;
       if (!fn) {
         unmark();
@@ -115,6 +196,7 @@ export default function useValidate(
       }
       if (!isPromise(result)) {
         setErrorByPath(form, path, result);
+        errorSource = hasErrors(result) ? 'validator' : null;
         // Error first, then release the mark: 'validating' subscribers
         // (trigger) re-read state on wake and must see the landed error.
         unmark();
@@ -128,6 +210,7 @@ export default function useValidate(
           ) => {
             if (lock === lockRef.current) {
               setErrorByPath(form, path, error);
+              errorSource = hasErrors(error) ? 'validator' : null;
             }
           }
         )
@@ -143,7 +226,27 @@ export default function useValidate(
         });
     };
 
+    /** A debounce window fired: the value may have drifted since the last
+     * kick (programmatic writes do not kick validators), so re-run the
+     * sync gate before spending the debounced validator on a value the
+     * gate already rejects. */
+    const run = () => {
+      timer = null;
+      if (runSync()) {
+        supersede();
+        unmark();
+        return;
+      }
+      runValidator();
+    };
+
     const validator = () => {
+      if (runSync()) {
+        supersede();
+        unmark();
+        return;
+      }
+      if (!validateRef.current) return;
       const debounce = debounceRef.current;
       if (debounce > 0) {
         // Only the last kick inside the window runs: restart the timer on
@@ -154,7 +257,7 @@ export default function useValidate(
         timer = setTimeout(run, debounce);
         return;
       }
-      run();
+      runValidator();
     };
 
     form.validators.set(path.key, validator);

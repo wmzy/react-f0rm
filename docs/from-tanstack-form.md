@@ -22,7 +22,7 @@ ground step by step.
 | `form.handleSubmit()` behind a hand-written `e.preventDefault()` | `<Form>` binds submit itself; `handleSubmit(form, {…})` headless | No `preventDefault`/`stopPropagation` choreography; the headless form takes the handler map as its second argument and runs the same submit state machine. |
 | `form.Field` / `form.AppField` render props | `<Field name="email" />` or `useField({name})` | `<Field>` renders the input; `useField` returns the controlled triple `{value, onChange, onBlur}` plus error state. |
 | `validators: {onChange, onBlur, onSubmit}` | one `validate` (and declarative `rules`) + `mode` / `reValidateMode` | Any field may declare its own `mode`; see below. |
-| `asyncDebounceMs` / `onChangeAsyncDebounceMs` | `validateDebounce` | Debounces the field's whole pipeline — rules + validate, sync or async. The form-level `validate` takes one too. |
+| `asyncDebounceMs` / `onChangeAsyncDebounceMs` | `validateDebounce` | Debounces the field's `validate` (rules compose into it); `required` stays synchronous — it lands on the keystroke and, while it fails, the rest is skipped. The form-level `validate` takes one too. |
 | validator receives `{value, fieldApi, signal}` | validator receives `(value, {form, path, signal})` | Same abort-on-supersede contract; pass `signal` to `fetch`. |
 | `standardSchemaValidators` | `standardSchemaFormValidator(schema)` / `standardSchemaResolver(schema)` | Separate entry point `'react-f0rm/resolvers/standard-schema'`, tree-shakeable. |
 | `form.Subscribe` / `useSelector(form.store, selector)` | `useValue` / `useError` / `useDirtyFields` / `useWatch(form.emitter, event, getter)` | Hooks re-render the calling component; no custom `compare`. |

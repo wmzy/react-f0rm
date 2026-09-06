@@ -1,5 +1,5 @@
 import type {FieldError} from './form';
-import type {Validator} from './hooks/validate';
+import type {SyncValidator} from './hooks/validate';
 
 /** Type tag of a failed rule, as stored on the resulting FieldError. */
 export type RuleType =
@@ -59,7 +59,7 @@ function defaultMessage(type: RuleType, bound?: number): string {
 }
 
 /**
- * Compile declarative {@link FieldRules} into a {@link Validator}.
+ * Compile declarative {@link FieldRules} into a {@link SyncValidator}.
  *
  * `required` is checked first and, when it fails on an empty value,
  * short-circuits the rest. Every other failing rule is collected into one
@@ -68,9 +68,9 @@ function defaultMessage(type: RuleType, bound?: number): string {
  * the rule's own string (required), `rules.messages`, or the default.
  *
  * @param rules declarative constraints
- * @return validator producing FieldError[] | undefined
+ * @return synchronous validator producing FieldError[] | undefined
  */
-export function rulesToValidator(rules: FieldRules): Validator {
+export function rulesToValidator(rules: FieldRules): SyncValidator {
   return value => {
     if (rules.required) {
       if (value === '' || value === undefined || value === null) {

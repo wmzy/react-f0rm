@@ -485,7 +485,7 @@ Without `name` the scope is all fields plus the form-level `validate` result; wi
 
 Async validators are first-class. Two knobs keep them cheap and race-free:
 
-**`validateDebounce`** (on `Field`, `useField` or any bound component) delays a field's validation kicks by the given milliseconds; only the last kick inside the window runs the validator. While the timer is pending the field counts as *validating*, so `trigger` and submit wait the window out instead of racing it. The form-level `validate` gets the same contract through `validateDebounce` on `createForm`/`useForm` (see [Form-level validation](#form-level-validation)).
+**`validateDebounce`** (on `Field`, `useField` or any bound component) delays a field's validation kicks by the given milliseconds; only the last kick inside the window runs the validator. While the timer is pending the field counts as *validating*, so `trigger` and submit wait the window out instead of racing it. The `required` rule is exempt: it runs synchronously on every kick, so a required failure shows immediately — and while it fails, the field's other validation is skipped. The form-level `validate` gets the same contract through `validateDebounce` on `createForm`/`useForm` (see [Form-level validation](#form-level-validation)).
 
 **`meta.signal`** — every validator's second argument carries `{form, path, signal}`. The `AbortSignal` fires as soon as the round is superseded (a newer round started, or the field unregistered), so async validators can cancel their underlying work instead of racing a stale result home:
 
@@ -610,10 +610,10 @@ The optional top-level `messages` record overrides messages per rule type (`min`
 
 Semantics:
 
-- A failing `required` short-circuits the rest — an empty value reports only its `required` error, not a full panel.
+- A failing `required` short-circuits the rest — an empty value reports only its `required` error, not a full panel — and skips `validate` entirely for that kick: the async check never sees an empty value.
+- `required` runs synchronously on every kick, even under a positive `validateDebounce`: its error shows on the keystroke and clears as soon as the value is filled.
 - Every other failing rule collects into one ordered `FieldError[]` (see [Multiple errors per field](#multiple-errors-per-field)).
-- `rules` composes with `validate`: rules run first, then `validate` (awaited when async), merging both sources' errors with rules ahead.
-- Rules ride the exact same pipeline as `validate` — `mode`, `reValidateMode`, `validateDebounce` and `meta.signal` all apply unchanged.
+- The other rules compose with `validate`: they run first, then `validate` (awaited when async), merging both sources' errors with rules ahead. They ride the same pipeline as `validate` — `mode`, `reValidateMode`, `validateDebounce` and `meta.signal` all apply unchanged.
 
 Rules vs native constraints: HTML attributes (`required`, `type="email"`, `min`, …) keep running through the browser's `checkValidity`, whose bubble remains the pre-submit fallback. `rules` is the state-side alternative — failures are queryable (`getErrors`, `error`, `errors`), renderable by any UI, and carry your own messages. Prefer `rules` whenever the error text must be controlled.
 
@@ -819,13 +819,15 @@ const form = useForm({initialValues: articleToValues(article)});
 
 ### Resetting
 
-`reset(form, initialValues?)` wipes values, errors, touched, tombstones and the submission flags (`isSubmitting`, `submitCount`, `isSubmitSuccessful`). The second argument installs a fresh baseline. The third opts into keeping slices of state through the reset:
+`reset(form, initialValues?)` wipes values, errors, touched, tombstones and the submission flags (`isSubmitting`, `submitCount`, `isSubmitSuccessful`). The second argument installs a fresh baseline; omitted (or `undefined`), the form keeps its current `initialValues` and every field simply returns to its initial value — the plain `reset(form)` "undo everything" shape. The third opts into keeping slices of state through the reset:
 
 ```jsx
 import {reset} from 'react-f0rm';
 
+reset(form);                                // back to the current initialValues
 reset(form, freshRecord);                  // full reset to the new baseline
 reset(form, freshRecord, {keepDirtyValues: true});  // dirty drafts survive
+reset(form, undefined, {keepTouched: true});  // reset, keep touched flags
 ```
 
 `keepDirtyValues` is the refetch shape: reload the record from the server, but fields the user already edited keep their live values (dirtiness is measured against the pre-reset initialValues; clean fields fall back to the new baseline):

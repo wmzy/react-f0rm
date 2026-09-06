@@ -42,16 +42,22 @@ export interface UseFieldOptions<
   validate?: Validator;
   /**
    * Declarative rules (required/min/max/minLength/maxLength/pattern),
-   * compiled into a validator that runs before `validate` — both sources'
-   * errors merge into one FieldError[], rules errors ahead. Failures land
-   * in the form's error state with the given or default messages.
+   * compiled into a synchronous validator. `required` is special: it runs
+   * immediately on every kick — never debounced — and while it fails,
+   * `validate` is skipped (the expensive check never sees an empty value).
+   * The other rules compose with `validate` — rules run first, then
+   * `validate` (awaited when async), merging both sources' errors with
+   * rules errors ahead. Failures land in the form's error state with the
+   * given or default messages.
    */
   rules?: FieldRules;
   /**
    * Milliseconds to debounce this field's validation kicks. Defaults to 0
    * (validate immediately); while the timer is pending the field counts as
    * validating, so `trigger`/`ensureValidate` wait out the window. Only the
-   * last kick inside the window runs the validator.
+   * last kick inside the window runs the validator. The `required` rule is
+   * exempt: it runs synchronously on every kick, so a required failure
+   * shows immediately instead of waiting out the window.
    */
   validateDebounce?: number;
   /**
@@ -134,6 +140,21 @@ export interface UseFieldResult<
   disabled: boolean;
 }
 
+/** Does `rules` declare any constraint? `messages` alone does not
+ * validate anything, and a constraint-free object would otherwise compile
+ * into a validator that always passes — which would still open debounce
+ * windows and hold the validating mark for nothing. */
+function hasRuleConstraints(rules: FieldRules): boolean {
+  return (
+    rules.required !== undefined ||
+    rules.min !== undefined ||
+    rules.max !== undefined ||
+    rules.minLength !== undefined ||
+    rules.maxLength !== undefined ||
+    rules.pattern !== undefined
+  );
+}
+
 /**
  * Compose declarative rules with a user validator: rules run first, then
  * the user's validator (awaited when async), and the results merge into
@@ -145,7 +166,7 @@ function combineRulesAndValidate(
   rules: FieldRules | undefined,
   validate: Validator | undefined
 ): Validator | undefined {
-  if (!rules) return validate;
+  if (!rules || !hasRuleConstraints(rules)) return validate;
   const ruleValidator = rulesToValidator(rules);
   if (!validate) return ruleValidator;
   return (value, meta) => {
@@ -272,12 +293,25 @@ export function useFieldCore<
   // Undeclared options are dropped on purpose: the return value carries
   // only the fields declared on UseFieldResult, so nothing rides it back
   // onto DOM elements through a component's prop spread.
+  //
+  // `required` splits off into useValidate's synchronous gate: it runs
+  // immediately on every kick (never debounced) and, while it fails, the
+  // debounced validator is skipped — the other rules and `validate` never
+  // see an empty value. The remaining rules still compose with `validate`
+  // inside the debounced validator.
+  const restRules: FieldRules | undefined = rules
+    ? {...rules, required: undefined}
+    : undefined;
   const validator = useValidate(
-    combineRulesAndValidate(rules, validate),
+    combineRulesAndValidate(restRules, validate),
     path,
     form,
     {
-      debounce: validateDebounce
+      debounce: validateDebounce,
+      sync:
+        rules && rules.required !== undefined
+          ? rulesToValidator({required: rules.required})
+          : undefined
     }
   );
 

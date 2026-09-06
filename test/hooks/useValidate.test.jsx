@@ -192,6 +192,146 @@ describe('useValidate', () => {
     }
   });
 
+  it('runs the sync gate immediately and skips the debounced validator while it fails', () => {
+    vi.useFakeTimers();
+    try {
+      const form = createForm({initialValues: {name: ''}});
+      const validate = vi.fn(() => 'expensive');
+      const {result} = renderHook(() =>
+        useValidate(validate, createPath('name'), form, {
+          debounce: 50,
+          sync: value => (value ? undefined : 'required')
+        })
+      );
+      act(() => result.current());
+      // The gate lands at once — no debounce window for sync errors — and
+      // nothing is marked validating.
+      expect(getError(form, 'name')).toEqual({
+        type: 'custom',
+        message: 'required'
+      });
+      expect(form.validating.size).toBe(0);
+      expect(validate).not.toHaveBeenCalled();
+      act(() => vi.advanceTimersByTime(100));
+      expect(validate).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears a stale sync error as soon as the gate passes', () => {
+    vi.useFakeTimers();
+    try {
+      const form = createForm({initialValues: {name: ''}});
+      const validate = vi.fn(() => 'expensive');
+      const {result} = renderHook(() =>
+        useValidate(validate, createPath('name'), form, {
+          debounce: 50,
+          sync: value => (value ? undefined : 'required')
+        })
+      );
+      act(() => result.current());
+      expect(getError(form, 'name')).toBeDefined();
+      setValue(form, 'name', 'filled');
+      act(() => result.current());
+      // The gate's own error clears on the kick, not after the window.
+      expect(getError(form, 'name')).toBeUndefined();
+      expect(validate).not.toHaveBeenCalled();
+      act(() => vi.advanceTimersByTime(50));
+      expect(validate).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gate failure cancels a pending debounce window', () => {
+    vi.useFakeTimers();
+    try {
+      const form = createForm({initialValues: {name: 'ok'}});
+      const validate = vi.fn(() => 'expensive');
+      const {result} = renderHook(() =>
+        useValidate(validate, createPath('name'), form, {
+          debounce: 50,
+          sync: value => (value ? undefined : 'required')
+        })
+      );
+      // The gate passes: the window opens for the debounced validator.
+      act(() => result.current());
+      expect(form.validating.size).toBe(1);
+      // The value turns invalid and takes a kick: the window is cancelled
+      // and the debounced validator never runs.
+      setValue(form, 'name', '');
+      act(() => result.current());
+      expect(getError(form, 'name')).toEqual({
+        type: 'custom',
+        message: 'required'
+      });
+      expect(form.validating.size).toBe(0);
+      act(() => vi.advanceTimersByTime(100));
+      expect(validate).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gate failure supersedes an in-flight round without landing its result', async () => {
+    const form = createForm({initialValues: {name: 'ok'}});
+    let resolveRound;
+    const validate = vi.fn(
+      () =>
+        new Promise(resolve => {
+          resolveRound = resolve;
+        })
+    );
+    const {result} = renderHook(() =>
+      useValidate(validate, createPath('name'), form, {
+        sync: value => (value ? undefined : 'required')
+      })
+    );
+    // The gate passes: the async round starts.
+    act(() => result.current());
+    expect(validate).toHaveBeenCalledTimes(1);
+    expect(form.validating.size).toBe(1);
+    // The value turns invalid: the gate fails and supersedes the round.
+    setValue(form, 'name', '');
+    act(() => result.current());
+    expect(getError(form, 'name')).toEqual({
+      type: 'custom',
+      message: 'required'
+    });
+    expect(form.validating.size).toBe(0);
+    // The stale round's late result must not overwrite the gate's error.
+    await act(async () => {
+      resolveRound('stale');
+    });
+    expect(getError(form, 'name')).toEqual({
+      type: 'custom',
+      message: 'required'
+    });
+  });
+
+  it('passes a passing gate through to the debounced validator', () => {
+    vi.useFakeTimers();
+    try {
+      const form = createForm({initialValues: {name: ''}});
+      const validate = vi.fn(value => (value ? undefined : 'async'));
+      const {result} = renderHook(() =>
+        useValidate(validate, createPath('name'), form, {
+          debounce: 50,
+          sync: value => (value ? undefined : 'required')
+        })
+      );
+      setValue(form, 'name', 'typed');
+      act(() => result.current());
+      expect(validate).not.toHaveBeenCalled();
+      act(() => vi.advanceTimersByTime(50));
+      expect(validate).toHaveBeenCalledTimes(1);
+      expect(validate.mock.calls[0][0]).toBe('typed');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('throws when neither a form prop nor a provider is available', () => {
     expect(() =>
       renderHook(() => useValidate(() => undefined, createPath('name')))

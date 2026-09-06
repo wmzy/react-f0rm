@@ -518,6 +518,148 @@ describe('useField', () => {
     }
   });
 
+  it('lands required immediately and skips validate while it fails under validateDebounce', () => {
+    vi.useFakeTimers();
+    try {
+      const form = createForm({initialValues: {name: ''}, mode: 'all'});
+      const validate = vi.fn(value => (value ? undefined : 'async check'));
+      const {result} = renderHook(
+        () =>
+          useField({
+            form,
+            name: 'name',
+            rules: {required: 'Required'},
+            validate,
+            validateDebounce: 300
+          }),
+        {
+          wrapper: ({children}) => (
+            <FormProvider value={form}>{children}</FormProvider>
+          )
+        }
+      );
+
+      // Empty: the required error lands on the keystroke — no 300ms wait —
+      // and the debounced validator never runs while the rule fails.
+      act(() => result.current.onChange(''));
+      expect(result.current.error).toBe('Required');
+      expect(getError(form, 'name')).toEqual({
+        type: 'required',
+        message: 'Required'
+      });
+      expect(validate).not.toHaveBeenCalled();
+      act(() => vi.advanceTimersByTime(350));
+      expect(validate).not.toHaveBeenCalled();
+
+      // Filling the value clears the required error at once; the debounced
+      // validator runs once after the window.
+      act(() => result.current.onChange('abc'));
+      expect(result.current.error).toBeUndefined();
+      expect(validate).not.toHaveBeenCalled();
+      act(() => vi.advanceTimersByTime(300));
+      expect(validate).toHaveBeenCalledTimes(1);
+      expect(validate.mock.calls[0][0]).toBe('abc');
+      expect(result.current.error).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('short-circuits validate while required fails', () => {
+    const form = createForm({initialValues: {name: ''}, mode: 'all'});
+    const validate = vi.fn(value => (value ? undefined : 'async required'));
+    const {result} = renderHook(
+      () =>
+        useField({
+          form,
+          name: 'name',
+          rules: {required: 'Required'},
+          validate
+        }),
+      {
+        wrapper: ({children}) => (
+          <FormProvider value={form}>{children}</FormProvider>
+        )
+      }
+    );
+
+    act(() => result.current.onChange(''));
+    expect(result.current.errors).toEqual([
+      {type: 'required', message: 'Required'}
+    ]);
+    expect(validate).not.toHaveBeenCalled();
+
+    // The rule passes: validate now runs and owns the outcome.
+    act(() => result.current.onChange('ok'));
+    expect(validate).toHaveBeenCalledTimes(1);
+    expect(validate.mock.calls[0][0]).toBe('ok');
+    expect(result.current.errors).toEqual([]);
+  });
+
+  it('trigger reports a required failure immediately under validateDebounce', async () => {
+    const form = createForm({initialValues: {name: ''}});
+    const validate = vi.fn(() => 'expensive');
+    renderHook(
+      () =>
+        useField({
+          form,
+          name: 'name',
+          rules: {required: true},
+          validate,
+          validateDebounce: 300
+        }),
+      {
+        wrapper: ({children}) => (
+          <FormProvider value={form}>{children}</FormProvider>
+        )
+      }
+    );
+
+    // No timer to wait out: the gate fails synchronously, so trigger
+    // settles at once (real timers — a wrongly opened 300ms window would
+    // hang this test until timeout).
+    await expect(trigger(form)).resolves.toBe(false);
+    expect(getError(form, 'name')).toEqual({
+      type: 'required',
+      message: 'This field is required'
+    });
+    expect(validate).not.toHaveBeenCalled();
+    expect(form.validating.size).toBe(0);
+  });
+
+  it('merges non-required rule errors with validate errors when required passes', () => {
+    const form = createForm({initialValues: {code: ''}, mode: 'all'});
+    const {result} = renderHook(
+      () =>
+        useField({
+          form,
+          name: 'code',
+          rules: {required: 'Required', minLength: 3},
+          validate: value =>
+            value.includes('!') ? 'no exclamation' : undefined
+        }),
+      {
+        wrapper: ({children}) => (
+          <FormProvider value={form}>{children}</FormProvider>
+        )
+      }
+    );
+
+    // required passes, minLength fails, validate fails: both merge with
+    // the rule error ahead.
+    act(() => result.current.onChange('a!'));
+    expect(result.current.errors).toEqual([
+      {type: 'minLength', message: 'Must be at least 3 characters'},
+      {type: 'custom', message: 'no exclamation'}
+    ]);
+
+    // required fails: the rest is skipped entirely.
+    act(() => result.current.onChange(''));
+    expect(result.current.errors).toEqual([
+      {type: 'required', message: 'Required'}
+    ]);
+  });
+
   it('keeps validateDebounce out of the spread rest props', () => {
     const {result} = renderHook(
       () => useField({name: 'name', validateDebounce: 30}),
