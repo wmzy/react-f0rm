@@ -1,6 +1,6 @@
 /**
  * Benchmark: getValues merge strategies (not part of the unit suite; run
- * with `npx vitest bench test/bench/getValues.bench.ts`).
+ * with `npx vitest bench --run test/bench/getValues.bench.ts`).
  *
  * Compares the pre-optimization merge (per-key chained `set`, inlined here
  * unchanged as the control implementation) against the ownership-tracked
@@ -9,8 +9,12 @@
  * ancestors -- the shape the old merge re-copied per key). Also measures
  * the isDirty/getDirtyFields scan to gauge whether derived-state caching
  * would pay for itself.
+ *
+ * Vitest 5 benchmark API: the top-level `bench` import is gone — benches
+ * register through the test-context fixture and run inside a regular
+ * `test()` (`await bench(name, fn).run()`).
  */
-import {bench, describe} from 'vitest';
+import {test} from 'vitest';
 import createForm, {getValues, isDirty} from '../../src/form';
 import type {Form} from '../../src/form';
 import {set, unset} from '../../src/util';
@@ -39,18 +43,23 @@ function makeForm(fields: number, sections: number): Form {
 
 const form100x3 = makeForm(100, 10);
 
-describe('getValues - 100 fields, depth 3', () => {
-  bench('legacy: chained set per key', () => {
-    getValuesLegacy(form100x3);
-  });
+test('getValues - 100 fields, depth 3', async ({bench}) => {
+  // Local aliases: the module runner instruments re-exported bindings
+  // with getters, and hot-loop access through them distorts timings.
+  const legacy = getValuesLegacy;
+  const merge = getValues;
+  await bench('legacy: chained set per key', () => {
+    legacy(form100x3);
+  }).run();
 
-  bench('setOwned: copy-on-write merge', () => {
-    getValues(form100x3);
-  });
+  await bench('setOwned: copy-on-write merge', () => {
+    merge(form100x3);
+  }).run();
 });
 
-describe('isDirty scan - same form', () => {
-  bench('isDirty full scan', () => {
-    isDirty(form100x3);
-  });
+test('isDirty scan - same form', async ({bench}) => {
+  const scan = isDirty;
+  await bench('isDirty full scan', () => {
+    scan(form100x3);
+  }).run();
 });

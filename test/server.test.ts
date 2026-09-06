@@ -10,7 +10,11 @@
 // trigger coverage (same pipeline) and the import stays pinned to
 // '../src/server'.
 import {describe, it, expect} from 'vitest';
-import {validateValues, VALIDATION_OUTCOME} from '../src/server';
+import {
+  validateValues,
+  VALIDATION_OUTCOME,
+  formDataFromValues
+} from '../src/server';
 
 describe('validateValues', () => {
   it('reports a sync error record as invalid with flat entries', async () => {
@@ -70,5 +74,44 @@ describe('validateValues', () => {
     );
     expect(result.valid).toBe(true);
     expect(result.values).toEqual({count: 42});
+  });
+});
+
+describe('formDataFromValues', () => {
+  it('converts primitives, arrays, dates and objects into FormData', () => {
+    const fd = formDataFromValues({
+      name: 'ada',
+      age: 36,
+      active: true,
+      tags: ['a', 'b'],
+      born: new Date('2020-01-02T03:04:05.000Z'),
+      meta: {deep: 1},
+      nothing: null,
+      missing: undefined
+    });
+    expect(fd.get('name')).toBe('ada');
+    expect(fd.get('age')).toBe('36');
+    expect(fd.get('active')).toBe('true');
+    expect(fd.getAll('tags')).toEqual(['a', 'b']);
+    expect(fd.get('born')).toBe('2020-01-02T03:04:05.000Z');
+    expect(fd.get('meta')).toBe('{"deep":1}');
+    expect(fd.get('nothing')).toBeNull();
+    expect(fd.get('missing')).toBeNull();
+  });
+
+  it('passes File values through with their name', () => {
+    const file = new File(['content'], 'hello.txt', {type: 'text/plain'});
+    const fd = formDataFromValues({file});
+    const got = fd.get('file') as File;
+    expect(got.name).toBe('hello.txt');
+    expect(got.type).toBe('text/plain');
+    expect(got.size).toBe(file.size);
+  });
+
+  it('flattens array-of-files under one key (multi-entry convention)', () => {
+    const files = [new File(['1'], 'a.txt'), new File(['2'], 'b.txt')];
+    const fd = formDataFromValues({files});
+    expect(fd.getAll('files')).toHaveLength(2);
+    expect((fd.getAll('files')[0] as File).name).toBe('a.txt');
   });
 });

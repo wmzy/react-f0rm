@@ -1,4 +1,8 @@
-import {create as createEmitter, emit} from '@for-fun/event-emitter';
+import {
+  create as createEmitter,
+  emit,
+  setMaxListeners
+} from '@for-fun/event-emitter';
 import type {EventEmitter} from '@for-fun/event-emitter';
 import createPath from './path';
 import type {Name, Path, PathSegments} from './path';
@@ -96,8 +100,28 @@ export type FormValidateFn<T extends Record<string, any> = any> = (
   meta: FormValidateMeta<T>
 ) => ValidateResult<T> | undefined;
 
+/**
+ * The emitter event table for {@link Form.emitter}: each event's payload
+ * tuple. Path-carrying events declare an optional single `Path` payload —
+ * emit sites send it for single-field mutations and omit it for bulk
+ * payload-less broadcasts (reset, setInitialValues, clear-all), both of
+ * which subscribers handle. `focusError` carries the target's path key
+ * plus optional {@link SetFocusOptions}.
+ */
+export type FormEvents =
+  | ['change', [path?: Path]]
+  | ['errors', [path?: Path]]
+  | ['touched', [path?: Path]]
+  | ['validating', [path?: Path]]
+  | ['submitting', []]
+  | ['submitCount', []]
+  | ['submitSuccessful', []]
+  | ['reset', []]
+  | ['disabled', []]
+  | ['focusError', [key: string, options?: SetFocusOptions]];
+
 export interface Form<T extends Record<string, any> = any> {
-  emitter: EventEmitter;
+  emitter: EventEmitter<FormEvents>;
   mode: ValidationMode;
   reValidateMode: ReValidateMode;
   initialValues: T;
@@ -211,7 +235,14 @@ export type Options<T extends Record<string, any> = any> = {
 export default function create<T extends Record<string, any> = any>(
   options?: Options<T>
 ): Form<T> {
-  const emitter = createEmitter();
+  const emitter = createEmitter<FormEvents>();
+  // A form legitimately accumulates one listener per mounted field per
+  // event (useField subscribes change/errors/disabled/focusError…), so
+  // the emitter's default max-listener warning would fire in DEV for any
+  // form over ~10 fields. Field subscriptions are removed on unmount —
+  // there is nothing to leak — so the warning would only be noise: raise
+  // the cap to unlimited for form emitters.
+  setMaxListeners(emitter, 0);
   return {
     emitter,
     ...options,
@@ -1014,35 +1045,72 @@ export function isTouched({touched}: Form): boolean {
 }
 
 /**
- * Remove field
+ * Remove a field: by default its live value drops out of reads and
+ * `getValues()` (the path is tombstoned, so it never falls back to
+ * initialValues), its dirty baseline, touched flag and errors are cleared.
+ * The keep-flags preserve slices of that state instead.
+ *
  * @param form
  * @param name
  */
-export function removeField(form: Form, name: Name): void {
-  removeFieldByPath(form, createPath(name));
+/**
+ * Options accepted by {@link removeField}. All flags default to `false` —
+ * the historical remove semantics (value dropped, path tombstoned, dirty
+ * baseline/touched/errors cleared). Names mirror react-hook-form's
+ * `unregister` options to ease migration; RHF's `shouldValidate` and
+ * `keepDefaultValue` have no counterparts (removal never validates, and
+ * the tombstone is exactly the "do not revive from initialValues" choice).
+ */
+export interface RemoveFieldOptions {
+  /** Keep the field's live value and dirty baseline instead of
+   * tombstoning: reads and `getValues()` keep returning the value, submit
+   * includes it, and dirtiness against initialValues is preserved. */
+  keepValue?: boolean;
+  /** Keep the field's dirty baseline. Implies `keepValue` — a removed
+   * value has nothing to be dirty about. */
+  keepDirty?: boolean;
+  /** Keep the field's touched flag instead of clearing it. */
+  keepTouched?: boolean;
+  /** Keep the field's errors instead of clearing them. */
+  keepError?: boolean;
+}
+
+export function removeField(
+  form: Form,
+  name: Name,
+  options?: RemoveFieldOptions
+): void {
+  removeFieldByPath(form, createPath(name), options);
 }
 
 /**
  * Remove field
  * @param form
  * @param path
+ * @param options keep-flags to preserve slices of state through the removal
  */
-export function removeFieldByPath(form: Form, path: Path): void {
+export function removeFieldByPath(
+  form: Form,
+  path: Path,
+  options?: RemoveFieldOptions
+): void {
   const {key, value: segments} = path;
   const {emitter, values, touched, errors, validating, deleted} = form;
-  values.delete(key);
-  touched.delete(key);
-  errors.delete(key);
+  if (!options?.keepValue && !options?.keepDirty) {
+    values.delete(key);
+    // The field is gone; a remount starts fresh rather than inheriting a
+    // baseline committed by the previous incarnation.
+    clearDirtyBaselines(form, key);
+    // Tombstone the unregistered path so later reads do not fall back to
+    // initialValues and "revive" the field's old initial value. A tombstone
+    // never shadows live values: skip it when the branch is already covered
+    // by a live ancestor key (e.g. a FieldArray rewrite stored the whole
+    // array at the parent path) or a still-mounted descendant key.
+    if (!hasLiveBranch(values, segments)) deleted.add(key);
+  }
+  if (!options?.keepTouched) touched.delete(key);
+  if (!options?.keepError) errors.delete(key);
   validating.delete(key);
-  // The field is gone; a remount starts fresh rather than inheriting a
-  // baseline committed by the previous incarnation.
-  clearDirtyBaselines(form, key);
-  // Tombstone the unregistered path so later reads do not fall back to
-  // initialValues and "revive" the field's old initial value. A tombstone
-  // never shadows live values: skip it when the branch is already covered
-  // by a live ancestor key (e.g. a FieldArray rewrite stored the whole
-  // array at the parent path) or a still-mounted descendant key.
-  if (!hasLiveBranch(values, segments)) deleted.add(key);
   bumpDirtyVersion(form);
   bumpValuesVersion(form);
   // Path-payload emits, scoped exactly like the writes above: every
@@ -1151,6 +1219,16 @@ export interface ResetOptions {
    * pre-reset initialValues (the same rule {@link getDirtyFields} applies).
    * Clean fields fall back to the new initialValues as usual. */
   keepDirtyValues?: boolean;
+  /** Keep every field's current live value instead of returning to the
+   * baseline (react-hook-form's `keepValues` — a strict superset of
+   * `keepDirtyValues`, which only preserves dirty fields' values).
+   * Dirtiness is recomputed against the post-reset baseline, so kept
+   * values that differ from a newly provided baseline count as dirty. */
+  keepValues?: boolean;
+  /** Ignore a newly provided `initialValues` argument and keep the current
+   * baseline — fields still return to it (react-hook-form's
+   * `keepDefaultValues`). */
+  keepDefaultValues?: boolean;
   /** Keep the touched set instead of clearing it. */
   keepTouched?: boolean;
   /** Keep field errors instead of clearing them. */
@@ -1162,6 +1240,33 @@ export interface ResetOptions {
   keepSubmitCount?: boolean;
   /** Keep `isSubmitting` instead of resetting it to false. */
   keepIsSubmitting?: boolean;
+}
+
+/** Collect every leaf path of the merged values tree into `out` —
+ * structured segments (numeric for array indexes) so each leaf can be
+ * written back with setValueByPath. Objects with no enumerable keys
+ * (Date, File, plain empty objects) are leaves themselves. */
+function collectValueLeaves(
+  node: any,
+  segments: PathSegments,
+  out: {segments: PathSegments; value: any}[]
+): void {
+  if (node !== null && typeof node === 'object') {
+    if (Array.isArray(node)) {
+      for (let i = 0; i < node.length; i++) {
+        collectValueLeaves(node[i], [...segments, i], out);
+      }
+      return;
+    }
+    const keys = Object.keys(node);
+    if (keys.length > 0) {
+      for (const k of keys) {
+        collectValueLeaves(node[k], [...segments, k], out);
+      }
+      return;
+    }
+  }
+  out.push({segments, value: node});
 }
 
 /**
@@ -1177,22 +1282,30 @@ export function reset(
   initialValues?: any,
   options?: ResetOptions
 ): void {
-  // Snapshot dirty fields' live values before the wipe: dirtiness is
-  // measured against the pre-reset initialValues, so capture must happen
-  // before form.values and form.initialValues are touched. The snapshot
-  // carries structured segments, not dotted strings — a name segment may
-  // itself contain '.' or quotes, and the dotted spelling does not
-  // round-trip through the parser (dotted keys stay display-only, like
-  // getDirtyFields' output).
-  const dirtyValues: {segments: PathSegments; value: any}[] = [];
-  if (options?.keepDirtyValues) {
+  // Snapshot the live values being preserved before the wipe: dirtiness
+  // is measured against the pre-reset initialValues, so capture must
+  // happen before form.values and form.initialValues are touched. The
+  // snapshot carries structured segments, not dotted strings — a name
+  // segment may itself contain '.' or quotes, and the dotted spelling does
+  // not round-trip through the parser (dotted keys stay display-only, like
+  // getDirtyFields' output). keepValues keeps every live value; the older
+  // keepDirtyValues narrows the same snapshot to fields whose value
+  // differs from their effective baseline.
+  const keptValues: {segments: PathSegments; value: any}[] = [];
+  if (options?.keepValues) {
+    // Every leaf of the CURRENT merged tree — live edits and clean
+    // baseline fields alike — is written back after the wipe, so a field
+    // that never had a live edit keeps its pre-reset value instead of
+    // adopting the new baseline's.
+    collectValueLeaves(getValues(form), [], keptValues);
+  } else if (options?.keepDirtyValues) {
     for (const [key, value] of form.values) {
       const segments = JSON.parse(key) as PathSegments;
       // Same predicate as getDirtyFields/forEachDirtyField: a live value
       // differing from its effective baseline (committed baselines read
       // clean and are not kept).
       if (getDirtyBaseline(form, key, segments) !== value) {
-        dirtyValues.push({segments, value});
+        keptValues.push({segments, value});
       }
     }
   }
@@ -1200,7 +1313,9 @@ export function reset(
   // undefined baseline would make getValues() return undefined (and every
   // consumer of it crash), so the current baseline survives when no new
   // one is provided.
-  form.initialValues = initialValues ?? form.initialValues;
+  form.initialValues = options?.keepDefaultValues
+    ? form.initialValues
+    : (initialValues ?? form.initialValues);
   // The fresh baseline drops any schema parse from the previous cycle.
   form.parsedValues = undefined;
   if (!options?.keepErrors) clearErrors(form);
@@ -1215,9 +1330,9 @@ export function reset(
   if (!options?.keepIsSubmitted) form.isSubmitSuccessful = undefined;
   bumpDirtyVersion(form);
   bumpValuesVersion(form);
-  // Write the kept dirty values back over the fresh baseline: plain
+  // Write the kept values back over the fresh baseline: plain
   // setValueByPath, so no validation fires and nothing is marked touched.
-  for (const {segments, value} of dirtyValues) {
+  for (const {segments, value} of keptValues) {
     setValueByPath(form, createPath(segments), value);
   }
   emit(emitter, 'change');
@@ -1313,6 +1428,16 @@ export interface TriggerOptions {
    * validation fails — once the round settles. Mirrors react-hook-form's
    * trigger `shouldTouch`. Defaults to `false`. */
   shouldTouch?: boolean;
+  /**
+   * Focus the first errored field in the triggered scope once the round
+   * settles (and only when the round left errors) — react-hook-form's
+   * trigger `shouldFocus` counterpart. Rides the 'focusError' event
+   * channel like a failed submit's auto-focus: only mounted bound fields
+   * react, unmounted ones are silent no-ops. Without `name` the first key
+   * of the errors Map wins (the same rule handleSubmit applies); with
+   * `name` the first errored triggered key does. Defaults to `false`.
+   */
+  shouldFocus?: boolean;
 }
 
 /**
@@ -1383,6 +1508,13 @@ export async function trigger(
     // shouldTouch marks the whole registered scope — every key the round
     // could have validated — pass or fail alike.
     if (options?.shouldTouch) touchKeys(form, [...form.validators.keys()]);
+    // First error across the errors Map — the same rule a failed submit's
+    // auto-focus applies (a form-level error may land first; it has no
+    // element, so it is a silent no-op like every unbound path).
+    if (options?.shouldFocus) {
+      const firstKey = form.errors.keys().next().value;
+      if (firstKey !== undefined) emit(form.emitter, 'focusError', firstKey);
+    }
     return !hasErrors(form);
   }
 
@@ -1393,6 +1525,12 @@ export async function trigger(
   keys.forEach(key => form.validators.get(key)?.());
   await settle(keys);
   if (options?.shouldTouch) touchKeys(form, keys);
+  // Focus the first errored key among the triggered scope — trigger('a')
+  // never focuses B's pre-existing error.
+  if (options?.shouldFocus) {
+    const firstKey = keys.find(key => form.errors.has(key));
+    if (firstKey !== undefined) emit(form.emitter, 'focusError', firstKey);
+  }
   return keys.every(key => !form.errors.has(key));
 }
 
@@ -2046,6 +2184,13 @@ export interface HandleSubmitOptions<T extends Record<string, any> = any> {
    */
   onInvalidSubmit?: (errors: FieldErrorEntry[], values: T) => void;
   /**
+   * Called after validation passes and the submit callbacks ran, with the
+   * final (schema-coerced) values — the slot <Form>'s `action` prop uses
+   * to dispatch React 19 server actions with FormData. Runs inside the
+   * same isSubmitting window and is awaited like onSubmit/onValidSubmit.
+   */
+  onAction?: (values: T, e?: any) => void | Promise<void>;
+  /**
    * Focus the first error field after a failed submit. Defaults to true —
    * only an explicit `false` disables it. When custom validation fails,
    * a 'focusError' event carrying the first error's path key is emitted
@@ -2083,6 +2228,7 @@ export function handleSubmit<T extends Record<string, any> = any>(
     onSubmit,
     onValidSubmit,
     onInvalidSubmit,
+    onAction,
     shouldFocusError = true
   } = options ?? {};
   return async e => {
@@ -2137,6 +2283,7 @@ export function handleSubmit<T extends Record<string, any> = any>(
       const submitted = getValues(form);
       if (onSubmit) await onSubmit(submitted, e);
       if (onValidSubmit) await onValidSubmit(submitted, e);
+      if (onAction) await onAction(submitted, e);
       setSubmitSuccessful(form, true);
     } catch {
       setSubmitSuccessful(form, false);

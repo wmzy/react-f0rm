@@ -1,9 +1,13 @@
 /**
  * Benchmark: render/interaction cost of field-level subscriptions (not part
  * of the unit suite; run with `npx vitest bench --run
- * test/bench/render.bench.ts`). Provides the data behind the README
- * performance claim: with 100 controlled fields mounted, changing one field
+ * test/bench/render.bench.ts`). Provides the data behind the docs'
+ * performance claims: with 100 controlled fields mounted, changing one field
  * re-renders only that field.
+ *
+ * Vitest 5 benchmark API: the top-level `bench` import is gone — benches
+ * register through the test-context fixture and run inside a regular
+ * `test()` (`await bench(name, fn).run({time, warmupTime})`).
  *
  * Scenario a) f0rm <Field>: 100 controlled inputs mounted once via
  *   @testing-library/react (outside the timed loop; React Testing Library is
@@ -18,7 +22,7 @@
  * Scenario d) submit path: getValues + validate with 100 sync validators
  *   (one invalid field, so every run exercises the error path).
  */
-import {bench, describe} from 'vitest';
+import {test} from 'vitest';
 import {cleanup, fireEvent, render, screen} from '@testing-library/react';
 import * as React from 'react';
 import {Controller, useForm as useRhfForm} from 'react-hook-form';
@@ -88,9 +92,9 @@ function mountOnce(tree: React.ReactElement) {
 }
 
 /** Longer time/warmup than the tinybench defaults to keep rme < 5%. */
-const BENCH_OPTIONS = {time: 2000, warmupTime: 1000};
+const RUN_OPTIONS = {time: 2000, warmupTime: 1000};
 
-describe('single field change - 100 controlled inputs mounted', () => {
+test('single field change - 100 controlled inputs mounted', async ({bench}) => {
   const f0rmInput = mountOnce(h(F0rmHundredFields));
   const rhfControllerInput = mountOnce(h(RhfHundredControllers));
   const rhfRegisterInput = mountOnce(h(RhfHundredRegistered));
@@ -98,38 +102,29 @@ describe('single field change - 100 controlled inputs mounted', () => {
   // subscription snapshot and skip the re-render we are here to measure.
   let flip = 0;
 
-  bench(
-    'f0rm Field: change re-renders 1 of 100',
-    () => {
-      const input = f0rmInput();
-      flip = (flip + 1) % 4;
-      fireEvent.change(input, {target: {value: `w${flip}`}});
-    },
-    BENCH_OPTIONS
-  );
+  await bench('f0rm Field: change re-renders 1 of 100', () => {
+    const input = f0rmInput();
+    flip = (flip + 1) % 4;
+    fireEvent.change(input, {target: {value: `w${flip}`}});
+  }).run(RUN_OPTIONS);
 
-  bench(
-    'react-hook-form Controller: change 1 of 100',
-    () => {
-      const input = rhfControllerInput();
-      flip = (flip + 1) % 4;
-      fireEvent.change(input, {target: {value: `w${flip}`}});
-    },
-    BENCH_OPTIONS
-  );
+  await bench('react-hook-form Controller: change 1 of 100', () => {
+    const input = rhfControllerInput();
+    flip = (flip + 1) % 4;
+    fireEvent.change(input, {target: {value: `w${flip}`}});
+  }).run(RUN_OPTIONS);
 
-  bench(
+  await bench(
     'react-hook-form register (uncontrolled): change 1 of 100',
     () => {
       const input = rhfRegisterInput();
       flip = (flip + 1) % 4;
       fireEvent.change(input, {target: {value: `w${flip}`}});
-    },
-    BENCH_OPTIONS
-  );
+    }
+  ).run(RUN_OPTIONS);
 });
 
-describe('submit path - 100 sync validators', () => {
+test('submit path - 100 sync validators', async ({bench}) => {
   const form = createForm({initialValues: INITIAL_VALUES});
   for (const name of NAMES) {
     // Register sync validators straight on the validators Map -- exactly
@@ -143,12 +138,8 @@ describe('submit path - 100 sync validators', () => {
   // (validator -> setError -> throw -> catch).
   setValue(form, `f${TARGET}`, 'x');
 
-  bench(
-    'getValues + validate',
-    async () => {
-      getValues(form);
-      await validate(form);
-    },
-    BENCH_OPTIONS
-  );
+  await bench('getValues + validate', async () => {
+    getValues(form);
+    await validate(form);
+  }).run(RUN_OPTIONS);
 });

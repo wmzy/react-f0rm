@@ -82,7 +82,7 @@ export default function useValidate(
   // Read the context unconditionally (hook call order must be stable), then
   // let an explicitly passed form win — works without a <FormProvider>.
   const contextForm = useContext(FormContext);
-  const form = (formProp || contextForm) as Form;
+  const form = formProp || contextForm;
   if (!form) throw new Error('no form provided');
   const lockRef = useRef<object | null>(null);
   const validateRef = useRef(validate);

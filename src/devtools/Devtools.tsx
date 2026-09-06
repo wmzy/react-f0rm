@@ -69,7 +69,7 @@ export default function Devtools<T extends Record<string, any> = any>({
   position = 'top-right'
 }: DevtoolsProps<T>) {
   const contextForm = useContext(FormContext);
-  const f = form ?? contextForm;
+  const f: Form<any> | null = form ?? contextForm;
   if (!f) {
     throw new Error(
       '<Devtools> needs a form: pass the `form` prop or render it inside a <Form> / FormProvider.'

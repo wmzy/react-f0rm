@@ -1,7 +1,6 @@
 import {useCallback, useContext, useEffect, useRef, useState} from 'react';
 import type {Context} from 'react';
 import {on} from '@for-fun/event-emitter';
-import type {EventEmitter} from '@for-fun/event-emitter';
 import {FormContext} from '../context';
 import {
   emitChangeByPath,
@@ -18,11 +17,12 @@ import {
 } from '../form';
 import type {FieldError, Form, ValidationMode} from '../form';
 import createPath from '../path';
-import type {Name} from '../path';
+import type {Name, Path} from '../path';
 import type {FieldPath, PathValueOf} from '../types';
 import {rulesToValidator} from '../rules';
 import type {FieldRules} from '../rules';
-import {useFieldErrorsByPath, useValueByPath, useWatch} from './form';
+import {useFieldErrorsByPath, useWatch, useWatchCore} from './form';
+import {onPathEvent} from '../subscribe';
 import usePath from './path';
 import useValidate from './validate';
 import type {Validator} from './validate';
@@ -77,6 +77,18 @@ export interface UseFieldOptions<
    * `disabled`. A field cannot opt out of a disabled form.
    */
   disabled?: boolean;
+  /**
+   * Uncontrolled mode: the field never subscribes to its own value, so
+   * typing re-renders nothing — the store still carries every write
+   * (getValues/submit/validation read it), and errors/touched/disabled/
+   * validating still re-render the field like react-hook-form's
+   * `register`. The result's `value` is the mount-time snapshot (initial
+   * value seed or baseline); reset/setInitialValues do not push into it
+   * or into the DOM — read live values with useValue/getValues instead.
+   * Attach the result with `<input defaultValue={field.value}>`-style
+   * binding (no `value` prop), exactly like <Field uncontrolled /> does.
+   */
+  uncontrolled?: boolean;
   /**
    * Field-level validation mode override: when given, this field validates
    * on its own schedule instead of `form.mode` — every other field keeps
@@ -237,6 +249,39 @@ function useDelayedErrors(
 }
 
 /**
+ * Value snapshot for {@link useFieldCore}. Controlled fields subscribe to
+ * 'change' at their own path (leaf scope) and track the store live.
+ * Uncontrolled fields instead pin the value read at mount: no change
+ * subscription, so typing re-renders nothing while the store still carries
+ * every write (getValues/submit/validation read it). Errors, touched,
+ * disabled and validating stay subscribed, so state-driven re-renders
+ * behave like react-hook-form's `register`. The pinned snapshot is
+ * deliberately never refreshed — reset/setInitialValues do not push into
+ * it (or into a `defaultValue`-bound DOM element).
+ */
+function useFieldValue(form: Form, path: Path, uncontrolled: boolean): any {
+  const snapshotRef = useRef<{has: boolean; value: any}>({
+    has: false,
+    value: undefined
+  });
+  const getter = useCallback(() => {
+    if (!uncontrolled) return getValueByPath(form, path);
+    if (!snapshotRef.current.has) {
+      snapshotRef.current = {has: true, value: getValueByPath(form, path)};
+    }
+    return snapshotRef.current.value;
+  }, [uncontrolled, form, path]);
+  const subscribeFactory = useCallback(
+    (invalidate: () => void) =>
+      uncontrolled
+        ? () => {}
+        : onPathEvent(form.emitter, 'change', path, 'leaf', invalidate),
+    [uncontrolled, form.emitter, path]
+  );
+  return useWatchCore(subscribeFactory, getter);
+}
+
+/**
  * Shared core of {@link useField} and the per-instance hooks returned by
  * `createFormContext()`: identical behavior, but the form is resolved from
  * whichever Context instance is passed in instead of the module-level one.
@@ -260,9 +305,10 @@ export function useFieldCore<
     validateDeps,
     delayError,
     disabled,
+    uncontrolled,
     mode: modeOption
   }: UseFieldOptions<TValues, TPath>,
-  Context: Context<any>
+  Context: Context<Form<any> | null>
 ): UseFieldResult<TValues, TPath> {
   // Read the context unconditionally (hook call order must be stable), then
   // let an explicitly passed form win — works without a <FormProvider>.
@@ -335,7 +381,7 @@ export function useFieldCore<
   const errors = useDelayedErrors(liveErrors, delayError);
   const errorObject = errors[0];
   const error = errorObject?.message;
-  const value = useValueByPath(form, path);
+  const value = useFieldValue(form, path, !!uncontrolled);
 
   // The form-level disabled flag, subscribed so setDisabled re-renders
   // this field; the field's own option is OR-ed in on every render.
@@ -437,12 +483,8 @@ export function useFieldCore<
   }, []);
   useEffect(
     () =>
-      // `form` widens to `any` through Context<any>, and `on`'s Param
-      // degenerates to a zero-arg Handler for an `any` table — cast the
-      // emitter to its default [any, any[]] instantiation (its real
-      // runtime shape; the same workaround form.ts applies to emit).
       on(
-        form.emitter as EventEmitter,
+        form.emitter,
         'focusError',
         (key: string, options?: {shouldSelect?: boolean}) => {
           if (key !== path.key) return;

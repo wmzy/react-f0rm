@@ -24,4 +24,5 @@ export {subscribe} from './subscribe';
 export type {SubscribeOptions, SubscribeEvent, WatchScope} from './subscribe';
 
 export {default as Form} from './components/Form';
+export {default as FormField} from './components/FormField';
 export * from './components/Field';

@@ -2769,3 +2769,140 @@ describe('subscribe', () => {
     expect(callback).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('removeField keep options', () => {
+  it('keepValue keeps the live value and its dirty baseline', () => {
+    const form = createForm({initialValues: {a: 'initial'}});
+    setValue(form, 'a', 'typed');
+    setError(form, 'a', 'oops');
+    setTouched(form, 'a');
+    removeField(form, 'a', {keepValue: true});
+    expect(getValue(form, 'a')).toBe('typed');
+    expect(getValues(form)).toEqual({a: 'typed'});
+    expect(isDirty(form)).toBe(true);
+    // touched/errors clear by default.
+    expect(hasTouched(form, 'a')).toBe(false);
+    expect(getError(form, 'a')).toBeUndefined();
+  });
+
+  it('keepDirty implies keepValue', () => {
+    const form = createForm({initialValues: {a: 'initial'}});
+    setValue(form, 'a', 'typed');
+    removeField(form, 'a', {keepDirty: true});
+    expect(getValue(form, 'a')).toBe('typed');
+    expect(isDirty(form)).toBe(true);
+  });
+
+  it('keepTouched and keepError preserve their slices', () => {
+    const form = createForm();
+    setValue(form, 'a', 'x');
+    setError(form, 'a', 'oops');
+    setTouched(form, 'a');
+    removeField(form, 'a', {keepTouched: true, keepError: true});
+    expect(getValue(form, 'a')).toBeUndefined();
+    expect(hasTouched(form, 'a')).toBe(true);
+    expect(getError(form, 'a')?.message).toBe('oops');
+  });
+
+  it('default removal is unchanged', () => {
+    const form = createForm({initialValues: {a: 'initial'}});
+    setValue(form, 'a', 'typed');
+    removeField(form, 'a');
+    expect(getValue(form, 'a')).toBeUndefined();
+    expect(getValues(form)).toEqual({});
+  });
+});
+
+describe('reset keepValues and keepDefaultValues', () => {
+  it('keepValues keeps every live value through a reset with a new baseline', () => {
+    const form = createForm({initialValues: {a: 'a0', b: 'b0'}});
+    setValue(form, 'a', 'a1');
+    setValue(form, 'b', 'b1');
+    reset(form, {a: 'a2', b: 'b2'}, {keepValues: true});
+    expect(getValues(form)).toEqual({a: 'a1', b: 'b1'});
+    // Kept values differing from the new baseline count as dirty.
+    expect(getDirtyFields(form)).toEqual({a: true, b: true});
+  });
+
+  it('keepValues with no new baseline keeps values but resets the rest', () => {
+    const form = createForm({initialValues: {a: 'a0'}});
+    setValue(form, 'a', 'a1');
+    setError(form, 'a', 'oops');
+    reset(form, undefined, {keepValues: true});
+    expect(getValue(form, 'a')).toBe('a1');
+    expect(getError(form, 'a')).toBeUndefined();
+    expect(hasErrors(form)).toBe(false);
+  });
+
+  it('keepDirtyValues is a subset of keepValues', () => {
+    const form = createForm({initialValues: {a: 'a0', b: 'b0'}});
+    setValue(form, 'a', 'a1');
+    reset(form, {a: 'a2', b: 'b2'}, {keepDirtyValues: true});
+    expect(getValues(form)).toEqual({a: 'a1', b: 'b2'});
+    reset(form, {a: 'a3', b: 'b3'}, {keepValues: true});
+    expect(getValues(form)).toEqual({a: 'a1', b: 'b2'});
+  });
+
+  it('keepDefaultValues ignores a provided baseline', () => {
+    const form = createForm({initialValues: {a: 'a0'}});
+    setValue(form, 'a', 'a1');
+    reset(form, {a: 'a2'}, {keepDefaultValues: true});
+    expect(getValues(form)).toEqual({a: 'a0'});
+    expect(form.initialValues).toEqual({a: 'a0'});
+  });
+});
+
+describe('trigger shouldFocus', () => {
+  it('emits focusError with the first errored triggered key', async () => {
+    const form = createForm();
+    const focusSpy = vi.fn();
+    on(form.emitter, 'focusError', focusSpy);
+    form.validators.set('["a"]', () => setError(form, 'a', 'bad a'));
+    form.validators.set('["b"]', () => setError(form, 'b', 'bad b'));
+
+    await trigger(form, ['b', 'a'], {shouldFocus: true});
+
+    expect(focusSpy).toHaveBeenCalledTimes(1);
+    // First errored key among the triggered scope: b was triggered first.
+    expect(focusSpy).toHaveBeenCalledWith('["b"]');
+  });
+
+  it('does not focus other fields errors on a named trigger', async () => {
+    const form = createForm();
+    const focusSpy = vi.fn();
+    on(form.emitter, 'focusError', focusSpy);
+    setError(form, 'other', 'pre-existing');
+    form.validators.set('["a"]', () => setError(form, 'a', 'bad a'));
+
+    await trigger(form, 'a', {shouldFocus: true});
+
+    expect(focusSpy).toHaveBeenCalledTimes(1);
+    expect(focusSpy).toHaveBeenCalledWith('["a"]');
+  });
+
+  it('emits nothing when the round passes or shouldFocus is off', async () => {
+    const form = createForm();
+    const focusSpy = vi.fn();
+    on(form.emitter, 'focusError', focusSpy);
+    form.validators.set('["a"]', () => {});
+    await trigger(form, undefined, {shouldFocus: true});
+    expect(focusSpy).not.toHaveBeenCalled();
+
+    form.validators.set('["a"]', () => setError(form, 'a', 'bad a'));
+    await trigger(form);
+    expect(focusSpy).not.toHaveBeenCalled();
+  });
+
+  it('without a name uses the errors Map first key, like handleSubmit', async () => {
+    const form = createForm();
+    const focusSpy = vi.fn();
+    on(form.emitter, 'focusError', focusSpy);
+    form.validators.set('["a"]', () => setError(form, 'a', 'bad a'));
+    form.validators.set('["b"]', () => setError(form, 'b', 'bad b'));
+
+    await trigger(form, undefined, {shouldFocus: true});
+
+    expect(focusSpy).toHaveBeenCalledTimes(1);
+    expect(focusSpy).toHaveBeenCalledWith('["a"]');
+  });
+});

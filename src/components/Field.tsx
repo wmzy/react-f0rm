@@ -72,6 +72,15 @@ interface UseFieldOptions<
    * the DOM element.
    */
   mode?: ValidationMode;
+  /**
+   * Uncontrolled mode: render the element with `defaultValue` instead of
+   * `value` — typing re-renders nothing (the store still carries every
+   * write; errors/touched/disabled still re-render the field). The
+   * snapshot is pinned at mount; reset does not clear the DOM element
+   * (read live values with useValue/getValues). Passed through to
+   * useField, never spread onto the DOM element.
+   */
+  uncontrolled?: boolean;
   [key: string]: any;
 }
 
@@ -184,6 +193,7 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
       disabled,
       delayError,
       mode,
+      uncontrolled,
       ...props
     },
     ref
@@ -212,6 +222,9 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
       delayError,
       disabled,
       mode,
+      // File inputs cannot be value-controlled at all — force the
+      // uncontrolled path so no `value` prop ever reaches the element.
+      uncontrolled: uncontrolled || props.type === 'file',
       validate: (...params: [any, any]) => {
         const el = innerRef.current;
         if (el && typeof el.checkValidity === 'function') {
@@ -254,7 +267,21 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
       if (nativeInvalidCount > 0) innerRef.current?.reportValidity();
     }, [nativeInvalidCount]);
 
-    const toValue = eventToValue ?? ((e: any) => e.target.value);
+    const isFile = props.type === 'file';
+    const toValue =
+      eventToValue ??
+      (isFile ? (e: any) => e.target.files : (e: any) => e.target.value);
+
+    // file inputs never receive a value/defaultValue prop (they cannot be
+    // value-controlled); uncontrolled renders defaultValue, controlled
+    // renders value.
+    const valueProps = valueToProps
+      ? valueToProps(value)
+      : isFile
+        ? {}
+        : uncontrolled
+          ? {defaultValue: value}
+          : {value};
 
     // fieldKey is the field's path key (set by useField), e.g. '["a","0"]'.
     const errorId = errorIdFromKey(fieldKey);
@@ -266,7 +293,7 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
           name={fieldKey}
           onBlur={onBlur}
           {...asProps}
-          {...(valueToProps ? valueToProps(value) : {value})}
+          {...valueProps}
           {...ariaProps(error, fieldKey, props)}
           disabled={isDisabled}
           onChange={(e: any) => onChange(toValue(e))}

@@ -14,7 +14,7 @@ import type {Form} from './form';
 import type {Name} from './path';
 import type {FieldPath} from './types';
 
-export const FormContext = createContext<any>(null);
+export const FormContext = createContext<Form<any> | null>(null);
 
 export const FormProvider = FormContext.Provider;
 

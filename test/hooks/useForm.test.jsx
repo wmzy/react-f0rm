@@ -17,6 +17,8 @@ import useForm, {
   useIsSubmitSuccessful,
   useFormError,
   useFormErrors,
+  useFormState,
+  useIsValid,
   useWatch
 } from '../../src/hooks/form';
 import createForm, {
@@ -26,6 +28,7 @@ import createForm, {
   setTouched,
   setIsSubmitting,
   incrementSubmitCount,
+  setDisabled,
   getValue,
   getValues,
   getError,
@@ -1044,5 +1047,88 @@ describe('form-level validateDeps (user-change pipeline)', () => {
     // And the stale error stays — the historical behavior this option
     // opts into changing.
     expect(getError(form, 'confirm')?.message).toBe('mismatch');
+  });
+});
+
+describe('useFormState', () => {
+  it('aggregates every state flag in one snapshot', () => {
+    const form = createForm({initialValues: {a: 'x'}});
+    const {result} = renderHook(() => useFormState(form));
+    expect(result.current).toEqual({
+      isDirty: false,
+      dirtyFields: {},
+      isTouched: false,
+      touchedFields: [],
+      hasErrors: false,
+      isValid: true,
+      isSubmitting: false,
+      isValidating: false,
+      isSubmitSuccessful: undefined,
+      submitCount: 0,
+      disabled: false
+    });
+  });
+
+  it('tracks changes across every state slice', () => {
+    const form = createForm({initialValues: {a: 'x'}});
+    const {result} = renderHook(() => useFormState(form));
+    act(() => {
+      setValue(form, 'a', 'y');
+      setError(form, 'a', 'oops');
+      setTouched(form, 'a');
+      setIsSubmitting(form, true);
+      incrementSubmitCount(form);
+      setDisabled(form, true);
+    });
+    expect(result.current.isDirty).toBe(true);
+    expect(result.current.dirtyFields).toEqual({a: true});
+    expect(result.current.isTouched).toBe(true);
+    expect(result.current.touchedFields).toEqual(['a']);
+    expect(result.current.hasErrors).toBe(true);
+    expect(result.current.isValid).toBe(false);
+    expect(result.current.isSubmitting).toBe(true);
+    expect(result.current.submitCount).toBe(1);
+    expect(result.current.disabled).toBe(true);
+  });
+
+  it('returns a stable reference while nothing observably changed', () => {
+    const form = createForm({initialValues: {a: 'x'}});
+    const {result, rerender} = renderHook(() => useFormState(form));
+    const first = result.current;
+    // An event that changes nothing the snapshot exposes must not swap
+    // the reference (the field-wise comparator bails).
+    act(() => setValue(form, 'a', 'x'));
+    rerender();
+    expect(result.current).toBe(first);
+    act(() => setValue(form, 'a', 'y'));
+    expect(result.current).not.toBe(first);
+  });
+
+  it('subscribes once for all flags', () => {
+    const form = createForm({initialValues: {a: 'x'}});
+    const {result} = renderHook(() => useFormState(form));
+    act(() => setIsSubmitting(form, true));
+    expect(result.current.isSubmitting).toBe(true);
+    act(() => setIsSubmitting(form, false));
+    expect(result.current.isSubmitting).toBe(false);
+  });
+});
+
+describe('useIsValid', () => {
+  it('is true without errors and flips on error land/clear', () => {
+    const form = createForm();
+    const {result} = renderHook(() => useIsValid(form));
+    expect(result.current).toBe(true);
+    act(() => setError(form, 'a', 'oops'));
+    expect(result.current).toBe(false);
+    act(() => clearErrors(form));
+    expect(result.current).toBe(true);
+  });
+
+  it('form-level errors count as invalid', () => {
+    const form = createForm();
+    const {result} = renderHook(() => useIsValid(form));
+    act(() => setError(form, FORM_ERROR, 'form broken'));
+    expect(result.current).toBe(false);
   });
 });

@@ -36,6 +36,11 @@
       "types": "./dist/server/index.d.ts",
       "import": "./dist/server/index.mjs",
       "require": "./dist/server/index.cjs.js"
+    },
+    "./persist": {
+      "types": "./dist/persist.d.ts",
+      "import": "./dist/persist.mjs",
+      "require": "./dist/persist.cjs.js"
     }
   },
   "types": "dist/index.d.ts",
@@ -69,7 +74,14 @@
   "keywords": [
     "react",
     "form",
-    "react-form"
+    "react-form",
+    "react-hook-form",
+    "tanstack-form",
+    "controlled-form",
+    "form-validation",
+    "typescript",
+    "standard-schema",
+    "form-library"
   ],
   "author": "wmzy <1256573276@qq.com>",
   "license": "ISC",
@@ -157,11 +169,11 @@
   "size-limit": [
     {
       "path": "dist/index.mjs",
-      "limit": "10 KB"
+      "limit": "12 KB"
     },
     {
       "path": "dist/index.mjs",
-      "limit": "10.5 KB",
+      "limit": "12.5 KB",
       "gzip": true
     }
   ]

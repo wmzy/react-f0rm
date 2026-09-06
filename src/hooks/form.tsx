@@ -3,6 +3,7 @@ import {useSyncExternalStore} from 'use-sync-external-store/shim';
 import {on} from '@for-fun/event-emitter';
 import type {EventEmitter} from '@for-fun/event-emitter';
 import {onKeyEvent, onPathEvent} from '../subscribe';
+import type {SubscribeEvent} from '../subscribe';
 import createForm, {
   FORM_ERROR,
   getErrorByPath,
@@ -15,7 +16,7 @@ import createForm, {
   getTouchedFields,
   setInitialValues
 } from '../form';
-import type {FieldError, Form, Options, Name} from '../form';
+import type {FieldError, Form, FormEvents, Options, Name} from '../form';
 import type {FieldPath, PathValueOf} from '../types';
 import createPath from '../path';
 import type {Path} from '../path';
@@ -131,7 +132,7 @@ interface WatchCache<T> {
  * snapshot and notifies. Omitted, the historical drop-and-notify pipeline
  * runs byte-for-byte unchanged.
  */
-function useWatchCore<T>(
+export function useWatchCore<T>(
   subscribeFactory: (invalidate: () => void) => () => void,
   getter: () => T,
   isEqual?: (prev: T, next: T) => boolean
@@ -222,8 +223,8 @@ function useWatchCore<T>(
  * `useSelector` compare. Omitted, behavior is unchanged.
  */
 export function useWatch<T>(
-  emitter: EventEmitter,
-  event: string,
+  emitter: EventEmitter<FormEvents>,
+  event: SubscribeEvent,
   getter: () => T,
   isEqual?: (prev: T, next: T) => boolean
 ): T {
@@ -377,8 +378,122 @@ export function useTouchedFields(form: Form): string[] {
   return useWatch(form.emitter, 'touched', getTouchedFields.bind(null, form));
 }
 
+/**
+ * Aggregate snapshot of the whole form's state flags — the one-subscription
+ * counterpart of react-hook-form's `formState` object (no errors object;
+ * per-field error state stays with `useError`/`useFieldErrors`, and
+ * `hasErrors`/`isValid` cover the whole-form questions).
+ *
+ * Recomputed on every state-bearing event; the field-wise comparator keeps
+ * the returned reference stable while nothing observably changed, so
+ * `useFormState(form).isDirty` re-renders no more often than the dedicated
+ * {@link useIsDirty}. Cheaper than calling the granular hooks one by one
+ * (one subscription and one snapshot instead of one per flag).
+ */
+export interface FormState {
+  /** Any live value differs from its baseline (see {@link isDirty}). */
+  isDirty: boolean;
+  /** Dirty fields keyed by user-facing dotted path ('a.b', 'a.0.c'). */
+  dirtyFields: Record<string, boolean>;
+  /** At least one field is touched. */
+  isTouched: boolean;
+  /** Touched fields' user-facing dotted paths. */
+  touchedFields: string[];
+  /** Any error registered (field or form level). */
+  hasErrors: boolean;
+  /** No errors are registered — react-hook-form's `isValid` semantics.
+   * In-flight validation is NOT factored in ({@link isValidating} is the
+   * separate signal; async rounds temporarily pass this flag like RHF's). */
+  isValid: boolean;
+  isSubmitting: boolean;
+  /** Any validation round is running (field, form-level, or a pending
+   * debounce window). */
+  isValidating: boolean;
+  isSubmitSuccessful: boolean | undefined;
+  submitCount: number;
+  /** The form-level disabled flag (fields OR their own `disabled`). */
+  disabled: boolean;
+}
+
+/** Events any FormState field can react to: each recomputes the whole
+ * snapshot — the comparator, not per-flag subscriptions, keeps the
+ * re-render surface minimal. */
+const FORM_STATE_EVENTS: readonly SubscribeEvent[] = [
+  'change',
+  'errors',
+  'touched',
+  'validating',
+  'submitting',
+  'submitCount',
+  'submitSuccessful',
+  'disabled'
+];
+
+function getFormState(form: Form): FormState {
+  return {
+    isDirty: isDirty(form),
+    dirtyFields: getDirtyFields(form),
+    isTouched: form.touched.size > 0,
+    touchedFields: getTouchedFields(form),
+    hasErrors: hasErrors(form),
+    isValid: !hasErrors(form),
+    isSubmitting: form.isSubmitting,
+    isValidating: form.validating.size > 0,
+    isSubmitSuccessful: form.isSubmitSuccessful,
+    submitCount: form.submitCount,
+    disabled: form.disabled
+  };
+}
+
+/** Field-wise equality: reference checks where the getter already memoizes
+ * (dirtyFields), element-wise for the fresh array getTouchedFields builds,
+ * value checks for the flags. */
+function isSameFormState(a: FormState, b: FormState): boolean {
+  const sameTouched =
+    a.touchedFields.length === b.touchedFields.length &&
+    a.touchedFields.every((path, i) => path === b.touchedFields[i]);
+  return (
+    a.isDirty === b.isDirty &&
+    a.dirtyFields === b.dirtyFields &&
+    a.isTouched === b.isTouched &&
+    sameTouched &&
+    a.hasErrors === b.hasErrors &&
+    a.isValid === b.isValid &&
+    a.isSubmitting === b.isSubmitting &&
+    a.isValidating === b.isValidating &&
+    a.isSubmitSuccessful === b.isSubmitSuccessful &&
+    a.submitCount === b.submitCount &&
+    a.disabled === b.disabled
+  );
+}
+
+export function useFormState(form: Form): FormState {
+  const getter = useCallback(() => getFormState(form), [form]);
+  const subscribeFactory = useCallback(
+    (invalidate: () => void) => {
+      const offs = FORM_STATE_EVENTS.map(event =>
+        on(form.emitter, event, invalidate)
+      );
+      return () => {
+        for (const off of offs) off();
+      };
+    },
+    [form.emitter]
+  );
+  return useWatchCore(subscribeFactory, getter, isSameFormState);
+}
+
 export function useHasErrors(form: Form): boolean {
   return useWatch(form.emitter, 'errors', hasErrors.bind(null, form));
+}
+
+/**
+ * Get whether the form currently has no errors — react-hook-form's
+ * `formState.isValid` counterpart. Subscribes to the `'errors'` event only;
+ * in-flight validation does not flip it (see {@link useIsValidating}).
+ */
+export function useIsValid(form: Form): boolean {
+  return useWatch(form.emitter, 'errors', () => !hasErrors(form));
 }
 
 export function useIsSubmitting(form: Form): boolean {

@@ -350,3 +350,69 @@ describe('Form', () => {
     ]);
   });
 });
+
+describe('Form action', () => {
+  it('dispatches validated values as FormData after local callbacks', async () => {
+    const user = userEvent.setup();
+    const action = vi.fn(async formData => {
+      expect(formData.get('name')).toBe('ada');
+      expect(formData.get('qty')).toBe('0');
+    });
+    const onSubmit = vi.fn();
+    render(
+      <Form
+        initialValues={{name: '', qty: 0}}
+        onSubmit={onSubmit}
+        action={action}
+      >
+        <Field name="name" />
+        <Field name="qty" type="number" />
+        <button type="submit">Save</button>
+      </Form>
+    );
+    await user.type(screen.getByRole('textbox'), 'ada');
+    await user.click(screen.getByRole('button', {name: 'Save'}));
+
+    await vi.waitFor(() => expect(action).toHaveBeenCalledTimes(1));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    // onSubmit ran before the action dispatch.
+    expect(onSubmit.mock.invocationCallOrder[0]).toBeLessThan(
+      action.mock.invocationCallOrder[0]
+    );
+  });
+
+  it('does not dispatch when validation fails', async () => {
+    const user = userEvent.setup();
+    const action = vi.fn();
+    const onInvalidSubmit = vi.fn();
+    render(
+      <Form
+        initialValues={{email: ''}}
+        action={action}
+        onInvalidSubmit={onInvalidSubmit}
+      >
+        <Field name="email" rules={{required: true}} />
+        <button type="submit">Save</button>
+      </Form>
+    );
+    await user.click(screen.getByRole('button', {name: 'Save'}));
+    await vi.waitFor(() => expect(onInvalidSubmit).toHaveBeenCalledTimes(1));
+    expect(action).not.toHaveBeenCalled();
+  });
+
+  it('passes array values as multiple FormData entries and files through', async () => {
+    const user = userEvent.setup();
+    const action = vi.fn(formData => {
+      expect(formData.getAll('tag')).toEqual(['a', 'b']);
+      expect(formData.get('file').name).toBe('x.txt');
+    });
+    const file = new File(['x'], 'x.txt', {type: 'text/plain'});
+    render(
+      <Form initialValues={{tag: ['a', 'b'], file}} action={action}>
+        <button type="submit">Save</button>
+      </Form>
+    );
+    await user.click(screen.getByRole('button', {name: 'Save'}));
+    await vi.waitFor(() => expect(action).toHaveBeenCalledTimes(1));
+  });
+});

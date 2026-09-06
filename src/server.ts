@@ -55,6 +55,57 @@ export interface ValidateValuesResult<T extends Record<string, any> = any> {
   errors: FieldErrorEntry[];
 }
 
+/** Append one value under `key` into `fd`. Arrays and FileLists flatten
+ * to one entry per item (FormData's multi-entry convention); Files keep
+ * their name; Dates become ISO strings; other objects JSON.stringify;
+ * booleans/numbers/strings String() as a native form submit would. */
+function appendFormDataValue(fd: FormData, key: string, value: any): void {
+  if (value == null) return;
+  if (Array.isArray(value)) {
+    for (const item of value) appendFormDataValue(fd, key, item);
+    return;
+  }
+  if (typeof FileList !== 'undefined' && value instanceof FileList) {
+    for (let i = 0; i < value.length; i++) fd.append(key, value.item(i)!);
+    return;
+  }
+  if (typeof File !== 'undefined' && value instanceof File) {
+    fd.append(key, value, value.name);
+    return;
+  }
+  if (typeof Blob !== 'undefined' && value instanceof Blob) {
+    fd.append(key, value);
+    return;
+  }
+  if (value instanceof Date) {
+    fd.append(key, value.toISOString());
+    return;
+  }
+  fd.append(
+    key,
+    typeof value === 'object' ? JSON.stringify(value) : String(value)
+  );
+}
+
+/**
+ * Convert a values object into FormData — the transport shape React 19
+ * Server Actions and multipart handlers expect. Built to pair with the
+ * `<Form action>` prop and `validateValues`: the validated (schema-coerced)
+ * values tree lands in the server action as FormData, files included.
+ *
+ * Array values become multiple entries under the same key (FormData's
+ * native multi-value convention); File values keep their name; Dates
+ * become ISO strings; plain objects JSON.stringify; null/undefined are
+ * skipped.
+ */
+export function formDataFromValues(values: Record<string, any>): FormData {
+  const fd = new FormData();
+  for (const key of Object.keys(values)) {
+    appendFormDataValue(fd, key, values[key]);
+  }
+  return fd;
+}
+
 /**
  * Validate a payload of values on the server — no form instance, no
  * React.

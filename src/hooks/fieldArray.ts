@@ -71,7 +71,7 @@ export interface UseFieldArrayResult {
  */
 export function useFieldArrayCore(
   options: {name: Name; form?: Form},
-  Context: Context<any>
+  Context: Context<Form<any> | null>
 ): UseFieldArrayResult {
   // Read the context unconditionally (hook call order must be stable), then
   // let an explicitly passed form win — works without a <FormProvider>.
@@ -252,7 +252,7 @@ export interface UseFieldArrayItemResult<TValue = any> {
  */
 export function useFieldArrayItemCore<TValue = any>(
   options: {name: Name; id: string; form?: Form},
-  Context: Context<any>
+  Context: Context<Form<any> | null>
 ): UseFieldArrayItemResult<TValue> {
   // Read the context unconditionally (hook call order must be stable), then
   // let an explicitly passed form win — works without a <FormProvider>.

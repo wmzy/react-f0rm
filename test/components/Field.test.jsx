@@ -11,6 +11,8 @@ import {
 } from '../../src/components/Field';
 import createForm, {
   getErrors,
+  getValue,
+  getValues,
   setError,
   setFocus,
   setDisabled,
@@ -598,5 +600,107 @@ describe('Field', () => {
     expect(box.getAttribute('aria-invalid')).toBe('true');
     // User-provided ids stay ahead of the generated error id.
     expect(box.getAttribute('aria-describedby')).toBe('terms-hint terms');
+  });
+});
+
+describe('Field type="file"', () => {
+  it('never binds a value prop and stores picked files in the form', () => {
+    const form = createForm({initialValues: {avatar: undefined}});
+    render(
+      <Form form={form}>
+        <Field type="file" name="avatar" />
+      </Form>
+    );
+    const input = document.querySelector('input[type="file"]');
+    expect(input.hasAttribute('value')).toBe(false);
+
+    const files = [new File(['hello'], 'a.txt', {type: 'text/plain'})];
+    fireEvent.change(input, {target: {files}});
+    expect(getValue(form, 'avatar')).toBe(files);
+    // No controlled-file warning path: the element stays value-free.
+    expect(input.hasAttribute('value')).toBe(false);
+  });
+
+  it('passes picked files through getValues for submission', () => {
+    const form = createForm({initialValues: {avatar: undefined, note: 'x'}});
+    render(
+      <Form form={form}>
+        <Field type="file" name="avatar" />
+        <Field name="note" />
+      </Form>
+    );
+    const input = document.querySelector('input[type="file"]');
+    const files = [
+      new File(['data'], 'b.bin', {type: 'application/octet-stream'})
+    ];
+    fireEvent.change(input, {target: {files}});
+    const values = getValues(form);
+    expect(values.note).toBe('x');
+    expect(values.avatar).toBe(files);
+  });
+});
+
+describe('Field uncontrolled', () => {
+  it('skips re-rendering the field on its own changes but keeps the store current', () => {
+    let renders = 0;
+    const CountingInput = React.forwardRef((props, ref) => {
+      renders++;
+      return <input {...props} ref={ref} />;
+    });
+    const form = createForm({initialValues: {u: 'init'}});
+    render(
+      <Form form={form}>
+        <Field name="u" uncontrolled as={CountingInput} />
+      </Form>
+    );
+    const input = screen.getByDisplayValue('init');
+    expect(renders).toBe(1);
+
+    fireEvent.change(input, {target: {value: 'typed'}});
+    expect(getValue(form, 'u')).toBe('typed');
+    // Store write only: the field body never re-rendered.
+    expect(renders).toBe(1);
+    // The DOM element keeps its own text (uncontrolled semantics).
+    expect(input.value).toBe('typed');
+  });
+
+  it('leaves the DOM value to the element while a controlled twin re-applies transforms', () => {
+    const form = createForm({initialValues: {u: 'init', c: 'init'}});
+    const up = e => e.target.value.toUpperCase();
+    render(
+      <Form form={form}>
+        <Field name="u" uncontrolled eventToValue={up} />
+        <Field name="c" eventToValue={up} />
+      </Form>
+    );
+    const [uInput, cInput] = screen.getAllByDisplayValue('init');
+    fireEvent.change(uInput, {target: {value: 'abc'}});
+    fireEvent.change(cInput, {target: {value: 'abc'}});
+    expect(getValue(form, 'u')).toBe('ABC');
+    expect(getValue(form, 'c')).toBe('ABC');
+    // Controlled re-render pushes the transformed value back into the DOM;
+    // the uncontrolled element keeps what the user typed.
+    expect(uInput.value).toBe('abc');
+    expect(cInput.value).toBe('ABC');
+  });
+
+  it('still re-renders on error state, like register', () => {
+    let renders = 0;
+    const CountingInput = React.forwardRef((props, ref) => {
+      renders++;
+      return <input {...props} ref={ref} />;
+    });
+    const form = createForm({initialValues: {u: 'init'}});
+    render(
+      <Form form={form}>
+        <Field name="u" uncontrolled as={CountingInput} />
+      </Form>
+    );
+    expect(renders).toBe(1);
+    act(() => setError(form, 'u', 'oops'));
+    expect(renders).toBe(2);
+    expect(screen.getByDisplayValue('init').getAttribute('aria-invalid')).toBe(
+      'true'
+    );
   });
 });

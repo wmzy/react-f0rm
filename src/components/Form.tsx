@@ -3,6 +3,7 @@ import {handleSubmit} from '../form';
 // 别名规避 rollup-plugin-dts 对「type import 与本地 default export 同名」
 // 的 Identifier already declared 误报（类型引用语义不变）。
 import type {Form as FormApi} from '../form';
+import {formDataFromValues} from '../server';
 import {FormContext} from '../context';
 import useForm from '../hooks/form';
 
@@ -51,6 +52,16 @@ interface FormProps<T extends Record<string, any> = any> extends Omit<
   /** May be async, same as onSubmit. */
   onValidSubmit?: (values: T, e: React.FormEvent) => void | Promise<void>;
   /**
+   * React 19 Server Action target: after validation passes (and after
+   * onSubmit/onValidSubmit), the validated, schema-coerced values are
+   * converted to FormData ({@link formDataFromValues} — files, arrays and
+   * nested objects included) and dispatched to this callback, e.g.
+   * `action={createUser}` for a server action or
+   * `action={formData => startTransition(() => dispatch(formData))}` in a
+   * useActionState bridge. `isSubmitting` covers the whole flight.
+   */
+  action?: (formData: FormData) => void | Promise<void>;
+  /**
    * Called when validation fails.
    * @param errors array of {path, type, message} entries in insertion
    *        order; path is the dotted field path ('a.b', 'list.0'), type is
@@ -79,6 +90,7 @@ export default function Form<T extends Record<string, any> = any>({
   onSubmit,
   onValidSubmit,
   onInvalidSubmit,
+  action,
   shouldFocusError,
   ...props
 }: FormProps<T>) {
@@ -89,7 +101,8 @@ export default function Form<T extends Record<string, any> = any>({
     onSubmit,
     onValidSubmit,
     onInvalidSubmit,
-    shouldFocusError
+    shouldFocusError,
+    onAction: action ? values => action(formDataFromValues(values)) : undefined
   });
 
   // Route the form into the caller's isolated context (createFormContext)

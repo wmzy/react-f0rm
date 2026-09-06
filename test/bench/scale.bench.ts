@@ -3,6 +3,10 @@
  * the unit suite; run with `npx vitest bench --run
  * test/bench/scale.bench.ts`). Three scenarios:
  *
+ * Vitest 5 benchmark API: the top-level `bench` import is gone — benches
+ * register through the test-context fixture and run inside a regular
+ * `test()` (`await bench(name, fn).run({time, warmupTime})`).
+ *
  * Scenario A "1000-field controlled form": 1000 controlled inputs mounted
  *   once via @testing-library/react (outside the timed loop), then change
  *   input #500 per iteration. The f0rm bench guards inline that exactly one
@@ -24,7 +28,7 @@
  *   over the whole form -- the kick-all + settle-until-empty pipeline
  *   submit rides on.
  */
-import {bench, describe} from 'vitest';
+import {test} from 'vitest';
 import {cleanup, fireEvent, render, screen} from '@testing-library/react';
 import * as React from 'react';
 import {Controller, useForm as useRhfForm} from 'react-hook-form';
@@ -32,9 +36,10 @@ import Form from '../../src/components/Form';
 import {Field} from '../../src/components/Field';
 import createForm, {trigger} from '../../src/form';
 import type {Validator} from '../../src/hooks/validate';
+import {waitUntil} from '../../src/util';
 
 /** Longer time/warmup than the tinybench defaults to keep rme < 5%. */
-const BENCH_OPTIONS = {time: 2000, warmupTime: 1000};
+const RUN_OPTIONS = {time: 2000, warmupTime: 1000};
 
 const h = React.createElement;
 
@@ -199,48 +204,42 @@ function mountMixedOnce() {
 
 /** -- Benches --------------------------------------------------------- */
 
-describe('1000-field controlled form - single field change', () => {
+test('1000-field controlled form - single field change', async ({bench}) => {
   const f0rmInput = mountOnce(h(F0rmThousandFields), `f${TARGET_A}`);
   const rhfControllerInput = mountOnce(
     h(RhfThousandControllers),
     `f${TARGET_A}`
   );
-  // Rotate the written value: an identical value would compare equal in the
-  // subscription snapshot and skip the re-render we are here to measure.
+  // Rotate the written value: an identical value would compare equal in
+  // the subscription snapshot and skip the re-render being measured.
   let flip = 0;
 
-  bench(
-    'f0rm Field: change re-renders 1 of 1000',
-    () => {
-      const input = f0rmInput();
-      const before = fieldRenders;
-      flip = (flip + 1) % 4;
-      fireEvent.change(input, {target: {value: `w${flip}`}});
-      const rerenders = fieldRenders - before;
-      if (rerenders !== 1)
-        throw new Error(
-          `field-level subscription broken at scale: ${rerenders} of ${COUNT_A} fields re-rendered`
-        );
-    },
-    BENCH_OPTIONS
-  );
+  await bench('f0rm Field: change re-renders 1 of 1000', () => {
+    const input = f0rmInput();
+    const before = fieldRenders;
+    flip = (flip + 1) % 4;
+    fireEvent.change(input, {target: {value: `w${flip}`}});
+    const rerenders = fieldRenders - before;
+    if (rerenders !== 1)
+      throw new Error(
+        `field-level subscription broken at scale: ${rerenders} of ${COUNT_A} fields re-rendered`
+      );
+  }).run(RUN_OPTIONS);
 
-  bench(
-    'react-hook-form Controller: change 1 of 1000',
-    () => {
-      const input = rhfControllerInput();
-      flip = (flip + 1) % 4;
-      fireEvent.change(input, {target: {value: `w${flip}`}});
-    },
-    BENCH_OPTIONS
-  );
+  await bench('react-hook-form Controller: change 1 of 1000', () => {
+    const input = rhfControllerInput();
+    flip = (flip + 1) % 4;
+    fireEvent.change(input, {target: {value: `w${flip}`}});
+  }).run(RUN_OPTIONS);
 });
 
-describe('async validation storm - 50 debounced async validators', () => {
+test('async validation storm - 50 debounced async validators', async ({
+  bench
+}) => {
   const stormInputs = mountStormOnce();
   let flip = 0;
 
-  bench(
+  await bench(
     'burst: 3 changes x 50 fields, settle via trigger (1 run per field)',
     async () => {
       const inputs = stormInputs();
@@ -251,23 +250,29 @@ describe('async validation storm - 50 debounced async validators', () => {
         fireEvent.change(input, {target: {value: `w${(flip + 1) % 4}`}});
         fireEvent.change(input, {target: {value: `w${(flip + 2) % 4}`}});
       }
-      // Empty name list: kicks nothing, just waits out every debounce
-      // window and in-flight promise on the form.
-      await trigger(stormForm, []);
+      // Wait out every debounce window and in-flight promise: the same
+      // validating-set drain trigger's wait uses (trigger with an empty
+      // name list resolves vacuously — it kicks and waits nothing — so
+      // the settle wait is spelled out here).
+      await waitUntil(
+        stormForm.emitter,
+        'validating',
+        () => stormForm.validating.size === 0,
+        () => false
+      );
       const runs = asyncRuns - runsBefore;
       if (runs !== COUNT_B)
         throw new Error(
           `debounce coalescing broken: ${runs} validator runs for a 3 x ${COUNT_B} burst`
         );
-    },
-    BENCH_OPTIONS
-  );
+    }
+  ).run(RUN_OPTIONS);
 });
 
-describe('full trigger wait - 100 mixed validators', () => {
+test('full trigger wait - 100 mixed validators', async ({bench}) => {
   const mixedInput = mountMixedOnce();
 
-  bench(
+  await bench(
     'await trigger(form): 50 sync + 50 async validators settle',
     async () => {
       // Touch the tree so the lazy mount happens before timing (warmup
@@ -275,7 +280,6 @@ describe('full trigger wait - 100 mixed validators', () => {
       mixedInput();
       const ok = await trigger(triggerForm);
       if (!ok) throw new Error('expected the all-valid form to pass trigger');
-    },
-    BENCH_OPTIONS
-  );
+    }
+  ).run(RUN_OPTIONS);
 });

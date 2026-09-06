@@ -2,7 +2,7 @@ import {on} from '@for-fun/event-emitter';
 import type {EventEmitter} from '@for-fun/event-emitter';
 import createPath from './path';
 import type {Name, Path} from './path';
-import type {Form} from './form';
+import type {Form, FormEvents} from './form';
 
 /** Subscription granularity for {@link onPathEvent}.
  * - `'leaf'`: the subscriber reads exactly one key ({@link
@@ -47,8 +47,8 @@ function isDescendant(key: string, ancestorKey: string): boolean {
  * @return unsubscribe function
  */
 export function onPathEvent(
-  emitter: EventEmitter,
-  event: string,
+  emitter: EventEmitter<FormEvents>,
+  event: SubscribeEvent,
   path: Path,
   scope: WatchScope,
   cb: () => void
@@ -81,8 +81,8 @@ export function onPathEvent(
  * @return unsubscribe function
  */
 export function onKeyEvent(
-  emitter: EventEmitter,
-  event: string,
+  emitter: EventEmitter<FormEvents>,
+  event: SubscribeEvent,
   key: string,
   cb: () => void
 ): () => void {
