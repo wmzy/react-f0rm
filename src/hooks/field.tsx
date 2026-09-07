@@ -33,10 +33,10 @@ import {isPromise} from '../util';
  * defined for the test environment in vitest.config.ts. */
 declare const __DEV__: boolean;
 
-export interface UseFieldOptions<
+export type UseFieldOptions<
   TValues extends Record<string, any> = any,
   TPath extends FieldPath<TValues> | Name = Name
-> {
+> = {
   form?: Form<TValues>;
   name: TPath;
   initialValue?: any;
@@ -122,17 +122,17 @@ export interface UseFieldOptions<
    * the field's own path is a no-op (its own change already validates it).
    */
   validateDeps?: FieldPath<TValues>[];
-}
+};
 
 /**
  * The result of {@link useField}. Deliberately a closed shape: no index
  * signature, so a typo'd property access (`field.vlaue`) is a type error
  * instead of silently reading `undefined`.
  */
-export interface UseFieldResult<
+export type UseFieldResult<
   TValues extends Record<string, any> = any,
   TPath extends FieldPath<TValues> | Name = Name
-> {
+> = {
   /** The form instance this field is bound to (explicit prop or context) —
    * handy for consumers that need direct access to the headless API. */
   form: Form<TValues>;
@@ -162,7 +162,7 @@ export interface UseFieldResult<
    * whose element is not bound neither throws nor focuses anything.
    */
   focusRef: (el: any) => void;
-}
+};
 
 /** Does `rules` declare any constraint? `messages` alone does not
  * validate anything, and a constraint-free object would otherwise compile

@@ -50,7 +50,7 @@ export type SyncValidator = (
 ) => string | FieldError | (string | FieldError)[] | undefined;
 
 /** Options for {@link useValidate}. */
-export interface UseValidateOptions {
+export type UseValidateOptions = {
   /**
    * Delay in milliseconds before a validation kick actually runs the
    * debounced validator. `0` (default) runs immediately; a positive value
@@ -71,7 +71,7 @@ export interface UseValidateOptions {
    * check as the whole round and clears the field's errors.
    */
   sync?: SyncValidator;
-}
+};
 
 export default function useValidate(
   validate: Validator | undefined,

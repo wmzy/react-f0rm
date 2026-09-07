@@ -34,7 +34,7 @@ export type {ValidationOutcome};
 /** The outcome of {@link validateValues}: the error-free flag, the values
  * once the round has landed (schema-coerced where the validator produced
  * parsed values), and every error the round wrote as flat entries. */
-export interface ValidateValuesResult<T extends Record<string, any> = any> {
+export type ValidateValuesResult<T extends Record<string, any> = any> = {
   /** Whether the round landed no errors — `trigger`'s boolean. An invalid
    * payload is a normal outcome, never a rejection: unlike
    * `ensureValidate`, server callers learn validity from data instead of
@@ -53,7 +53,7 @@ export interface ValidateValuesResult<T extends Record<string, any> = any> {
    * client form (the Server Actions bridge; see the docs' Server Actions
    * guide). */
   errors: FieldErrorEntry[];
-}
+};
 
 /** Append one value under `key` into `fd`. Arrays and FileLists flatten
  * to one entry per item (FormData's multi-entry convention); Files keep

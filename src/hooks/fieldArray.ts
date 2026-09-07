@@ -47,12 +47,9 @@ function bumpReducer(count: number): number {
   return count + 1;
 }
 
-interface FieldArrayItem {
-  id: string;
-  index: number;
-}
+type FieldArrayItem = {id: string; index: number};
 
-export interface UseFieldArrayResult {
+export type UseFieldArrayResult = {
   fields: FieldArrayItem[];
   append: (value: any) => void;
   prepend: (value: any) => void;
@@ -62,7 +59,7 @@ export interface UseFieldArrayResult {
   move: (from: number, to: number) => void;
   replace: (values: any[]) => void;
   update: (index: number, value: any) => void;
-}
+};
 
 /**
  * Shared core of {@link useFieldArray} and the per-instance hook returned by
@@ -224,7 +221,7 @@ export default function useFieldArray(options: {
  * `name` (path key) so nested fields can build on it —
  * `useField({name: ['tags', item.index, 'label']})`.
  */
-export interface UseFieldArrayItemResult<TValue = any> {
+export type UseFieldArrayItemResult<TValue = any> = {
   value: TValue;
   /** Overwrite this row's value in place (same array-layer write as
    * `update(index, value)`: the row's id and position are kept). */
@@ -242,7 +239,7 @@ export interface UseFieldArrayItemResult<TValue = any> {
    * undefined and nothing writes the dangling path. */
   index: number;
   form: Form;
-}
+};
 
 /**
  * Shared core of {@link useFieldArrayItem} and the per-instance hook

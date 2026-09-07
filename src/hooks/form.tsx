@@ -111,10 +111,7 @@ export default function useForm<T extends Record<string, any> = any>(
 }
 
 /** Per-hook snapshot cache for {@link useWatch}. */
-interface WatchCache<T> {
-  hasValue: boolean;
-  value?: T;
-}
+type WatchCache<T> = {hasValue: boolean; value?: T};
 
 /**
  * Shared core of {@link useWatch} and the path-scoped hooks: a
@@ -390,7 +387,7 @@ export function useTouchedFields(form: Form): string[] {
  * {@link useIsDirty}. Cheaper than calling the granular hooks one by one
  * (one subscription and one snapshot instead of one per flag).
  */
-export interface FormState {
+export type FormState = {
   /** Any live value differs from its baseline (see {@link isDirty}). */
   isDirty: boolean;
   /** Dirty fields keyed by user-facing dotted path ('a.b', 'a.0.c'). */
@@ -413,7 +410,7 @@ export interface FormState {
   submitCount: number;
   /** The form-level disabled flag (fields OR their own `disabled`). */
   disabled: boolean;
-}
+};
 
 /** Events any FormState field can react to: each recomputes the whole
  * snapshot — the comparator, not per-flag subscriptions, keeps the

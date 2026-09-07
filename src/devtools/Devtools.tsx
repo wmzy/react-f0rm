@@ -12,14 +12,14 @@ import {
   useWatch
 } from '../hooks/form';
 import JsonTree from './JsonTree';
-import './styles';
+import {injectDevtoolsStyles} from './styles';
 
 /** Corner the panel docks to. */
 export type DevtoolsPosition =
   'top-right' | 'bottom-right' | 'top-left' | 'bottom-left';
 
 /** Props for {@link Devtools}. */
-export interface DevtoolsProps<T extends Record<string, any> = any> {
+export type DevtoolsProps<T extends Record<string, any> = any> = {
   /**
    * Form instance to inspect. When omitted, the panel reads the closest
    * `<Form>` / FormProvider ancestor and throws if there is none.
@@ -27,7 +27,7 @@ export interface DevtoolsProps<T extends Record<string, any> = any> {
   form?: Form<T>;
   /** Corner to dock the panel in. Defaults to `'top-right'`. */
   position?: DevtoolsPosition;
-}
+};
 
 type TabId = 'values' | 'errors' | 'touched' | 'dirty';
 
@@ -68,6 +68,11 @@ export default function Devtools<T extends Record<string, any> = any>({
   form,
   position = 'top-right'
 }: DevtoolsProps<T>) {
+  // Idempotent + SSR-guarded; moving it off module scope keeps the
+  // devtools entry free of import-time side effects (package.json
+  // declares `sideEffects: false`, so bundlers may drop a bare
+  // `import './styles'` in production builds).
+  injectDevtoolsStyles();
   const contextForm = useContext(FormContext);
   const f: Form<any> | null = form ?? contextForm;
   if (!f) {

@@ -8,12 +8,12 @@ import type {Name} from '../path';
  * Props for {@link FormField}: every {@link UseFieldOptions} option plus a
  * render-prop `children` receiving the bound field result.
  */
-export interface FormFieldProps<
+export type FormFieldProps<
   TValues extends Record<string, any> = any,
   TPath extends FieldPath<TValues> | Name = Name
-> extends UseFieldOptions<TValues, TPath> {
+> = UseFieldOptions<TValues, TPath> & {
   children: (field: UseFieldResult<TValues, TPath>) => React.ReactNode;
-}
+};
 
 /**
  * Headless field bound through a render prop — the non-hook counterpart of

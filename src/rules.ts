@@ -12,7 +12,7 @@ export type RuleType =
  * rule name) instead of only surfacing through the browser's validity
  * bubble, so any design system can render the messages uniformly.
  */
-export interface FieldRules {
+export type FieldRules = {
   /**
    * Fails on empty values: `''`, `undefined` or `null` (`0` and `false`
    * count as filled). A string is the error message; `true` uses the
@@ -36,7 +36,7 @@ export interface FieldRules {
    * centralizing or localizing messages.
    */
   messages?: Partial<Record<Exclude<RuleType, 'required'>, string>>;
-}
+};
 
 /** Default English messages, aligned with RHF's default-message style. */
 function defaultMessage(type: RuleType, bound?: number): string {

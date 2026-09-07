@@ -286,5 +286,3 @@ export function injectDevtoolsStyles(): void {
   style.textContent = CSS;
   document.head.appendChild(style);
 }
-
-injectDevtoolsStyles();

@@ -15,10 +15,10 @@ import type {FieldPath, PathValueOf} from '../types';
  * bare `<Field name="x" />` (context-resolved, untyped) call sites exactly
  * as permissive as before.
  */
-interface UseFieldOptions<
+type UseFieldOptions<
   TValues extends Record<string, any> = any,
   TPath extends FieldPath<TValues> | Name = Name
-> {
+> = {
   form?: Form<TValues>;
   name?: TPath;
   initialValue?: any;
@@ -82,12 +82,12 @@ interface UseFieldOptions<
    */
   uncontrolled?: boolean;
   [key: string]: any;
-}
+};
 
-interface FieldProps<
+type FieldProps<
   TValues extends Record<string, any> = any,
   TPath extends FieldPath<TValues> | Name = Name
-> extends UseFieldOptions<TValues, TPath> {
+> = UseFieldOptions<TValues, TPath> & {
   as?: React.ComponentType<any>;
   asProps?: Record<string, any>;
   eventToValue?: (e: any) => any;
@@ -102,7 +102,7 @@ interface FieldProps<
    * wiring for free.
    */
   renderError?: (error: string, id: string) => React.ReactNode;
-}
+};
 
 function setRef<T>(ref: React.Ref<T> | undefined, value: T | null) {
   if (typeof ref === 'function') {
@@ -166,14 +166,14 @@ export function fieldErrorId(name: Name): string {
  * same types, and the inline form trips no-use-before-define on the type
  * parameters.
  */
-interface FieldComponent {
+type FieldComponent = {
   <
     TValues extends Record<string, any> = any,
     TPath extends FieldPath<TValues> | Name = Name
   >(
     props: FieldProps<TValues, TPath> & React.RefAttributes<HTMLInputElement>
   ): React.ReactElement | null;
-}
+};
 
 export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
   (
@@ -309,23 +309,23 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
   }
 ) as FieldComponent;
 
-interface CheckboxProps<
+type CheckboxProps<
   TValues extends Record<string, any> = any,
   TPath extends FieldPath<TValues> | Name = Name
-> extends UseFieldOptions<TValues, TPath> {}
+> = UseFieldOptions<TValues, TPath>;
 
 /**
  * Callable shape of {@link Checkbox}: the same form-typed `validate`
  * inference contract as {@link FieldComponent}.
  */
-interface CheckboxComponent {
+type CheckboxComponent = {
   <
     TValues extends Record<string, any> = any,
     TPath extends FieldPath<TValues> | Name = Name
   >(
     props: CheckboxProps<TValues, TPath> & React.RefAttributes<HTMLInputElement>
   ): React.ReactElement | null;
-}
+};
 
 export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
   (
@@ -383,13 +383,13 @@ export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
   }
 ) as CheckboxComponent;
 
-interface SelectProps<
+type SelectProps<
   TValues extends Record<string, any> = any,
   TPath extends FieldPath<TValues> | Name = Name
-> extends UseFieldOptions<TValues, TPath> {
+> = UseFieldOptions<TValues, TPath> & {
   multiple?: boolean;
   children?: React.ReactNode;
-}
+};
 
 /**
  * Controlled <select>. Options are passed as children (<option> elements).
@@ -411,14 +411,14 @@ function toSelectValue(
  * Callable shape of {@link Select}: the same form-typed `validate`
  * inference contract as {@link FieldComponent}.
  */
-interface SelectComponent {
+type SelectComponent = {
   <
     TValues extends Record<string, any> = any,
     TPath extends FieldPath<TValues> | Name = Name
   >(
     props: SelectProps<TValues, TPath> & React.RefAttributes<HTMLSelectElement>
   ): React.ReactElement | null;
-}
+};
 
 export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
   (

@@ -13,13 +13,13 @@ import {subscribe} from './subscribe';
 /** Storage surface {@link persistForm} needs — the browser's
  * `localStorage`/`sessionStorage` satisfy it as-is; pass a custom object
  * (or a framework adapter) for tests, SSR or non-DOM runtimes. */
-export interface PersistStorage {
+export type PersistStorage = {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
-}
+};
 
 /** Options for {@link persistForm}. */
-export interface PersistOptions {
+export type PersistOptions = {
   /** Storage key the form snapshot lives under. */
   key: string;
   /** Where to read/write. Defaults to `window.localStorage` when it
@@ -34,7 +34,7 @@ export interface PersistOptions {
    * a throwing parse (corrupted/foreign payload) is swallowed and the
    * stored snapshot ignored. */
   deserialize?: (raw: string) => Record<string, any>;
-}
+};
 
 /**
  * Persist a form's values to a storage backend (localStorage by default)

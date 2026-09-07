@@ -22,10 +22,7 @@ export type {FieldPath, PathValue} from './types';
 
 /** A field error: `type` identifies the error kind ('custom' for plain
  * string errors), `message` is the display text. */
-export interface FieldError {
-  type: string;
-  message: string;
-}
+export type FieldError = {type: string; message: string};
 
 /** A flattened entry from {@link getErrors}. */
 export type FieldErrorEntry = {path: string; type: string; message: string};
@@ -120,7 +117,7 @@ export type FormEvents =
   | ['disabled', []]
   | ['focusError', [key: string, options?: SetFocusOptions]];
 
-export interface Form<T extends Record<string, any> = any> {
+export type Form<T extends Record<string, any> = any> = {
   emitter: EventEmitter<FormEvents>;
   mode: ValidationMode;
   reValidateMode: ReValidateMode;
@@ -174,7 +171,7 @@ export interface Form<T extends Record<string, any> = any> {
    * {@link setDisabled}, which emits a payload-less 'disabled' event so
    * subscribed fields re-render. */
   disabled: boolean;
-}
+};
 
 export type Options<T extends Record<string, any> = any> = {
   initialValues?: T;
@@ -269,10 +266,7 @@ export default function create<T extends Record<string, any> = any>(
 
 /** Per-form memoization of {@link getValues}, the same version-bump/read
  * pattern {@link dirtyFieldsCaches} gives {@link getDirtyFields}. */
-interface ValuesCache {
-  version: number;
-  result: any;
-}
+type ValuesCache = {version: number; result: any};
 
 const valuesCaches = new WeakMap<Form, ValuesCache>();
 
@@ -402,7 +396,7 @@ export function getValueByPath(
  * default to `false`; omitting the options object entirely keeps the plain
  * set-value behavior (no validation, no touched marking, dirty stays
  * derived). */
-export interface SetFieldOptions {
+export type SetFieldOptions = {
   /** Run the field's registered validator (if any) after the value lands,
    * same as triggering that single field. Defaults to `false`. */
   shouldValidate?: boolean;
@@ -415,7 +409,7 @@ export interface SetFieldOptions {
    * omitting the flag) keeps the default derived behavior — dirty while
    * the live value differs from initialValues. */
   shouldDirty?: boolean;
-}
+};
 
 /**
  * Set field value
@@ -653,14 +647,14 @@ export function getFirstError({errors}: Form): string | undefined {
 /** Snapshot of one field's aggregated state, as {@link getFieldState}
  * returns it. `errors` is the stored array shared with the form — treat it
  * as read-only, like every {@link getFieldErrors} result. */
-export interface FieldState<T = any> {
+export type FieldState<T = any> = {
   value: T;
   error: FieldError | undefined;
   errors: FieldError[];
   isDirty: boolean;
   isTouched: boolean;
   isValidating: boolean;
-}
+};
 
 /**
  * Get one field's aggregated state: the layered value ({@link getValue}),
@@ -804,11 +798,11 @@ export function clearErrors(form: Form, name?: Name | Name[]): void {
 }
 
 /** Options accepted by {@link setServerErrors}. */
-export interface SetServerErrorsOptions {
+export type SetServerErrorsOptions = {
   /** Keep existing field errors instead of clearing them first. Defaults
    * to `false`: a fresh server response replaces the prior error state. */
   keepExisting?: boolean;
-}
+};
 
 /**
  * Land a server-side error response on the form: each entry becomes the
@@ -963,10 +957,7 @@ function clearDirtyBaselines(form: Form, key?: string): void {
 /** Per-form memoization of {@link getDirtyFields}. `version` counts value
  * mutations since the cached `result` was computed: bump points increment
  * it, reads reset it, so a non-zero version means the cache is stale. */
-interface DirtyFieldsCache {
-  version: number;
-  result: Record<string, boolean>;
-}
+type DirtyFieldsCache = {version: number; result: Record<string, boolean>};
 
 const dirtyFieldsCaches = new WeakMap<Form, DirtyFieldsCache>();
 
@@ -1061,7 +1052,7 @@ export function isTouched({touched}: Form): boolean {
  * `keepDefaultValue` have no counterparts (removal never validates, and
  * the tombstone is exactly the "do not revive from initialValues" choice).
  */
-export interface RemoveFieldOptions {
+export type RemoveFieldOptions = {
   /** Keep the field's live value and dirty baseline instead of
    * tombstoning: reads and `getValues()` keep returning the value, submit
    * includes it, and dirtiness against initialValues is preserved. */
@@ -1073,7 +1064,7 @@ export interface RemoveFieldOptions {
   keepTouched?: boolean;
   /** Keep the field's errors instead of clearing them. */
   keepError?: boolean;
-}
+};
 
 export function removeField(
   form: Form,
@@ -1214,7 +1205,7 @@ export function setInitialValues(form: Form, initialValues: any): void {
 /** Options accepted by {@link reset}. Every flag defaults to `false` —
  * omitting the object (or any flag) keeps the plain full-reset behavior.
  * Names mirror react-hook-form's reset options to ease migration. */
-export interface ResetOptions {
+export type ResetOptions = {
   /** Keep the current values of fields that are dirty — differ from the
    * pre-reset initialValues (the same rule {@link getDirtyFields} applies).
    * Clean fields fall back to the new initialValues as usual. */
@@ -1240,7 +1231,7 @@ export interface ResetOptions {
   keepSubmitCount?: boolean;
   /** Keep `isSubmitting` instead of resetting it to false. */
   keepIsSubmitting?: boolean;
-}
+};
 
 /** Collect every leaf path of the merged values tree into `out` —
  * structured segments (numeric for array indexes) so each leaf can be
@@ -1349,7 +1340,7 @@ export function reset(
  * provided, the explicit value becomes the live value with no fallback at
  * all. Mirrors react-hook-form's resetField options (`value` plays their
  * `defaultValue`'s role) to ease migration. */
-export interface ResetFieldOptions {
+export type ResetFieldOptions = {
   /** Keep the field's touched flag instead of clearing it. */
   keepTouched?: boolean;
   /** Keep the field's errors instead of clearing them. */
@@ -1357,7 +1348,7 @@ export interface ResetFieldOptions {
   /** Explicit post-reset value for the field — never falls back to
    * initialValues. */
   value?: any;
-}
+};
 
 /**
  * Reset a single field: drop its live value (reads fall back to the
@@ -1423,7 +1414,7 @@ export function hasErrors({errors}: Form): boolean {
 /** Options accepted by {@link trigger}. `shouldTouch` defaults to `false`;
  * omitting the options object entirely keeps the plain validate-only
  * behavior, so the historical two-argument calls are untouched. */
-export interface TriggerOptions {
+export type TriggerOptions = {
   /** Mark every path in the triggered scope as touched — even when
    * validation fails — once the round settles. Mirrors react-hook-form's
    * trigger `shouldTouch`. Defaults to `false`. */
@@ -1438,7 +1429,7 @@ export interface TriggerOptions {
    * `name` the first errored triggered key does. Defaults to `false`.
    */
   shouldFocus?: boolean;
-}
+};
 
 /**
  * Trigger field validation.
@@ -1744,7 +1735,7 @@ const SETTLED = Symbol('form-validate-settled');
  * pending window timer, the in-flight round, and the waiters merged into
  * the current window group. Held in a WeakMap so the Form instance shape
  * is untouched for forms that never set `validateDebounce`. */
-interface FormValidateState {
+type FormValidateState = {
   timer: ReturnType<typeof setTimeout> | null;
   controller: AbortController | null;
   /** Identity of the in-flight round; a superseded round's outcome
@@ -1754,7 +1745,7 @@ interface FormValidateState {
    * form.validating. */
   marked: boolean;
   waiters: Array<{resolve: () => void; reject: (error: unknown) => void}>;
-}
+};
 
 const formValidateStates = new WeakMap<Form, FormValidateState>();
 
@@ -2112,13 +2103,13 @@ export function setDisabled(form: Form, value: boolean): void {
 /** Structural slice of a <form>-like element: an elements collection whose
  * controls expose the constraint-validation members we read. Matches the
  * DOM HTMLFormElement shape without coupling the core to DOM types. */
-interface NativeFormElement {
+type NativeFormElement = {
   elements: ArrayLike<{
     name: string;
     checkValidity: () => boolean;
     validationMessage: string;
   }>;
-}
+};
 
 /**
  * Converts a control's DOM name to the user-visible dotted path. Field
@@ -2169,7 +2160,7 @@ function getNativeErrors(formEl: NativeFormElement): FieldErrorEntry[] {
 
 /** Submit callbacks for {@link handleSubmit}. All optional — a missing
  * callback is simply skipped, matching the <Form> component semantics. */
-export interface HandleSubmitOptions<T extends Record<string, any> = any> {
+export type HandleSubmitOptions<T extends Record<string, any> = any> = {
   /** Called after validation passes, before onValidSubmit. */
   onSubmit?: (values: T, e?: any) => void | Promise<void>;
   /** Called after validation passes, following a successful onSubmit. */
@@ -2199,7 +2190,7 @@ export interface HandleSubmitOptions<T extends Record<string, any> = any> {
    * form's first ':invalid' control is focused directly.
    */
   shouldFocusError?: boolean;
-}
+};
 
 /**
  * Create an async submit handler for `form` — the headless counterpart of
@@ -2294,12 +2285,12 @@ export function handleSubmit<T extends Record<string, any> = any>(
 }
 
 /** Options accepted by {@link setFocus}. All flags default to `false`. */
-export interface SetFocusOptions {
+export type SetFocusOptions = {
   /** Select the field's text after focusing it. Bound fields call
    * `select()` on their element; elements without one (custom `as`
    * components) just focus. */
   shouldSelect?: boolean;
-}
+};
 
 /**
  * Programmatically focus a bound field's element (e.g. the <Field>'s

@@ -9,14 +9,14 @@ const DEFAULT_OPEN_DEPTH = 1;
  * Read-only inspection: the tree never mutates form state, so structural
  * sharing of the inspected value is safe and re-renders stay cheap.
  */
-interface JsonNodeProps {
+type JsonNodeProps = {
   /** Property name (or array index) rendering before the value. */
   name?: string | number;
   /** Value to render. */
   value: unknown;
   /** Current nesting depth (root is 0). */
   depth?: number;
-}
+};
 
 /**
  * One line of the tree: either a collapsible container row

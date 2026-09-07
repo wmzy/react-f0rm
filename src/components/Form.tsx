@@ -21,10 +21,10 @@ import useForm from '../hooks/form';
  * The submit flow itself lives in the headless `handleSubmit` (see form.ts);
  * this component is a thin wrapper that binds it to the rendered <form>.
  */
-interface FormProps<T extends Record<string, any> = any> extends Omit<
+type FormProps<T extends Record<string, any> = any> = Omit<
   React.FormHTMLAttributes<HTMLFormElement>,
   'onSubmit'
-> {
+> & {
   form?: FormApi<T>;
   /**
    * Provide into an isolated context from `createFormContext()` instead of
@@ -80,7 +80,7 @@ interface FormProps<T extends Record<string, any> = any> extends Omit<
    * false to disable.
    */
   shouldFocusError?: boolean;
-}
+};
 
 export default function Form<T extends Record<string, any> = any>({
   form: f1,

@@ -4,18 +4,16 @@ import useField from '../hooks/field';
 import type {Validator} from '../hooks/validate';
 import type {Name} from '../path';
 
-interface GroupProps {
+type GroupProps = {
   children: React.ReactNode;
   name: Name;
   form?: any;
   initialValue?: any;
   validate?: Validator;
   [key: string]: any;
-}
+};
 
-interface ItemProps extends React.InputHTMLAttributes<HTMLInputElement> {
-  value: any;
-}
+type ItemProps = React.InputHTMLAttributes<HTMLInputElement> & {value: any};
 
 /**
  * Shared implementation of the Radio and Checkbox group components: a

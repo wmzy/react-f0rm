@@ -8,13 +8,13 @@ import type {Validator} from '../hooks/validate';
  * dependencies on any schema library. Implemented by zod v3.24+/v4,
  * valibot v1, arktype and others.
  */
-export interface StandardSchemaIssue {
+export type StandardSchemaIssue = {
   readonly message: string;
   readonly path?:
     ReadonlyArray<PropertyKey | {readonly key: PropertyKey}> | undefined;
-}
+};
 
-export interface StandardSchemaV1<Input = unknown, Output = Input> {
+export type StandardSchemaV1<Input = unknown, Output = Input> = {
   readonly '~standard': {
     readonly version: 1;
     readonly vendor: string;
@@ -28,7 +28,7 @@ export interface StandardSchemaV1<Input = unknown, Output = Input> {
           | {readonly issues: ReadonlyArray<StandardSchemaIssue>}
         >;
   };
-}
+};
 
 /**
  * Does the schema implement the Standard Schema v1 props?
