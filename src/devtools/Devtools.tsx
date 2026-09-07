@@ -86,9 +86,9 @@ export default function Devtools<T extends Record<string, any> = any>({
   const idPrefix = useId().replace(/[^a-zA-Z0-9-]/g, '');
 
   // Live snapshots, straight through the public watch surface.
-  const values = useWatch(f.emitter, 'change', getValues.bind(null, f));
+  const values = useWatch(f, 'change', getValues.bind(null, f));
   const errors = useWatch<FieldErrorEntry[]>(
-    f.emitter,
+    f,
     'errors',
     getErrors.bind(null, f)
   );
@@ -97,7 +97,7 @@ export default function Devtools<T extends Record<string, any> = any>({
   const isSubmitting = useIsSubmitting(f);
   const submitCount = useSubmitCount(f);
   const isSubmitSuccessful = useWatch(
-    f.emitter,
+    f,
     'submitSuccessful',
     () => f.isSubmitSuccessful
   );

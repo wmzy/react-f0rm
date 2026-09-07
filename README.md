@@ -168,7 +168,7 @@ const unsubscribe = subscribe(form, {
 
 Matching follows the event's shape. `'change'` walks the path tree: the default `'branch'` scope wakes a `'tags'` subscriber when any `tags.*` descendant is written, while `'leaf'` matches only the exact key and its ancestors. `'validating'` carries a path per async validator round and narrows by path exactly like `'change'` — the imperative counterpart of a per-field validating indicator. `'errors'` and `'touched'` always match the exact key — another field's error never wakes this subscriber. `'submitting'`/`'submitCount'`/`'submitSuccessful'`/`'disabled'` are payload-less, so a `name` narrows nothing. An array of names creates one subscription per path, and the returned function unsubscribes them all. A number-bearing array (`['tags', 0]`) is one segments path, not a name list — the same rule `trigger` uses.
 
-**`subscribe` vs `useWatch`:** `useWatch` (and the `useValue`/`useError`/… readers built on it) feeds rendering — it returns a snapshot and re-renders the component when it changes. `subscribe` runs imperative code and renders nothing. Use `subscribe` for linkages and effects; reach for a hook only when the watched value itself must appear on screen. `useWatch` itself takes an optional fourth argument — `isEqual(prev, next)` — aimed at wide-scope getters that return a fresh reference per call (a whole-values selector, say): on each event the getter recomputes, and an equal verdict keeps the cached snapshot without notifying React at all — no render, not even a bailed-out one (the same contract TanStack's `useSelector` `compare` option has).
+**`subscribe` vs `useWatch`:** `useWatch` (and the `useValue`/`useError`/… readers built on it) feeds rendering — it returns a snapshot and re-renders the component when it changes. `subscribe` runs imperative code and renders nothing. Use `subscribe` for linkages and effects; reach for a hook only when the watched value itself must appear on screen. Its first argument is the form (`useWatch(form, 'change', getter)`), matching every other hook's context shape; the raw emitter remains accepted for back-compat. `useWatch` itself takes an optional fourth argument — `isEqual(prev, next)` — aimed at wide-scope getters that return a fresh reference per call (a whole-values selector, say): on each event the getter recomputes, and an equal verdict keeps the cached snapshot without notifying React at all — no render, not even a bailed-out one (the same contract TanStack's `useSelector` `compare` option has).
 
 ### `useFieldArray`
 
@@ -577,7 +577,7 @@ Committed baselines follow the form's lifecycle: `reset`, `setInitialValues` and
 
 ### Writing as a user change (`changeValue`)
 
-`setValue` is the imperative channel — `shouldValidate` kicks the field's validator unconditionally, ignoring any mode. `changeValue` is the user-change channel: the write routes through the mounted field's own `onChange`, so it fires exactly the validation a user typing into the field would fire — the field's effective `mode` (per-field override included) and the form's `reValidateMode`. With no mounted field on the path it degrades to a plain `setValue`.
+`setValue` is the imperative channel — `shouldValidate` kicks the field's validator unconditionally, ignoring any mode. `changeValue` is the user-change channel: the write rides the same core pipeline a user typing into the field would fire (`userChangeByPath` + the field-mode registry — `useField` registers its mode override on mount), so it fires exactly the validation a user typing would fire — the field's effective `mode` (per-field override included) and the form's `reValidateMode`. With no mounted field on the path it degrades to a plain `setValue`.
 
 ```jsx
 import {changeValue} from 'react-f0rm';
@@ -587,7 +587,7 @@ import {changeValue} from 'react-f0rm';
 changeValue(form, 'email', 'a@b.com');
 ```
 
-This is the channel component libraries need when they hand a control a plain setter bound to a field (a `Control`/controlled-bridge over `useField`'s value): the mode gating — per-field override and live-error view — lives inside `useField`'s `onChange` closure and cannot be rebuilt from public form state, so `useField` publishes its `onChange` on the form (`form.changeHandlers`) and `changeValue`/`changeValueByPath` route through it.
+This is the channel component libraries need when they hand a control a plain setter bound to a field (a `Control`/controlled-bridge over `useField`'s value): the mode gating — per-field override and live-error view — lives in the core's user-change pipeline, not in public form state, so the write must route through it rather than through a raw `setValue`.
 
 `changeValue` takes the same options object as `setValue` (see [`setValue` options](#setvalue-options)). With a field mounted on the path, `shouldDirty: false` applies — the write lands as a commit while the field's own mode gating keeps driving validation, which is the point of this channel (`shouldValidate`/`shouldTouch` have no meaning there: forcing them would defeat the gating). With no mounted field, the options forward to the plain `setValue` fallback wholesale:
 

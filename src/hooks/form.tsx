@@ -207,6 +207,10 @@ export function useWatchCore<T>(
  * guaranteed consistent (no tearing under concurrent rendering) and changes
  * emitted before the subscription effect runs are still picked up.
  *
+ * The first argument is the form for the unified `fn(form, ...)` context
+ * shape every hook shares; the raw emitter form remains accepted for
+ * back-compat and for subscription sources that are not a full form.
+ *
  * By default the re-render surface is the event's own scope: every emit
  * the subscription hears drops the snapshot cache and wakes React, which
  * then bails out when the recomputed snapshot is reference-identical
@@ -220,11 +224,15 @@ export function useWatchCore<T>(
  * `useSelector` compare. Omitted, behavior is unchanged.
  */
 export function useWatch<T>(
-  emitter: EventEmitter<FormEvents>,
+  formOrEmitter: Form | EventEmitter<FormEvents>,
   event: SubscribeEvent,
   getter: () => T,
   isEqual?: (prev: T, next: T) => boolean
 ): T {
+  // A form carries an `emitter` field the opaque emitter instance never
+  // has, so the duck test cleanly discriminates the two accepted shapes.
+  const emitter =
+    'emitter' in formOrEmitter ? formOrEmitter.emitter : formOrEmitter;
   const subscribeFactory = useCallback(
     (invalidate: () => void) => on(emitter, event, invalidate),
     [emitter, event]
@@ -356,7 +364,7 @@ export function useFieldErrorsByPath(form: Form, path: Path): FieldError[] {
 export function useIsDirty(form: Form): boolean {
   // Dirty state is driven by value changes, not touch state: subscribe to
   // 'change' so typing flips this immediately, even before a blur.
-  return useWatch(form.emitter, 'change', isDirty.bind(null, form));
+  return useWatch(form, 'change', isDirty.bind(null, form));
 }
 
 /**
@@ -364,7 +372,7 @@ export function useIsDirty(form: Form): boolean {
  * dotted path ('a.b', 'a.0.c') to true; recalculated after 'change' events
  */
 export function useDirtyFields(form: Form): Record<string, boolean> {
-  return useWatch(form.emitter, 'change', getDirtyFields.bind(null, form));
+  return useWatch(form, 'change', getDirtyFields.bind(null, form));
 }
 
 /**
@@ -372,7 +380,7 @@ export function useDirtyFields(form: Form): Record<string, boolean> {
  * paths ('a.b', 'a.0.c'); recalculated after 'touched' events
  */
 export function useTouchedFields(form: Form): string[] {
-  return useWatch(form.emitter, 'touched', getTouchedFields.bind(null, form));
+  return useWatch(form, 'touched', getTouchedFields.bind(null, form));
 }
 
 /**
@@ -481,7 +489,7 @@ export function useFormState(form: Form): FormState {
 }
 
 export function useHasErrors(form: Form): boolean {
-  return useWatch(form.emitter, 'errors', hasErrors.bind(null, form));
+  return useWatch(form, 'errors', hasErrors.bind(null, form));
 }
 
 /**
@@ -490,11 +498,11 @@ export function useHasErrors(form: Form): boolean {
  * in-flight validation does not flip it (see {@link useIsValidating}).
  */
 export function useIsValid(form: Form): boolean {
-  return useWatch(form.emitter, 'errors', () => !hasErrors(form));
+  return useWatch(form, 'errors', () => !hasErrors(form));
 }
 
 export function useIsSubmitting(form: Form): boolean {
-  return useWatch(form.emitter, 'submitting', () => form.isSubmitting);
+  return useWatch(form, 'submitting', () => form.isSubmitting);
 }
 
 /**
@@ -533,7 +541,7 @@ export function useCanSubmit(form: Form): boolean {
 }
 
 export function useSubmitCount(form: Form): number {
-  return useWatch(form.emitter, 'submitCount', () => form.submitCount);
+  return useWatch(form, 'submitCount', () => form.submitCount);
 }
 
 /**
@@ -551,7 +559,7 @@ export function useSubmitCount(form: Form): number {
  * settles.
  */
 export function useIsValidating(form: Form): boolean {
-  return useWatch(form.emitter, 'validating', () => form.validating.size > 0);
+  return useWatch(form, 'validating', () => form.validating.size > 0);
 }
 
 /**

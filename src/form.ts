@@ -11,6 +11,7 @@ import {
   get,
   isEqual,
   isIndex,
+  isPromise,
   normalizePath,
   setOwned,
   unset,
@@ -133,18 +134,13 @@ export type Form<T extends Record<string, any> = any> = {
    * wanting all of them use {@link getFieldErrors}. */
   errors: Map<string, FieldError[]>;
   touched: Set<string>;
+  /** Per-field validation kicks, registered by {@link
+   * registerValidatorByPath} (`useValidate` is the React-side
+   * registration): each is the field's debounce/lock-aware kick —
+   * invoking it validates the field's current value. `trigger` /
+   * `ensureValidate` run every entry; the user-change gate ({@link
+   * userChangeByPath}) runs the entry at the changed path. */
   validators: Map<string, () => void>;
-  /** Change handlers published by mounted fields (`useField`): each is the
-   * field's own onChange — the write plus its mode/reValidateMode-gated
-   * validation kick. Path-based writes with user-change semantics
-   * ({@link changeValueByPath}) route through the registered handler; the
-   * effective per-field mode and live-error view live inside the field's
-   * closure, so this map is the only channel that can reproduce them.
-   * Multiple fields mounted at the same path compete for the slot
-   * last-wins — the latest mount's handler answers every user-change
-   * write; the unmount guard in `useField` keeps a later owner's
-   * registration intact when the earlier field goes away. */
-  changeHandlers: Map<string, (value: any) => void>;
   validating: Set<string>;
   /** Parsed values from the last successful schema validation: the
    * schema's complete output tree (coerced/transformed values included).
@@ -255,7 +251,6 @@ export default function create<T extends Record<string, any> = any>(
     errors: new Map(),
     touched: new Set(),
     validators: new Map(),
-    changeHandlers: new Map(),
     validating: new Set(),
     parsedValues: undefined,
     isSubmitting: false,
@@ -497,21 +492,34 @@ export function emitChangeByPath({emitter}: Form, path: Path): void {
   emit(emitter, 'change', path);
 }
 
+/** Per-form registry of mounted fields' validation-mode overrides: path
+ * key -> the field's `mode` option (undefined = follow {@link Form.mode})
+ * plus an owner token so competing mounts at one path clean up safely.
+ * Presence of an entry is the "a field is mounted at this path" signal
+ * that routes {@link changeValueByPath} into the gated user-change
+ * pipeline ({@link userChangeByPath}). Held in a WeakMap so the Form
+ * shape carries only plain state fields. */
+const fieldModes = new WeakMap<
+  Form,
+  Map<string, {mode: ValidationMode | undefined; token: object}>
+>();
+
 /**
  * Set a field value as a user change.
  *
- * The write routes through the field's own onChange when one is mounted
- * (registered by `useField`), so it fires exactly the validation a user
- * typing into the field would fire: the field's effective `mode`
- * (per-field override included) and the form's `reValidateMode`. With no
- * mounted field on the path it degrades to a plain value set
- * ({@link setValue}).
+ * The write rides the same gated user-change pipeline a user typing into
+ * the field would fire when a field is mounted on the path (registered
+ * through {@link registerFieldMode} — `useField` registers on mount): the
+ * field's effective `mode` (per-field override included) and the form's
+ * `reValidateMode` drive validation exactly as in {@link
+ * userChangeByPath}. With no mounted field on the path it degrades to a
+ * plain value set ({@link setValue}).
  *
  * This is the channel for component-library bridges that hand a control a
  * plain setter bound to a field — they cannot rebuild the gating from
  * public form state, because the per-field mode override and the
- * live-error view that gates `reValidateMode` live inside the field's
- * onChange closure.
+ * live-error view that gates `reValidateMode` live in the field
+ * registration, not in public state.
  *
  * Contrast {@link setValue}: that is the imperative channel — its
  * `shouldValidate` option kicks the field's validator unconditionally,
@@ -554,13 +562,133 @@ export function changeValueByPath(
   value: any,
   options?: SetFieldOptions
 ): void {
-  // The baseline must land before the mounted field's onChange runs — its
-  // write emits synchronously and subscribers read dirty state inside the
-  // emission, so installing after the call would flash dirty-then-clean.
+  // The baseline must land before the mounted field's change pipeline runs
+  // — its write emits synchronously and subscribers read dirty state
+  // inside the emission, so installing after the call would flash
+  // dirty-then-clean.
   if (options?.shouldDirty === false) setDirtyBaseline(form, path, value);
-  const change = form.changeHandlers.get(path.key);
-  if (change) change(value);
-  else setValueByPath(form, path, value, options);
+  if (fieldModes.get(form)?.get(path.key)) {
+    // Mounted field: ride the gated user-change pipeline — the field's
+    // own mode drives validation, so `shouldValidate`/`shouldTouch` have
+    // no meaning here (forcing them would defeat the gating).
+    userChangeByPath(form, path, value);
+  } else {
+    setValueByPath(form, path, value, options);
+  }
+}
+
+/**
+ * Register a mounted field's `mode` override at `path` for user-change
+ * gating ({@link userChangeByPath} / {@link userBlur}). Returns the
+ * registration token for {@link unregisterFieldMode} plus whether the
+ * slot was already occupied — two fields mounted at one path is almost
+ * always a bug: the latest mount's mode governs every user-change write
+ * there, which the React layer warns about in DEV.
+ *
+ * @param form
+ * @param path
+ * @param mode the field's `mode` option, or undefined to follow
+ *        {@link Form.mode}
+ * @return `token` to hand to {@link unregisterFieldMode}; `displaced`
+ *         true when a previous registration at the same path still owned
+ *         the slot
+ */
+export function registerFieldMode(
+  form: Form,
+  path: Path,
+  mode: ValidationMode | undefined
+): {token: object; displaced: boolean} {
+  let modes = fieldModes.get(form);
+  if (!modes) {
+    modes = new Map();
+    fieldModes.set(form, modes);
+  }
+  const displaced = modes.has(path.key);
+  const token = {};
+  modes.set(path.key, {mode, token});
+  return {token, displaced};
+}
+
+/** Drop a {@link registerFieldMode} registration. A later mount at the
+ * same path keeps its slot: only the entry owned by `token` is removed. */
+export function unregisterFieldMode(
+  form: Form,
+  path: Path,
+  token: object
+): void {
+  const modes = fieldModes.get(form);
+  const entry = modes?.get(path.key);
+  if (modes && entry && entry.token === token) modes.delete(path.key);
+}
+
+/** The user-change validation gate shared by a mounted field's onChange
+ * and {@link changeValueByPath}: kick the field's validator, the
+ * form-level `validateDeps` re-run and the field-level `validateDeps`
+ * dependents under the mode/reValidateMode matrix. The live (stored)
+ * error view arms the reValidate kick — an error hidden behind a render
+ * layer's delayError window still counts, so typing can clear it before
+ * it ever shows. */
+function runUserChangeGate(form: Form, path: Path, mode: ValidationMode): void {
+  if (
+    mode === 'onChange' ||
+    mode === 'all' ||
+    (mode === 'onTouched' && hasTouchedByPath(form, path)) ||
+    (getFieldErrorsByPath(form, path).length > 0 &&
+      form.reValidateMode === 'onChange')
+  )
+    form.validators.get(path.key)?.();
+  // Form-level validate deps: a user change to a listed field re-runs the
+  // form-level validate under the same mode/reValidateMode gating above
+  // (evaluated against the last round's own error footprint). No-op for
+  // forms without validateDeps.
+  revalidateFormOnChange(form, path, mode);
+  // Field-level validate deps: fields that declared this path re-run their
+  // own validators under the same gate. No-op when nobody declared it.
+  revalidateDependentsOnChange(form, path, mode);
+}
+
+/**
+ * Write a bound field's user change by path: the write plus the
+ * mode/reValidateMode-gated validation pipeline — what a bound field's
+ * onChange does when the user types. Reads the effective mode from the
+ * field-mode registry (the latest mount's override governs), so a plain
+ * write happens when no field is registered at `path`. Framework
+ * adapters (React's `useField`, a Solid binding) forward their field
+ * change events here.
+ *
+ * @param form
+ * @param path
+ * @param value
+ */
+export function userChangeByPath(form: Form, path: Path, value: any): void {
+  setValueByPath(form, path, value);
+  const entry = fieldModes.get(form)?.get(path.key);
+  if (entry) runUserChangeGate(form, path, entry.mode ?? form.mode);
+}
+
+/**
+ * A bound field's blur: mark the path touched, then kick its validator
+ * under the blur-side gate (`mode` `'onBlur'`/`'onTouched'`/`'all'`, or
+ * `reValidateMode: 'onBlur'` while the field carries a live error). The
+ * touched marking is unconditional — a field counts as touched on blur
+ * regardless of mode. Framework adapters forward field blur events here.
+ *
+ * @param form
+ * @param path
+ */
+export function userBlur(form: Form, path: Path): void {
+  setTouchedByPath(form, path);
+  const entry = fieldModes.get(form)?.get(path.key);
+  if (!entry) return;
+  const mode = entry.mode ?? form.mode;
+  if (
+    mode === 'onBlur' ||
+    mode === 'onTouched' ||
+    mode === 'all' ||
+    (getFieldErrorsByPath(form, path).length > 0 &&
+      form.reValidateMode === 'onBlur')
+  )
+    form.validators.get(path.key)?.();
 }
 
 /**
@@ -704,6 +832,272 @@ export function setValidatingByPath(
 ): void {
   validating.add(path.key);
   emit(emitter, 'validating', path);
+}
+
+/**
+ * Field validator. Returns an error (a string, a FieldError, or an array
+ * mixing both) or undefined when valid; may return a Promise for async
+ * validation.
+ *
+ * The second argument carries the validation context. `meta.signal` is
+ * aborted as soon as the round is superseded — a newer round started, or
+ * the field unregistered — so async validators can cancel their underlying
+ * work (fetch, timers) instead of racing a stale result home. Stale
+ * results are dropped independently by the registration's lock
+ * ({@link registerValidatorByPath}), so validators that ignore the signal
+ * stay correct too. Validators written against the older two-argument
+ * signature keep working.
+ */
+export type Validator = (
+  value: any,
+  meta: {form: Form; path: Path; signal: AbortSignal}
+) =>
+  | string
+  | FieldError
+  | (string | FieldError)[]
+  | undefined
+  | Promise<string | FieldError | (string | FieldError)[] | undefined>;
+
+/**
+ * Synchronous pre-validator for {@link registerValidatorByPath}'s `sync`
+ * accessor — declarative `required` rules compiled by `rulesToValidator`
+ * in practice, but any sync-only check works. Runs on every kick, never
+ * debounced: its errors land immediately and, while present,
+ * short-circuit the debounced validator for that kick (the expensive
+ * check never sees a value the gate already rejects). Must be synchronous
+ * — unlike a {@link Validator} it may not return a Promise — and its meta
+ * carries no `signal`: there is nothing to abort in a synchronous check.
+ */
+export type SyncValidator = (
+  value: any,
+  meta: {form: Form; path: Path}
+) => string | FieldError | (string | FieldError)[] | undefined;
+
+/** Live options for {@link registerValidatorByPath}: read at every kick
+ * through accessors, so callers (React's `useValidate`) can swap the
+ * validator/debounce/sync-gate per render without re-subscribing the
+ * registration mid-flight. */
+export type ValidatorRegistration = {
+  /** Current debounced validator (or undefined — a sync-only
+   * registration). */
+  validate: () => Validator | undefined;
+  /** Debounce delay in milliseconds; 0 (default) runs immediately. */
+  debounce: () => number;
+  /** Synchronous pre-validator, run on every kick (never debounced). */
+  sync: () => SyncValidator | undefined;
+};
+
+/**
+ * Register a field validator's kick at `path` in {@link Form.validators}
+ * — the framework-free machinery behind `useValidate`. Returns a
+ * disposer that drops the registration and cancels any pending debounce
+ * window or in-flight round (its signal aborts and its validating mark
+ * is released).
+ *
+ * Contract of the registered kick (the same contract `trigger` /
+ * `ensureValidate` rely on when they run every entry, and the
+ * user-change gate relies on when it runs the changed path's entry):
+ * - the `sync` gate runs immediately on every kick — never debounced —
+ *   and while it returns errors, the debounced validator is skipped for
+ *   that kick and any pending window or in-flight round is superseded;
+ * - a positive `debounce` merges kicks inside the window: only the last
+ *   one runs the validator, and while the timer is pending the field
+ *   counts as validating so `trigger`/`ensureValidate` wait it out;
+ * - async results land under a lock: a superseded round's outcome —
+ *   rejection included — is dropped, and only the owning round releases
+ *   the validating mark;
+ * - a synchronous throw inside the validator propagates to the caller
+ *   (the validating mark is not left stuck behind it).
+ *
+ * Registering at a path already registered by another mount replaces it
+ * (last-wins, the historical `useValidate` behavior); the disposer drops
+ * its own registration unconditionally.
+ *
+ * @param form
+ * @param path
+ * @param registration live validator/debounce/sync accessors
+ * @return disposer: unregister and cancel pending work
+ */
+export function registerValidatorByPath(
+  form: Form,
+  path: Path,
+  registration: ValidatorRegistration
+): () => void {
+  // The pending debounce timer and the current round's controller live in
+  // this closure so the disposer below can cancel them.
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let controller: AbortController | null = null;
+  // Whether this registration currently holds the path's slot in
+  // form.validating. The mark is taken when a debounce window opens or an
+  // async round starts, and released by whichever round settles last —
+  // including a later sync round that supersedes an in-flight async one
+  // (its own .finally is lock-gated out by then).
+  let marked = false;
+  // The async-round lock: only the latest round may land its result or
+  // release the mark; a superseded round's outcome is dropped wholesale.
+  let lock: object | null = null;
+  // Which source wrote the error currently on display — the sync gate or
+  // the debounced validator. Tracked so a passing sync check can clear
+  // its own stale error immediately instead of leaving it on screen until
+  // the debounced round lands. External writers (setError, form-level
+  // validate) are invisible here; a passing round clearing them matches
+  // the long-standing "a field validator owns its whole key" contract.
+  let errorSource: 'sync' | 'validator' | null = null;
+  /** Does a validator result land errors? `[]` normalizes away exactly
+   * like undefined in setErrorByPath. */
+  const hasErrors = (errors: any): boolean =>
+    errors !== undefined && !(Array.isArray(errors) && errors.length === 0);
+  const mark = () => {
+    if (marked) return;
+    marked = true;
+    setValidatingByPath(form, path);
+  };
+  const unmark = () => {
+    if (!marked) return;
+    marked = false;
+    unsetValidatingByPath(form, path);
+  };
+
+  /** Run the synchronous gate on the field's current value. Its errors
+   * land immediately — the gate is never debounced. Returns true when
+   * errors landed (the kick's whole outcome for the debounced validator).
+   * A passing gate clears the field's errors when they were its own from
+   * an earlier kick, or when no debounced validator exists to own the
+   * round. */
+  const runSync = (): boolean => {
+    const sync = registration.sync();
+    if (!sync) return false;
+    const errors = sync(getValueByPath(form, path), {form, path});
+    if (!hasErrors(errors)) {
+      // A stale error the gate itself wrote is answered by the gate
+      // alone; a rules-only registration's passing check is the whole
+      // round. With a debounced validator registered, its upcoming round
+      // owns the outcome and lands it later.
+      if (!registration.validate() || errorSource === 'sync') {
+        setErrorByPath(form, path, undefined);
+        errorSource = null;
+      }
+      return false;
+    }
+    setErrorByPath(form, path, errors);
+    errorSource = 'sync';
+    return true;
+  };
+
+  /** Drop any pending window or in-flight round without landing it: the
+   * sync gate now owns the outcome, so the debounced validator must not
+   * run for this value. */
+  const supersede = () => {
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    controller?.abort();
+    lock = {};
+  };
+
+  /** Run the debounced validator on the field's current value and land
+   * its result — the sync gate has already passed. */
+  const runValidator = () => {
+    const fn = registration.validate();
+    if (!fn) {
+      unmark();
+      return;
+    }
+    // Abort the superseded round's signal: a listening validator should
+    // stop its underlying work. The lock refresh below independently
+    // drops any result that still arrives, signal or not.
+    controller?.abort();
+    controller = new AbortController();
+    const round = (lock = {});
+    let result;
+    try {
+      result = fn(getValueByPath(form, path), {
+        form,
+        path,
+        signal: controller.signal
+      });
+    } catch (e) {
+      // A throwing sync validator propagates to the caller as it always
+      // has; just don't leave the validating mark stuck behind it.
+      unmark();
+      throw e;
+    }
+    if (!isPromise(result)) {
+      setErrorByPath(form, path, result);
+      errorSource = hasErrors(result) ? 'validator' : null;
+      // Error first, then release the mark: 'validating' subscribers
+      // (trigger) re-read state on wake and must see the landed error.
+      unmark();
+      return;
+    }
+    mark();
+    result
+      .then(
+        (error: string | FieldError | (string | FieldError)[] | undefined) => {
+          if (lock === round) {
+            setErrorByPath(form, path, error);
+            errorSource = hasErrors(error) ? 'validator' : null;
+          }
+        }
+      )
+      // A rejected round is the normal way a signal-listening validator
+      // gives up (fetch throws AbortError once aborted); swallow it and
+      // let the owning round write the outcome.
+      .catch(() => {})
+      .finally(() => {
+        if (lock === round) {
+          unmark();
+          lock = null;
+        }
+      });
+  };
+
+  /** A debounce window fired: the value may have drifted since the last
+   * kick (programmatic writes do not kick validators), so re-run the
+   * sync gate before spending the debounced validator on a value the
+   * gate already rejects. */
+  const run = () => {
+    timer = null;
+    if (runSync()) {
+      supersede();
+      unmark();
+      return;
+    }
+    runValidator();
+  };
+
+  const kick = () => {
+    if (runSync()) {
+      supersede();
+      unmark();
+      return;
+    }
+    if (!registration.validate()) return;
+    const debounce = registration.debounce();
+    if (debounce > 0) {
+      // Only the last kick inside the window runs: restart the timer on
+      // every kick. The mark keeps trigger/ensureValidate's
+      // validating-set wait covering the pending timer, not just
+      // in-flight promises.
+      if (timer !== null) clearTimeout(timer);
+      else mark();
+      timer = setTimeout(run, debounce);
+      return;
+    }
+    runValidator();
+  };
+
+  form.validators.set(path.key, kick);
+  return () => {
+    form.validators.delete(path.key);
+    if (timer !== null) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    unmark();
+    controller?.abort();
+  };
 }
 
 /**

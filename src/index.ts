@@ -6,11 +6,11 @@ export * from './form';
 // interface under its ecosystem-standard alias instead (antd precedent).
 export type {Form as FormInstance} from './form';
 export type {FieldPath, PathValue, PathValueOf} from './types';
-// 入口 d.ts 引用了这两个类型（UseFieldOptions.validate 等），不公共导出
-// 的话 rollup-plugin-dts 会把它们留在私有 chunk 里，下游 isolated
-// declarations 场景报 TS2742。
+// 入口 d.ts 引用了 Path（UseFieldOptions 的验证相关类型经 hooks/form 暴露），
+// 不公共导出的话 rollup-plugin-dts 会把它们留在私有 chunk 里，下游 isolated
+// declarations 场景报 TS2742。Validator/SyncValidator 由上面的
+// `export * from './form'` 直接公共导出（定义已移居 core）。
 export type {Path} from './path';
-export type {Validator, SyncValidator} from './hooks/validate';
 
 export * from './context';
 

@@ -5,15 +5,14 @@ import {FormContext} from '../context';
 import {
   emitChangeByPath,
   getValueByPath,
-  hasTouchedByPath,
+  registerFieldMode,
   registerFieldValidateDeps,
   removeFieldByPath,
-  revalidateDependentsOnChange,
-  revalidateFormOnChange,
   seedValueByPath,
-  setTouchedByPath,
-  setValueByPath,
-  unregisterFieldValidateDeps
+  unregisterFieldMode,
+  unregisterFieldValidateDeps,
+  userBlur,
+  userChangeByPath
 } from '../form';
 import type {FieldError, Form, ValidationMode} from '../form';
 import createPath from '../path';
@@ -360,23 +359,19 @@ export function useFieldCore<
   const restRules: FieldRules | undefined = rules
     ? {...rules, required: undefined}
     : undefined;
-  const validator = useValidate(
-    combineRulesAndValidate(restRules, validate),
-    path,
-    form,
-    {
-      debounce: validateDebounce,
-      sync:
-        rules && rules.required !== undefined
-          ? rulesToValidator({required: rules.required})
-          : undefined
-    }
-  );
+  useValidate(combineRulesAndValidate(restRules, validate), path, form, {
+    debounce: validateDebounce,
+    sync:
+      rules && rules.required !== undefined
+        ? rulesToValidator({required: rules.required})
+        : undefined
+  });
 
   // All errors of the field through one subscription; the array reference
   // is stable (stored array or shared empty constant), so consumers can
   // memo on it. delayError gates only this render-layer view of the list;
-  // the live list keeps driving the reValidateMode kicks below.
+  // the stored list keeps driving the reValidateMode kicks inside the
+  // core's user-change gate.
   const liveErrors = useFieldErrorsByPath(form, path);
   const errors = useDelayedErrors(liveErrors, delayError);
   const errorObject = errors[0];
@@ -385,65 +380,37 @@ export function useFieldCore<
 
   // The form-level disabled flag, subscribed so setDisabled re-renders
   // this field; the field's own option is OR-ed in on every render.
-  const formDisabled = useWatch(form.emitter, 'disabled', () => form.disabled);
+  const formDisabled = useWatch(form, 'disabled', () => form.disabled);
 
-  // A field-declared mode replaces the form-level one for this field only;
-  // the reValidateMode kicks below stay form-level for every field.
-  const mode = modeOption ?? form.mode;
+  // The user-change pipeline lives in the core: onChange forwards to
+  // userChangeByPath (write + mode/reValidateMode-gated validation, the
+  // matrix registered below through registerFieldMode), onBlur to
+  // userBlur (touched marking + blur-side gate). The stage keeps the
+  // handler identities stable across re-renders.
+  const onChange = useStageFn((v: any) => userChangeByPath(form, path, v));
+  const onBlur = useStageFn(() => userBlur(form, path));
 
-  const onChange = useStageFn((v: any) => {
-    setValueByPath(form, path, v);
-    // The live (ungated) error drives the reValidate kick: an error hidden
-    // inside the delayError window still counts as "has an error", so
-    // typing re-validates and can clear it before it ever shows.
-    if (
-      mode === 'onChange' ||
-      mode === 'all' ||
-      (mode === 'onTouched' && hasTouchedByPath(form, path)) ||
-      (liveErrors.length > 0 && form.reValidateMode === 'onChange')
-    )
-      validator();
-    // Form-level validate deps: a user change to a listed field re-runs
-    // the form-level validate under the same mode/reValidateMode gating
-    // above (evaluated against the last round's own error footprint).
-    // No-op for forms without validateDeps.
-    revalidateFormOnChange(form, path, mode);
-    // Field-level validate deps: fields that declared this path re-run
-    // their own validators under the same gate. No-op when nobody
-    // declared the path.
-    revalidateDependentsOnChange(form, path, mode);
-  });
-
-  // Publish this field's change semantics so path-based user-change writes
-  // (changeValue / changeValueByPath) route through the exact same gated
-  // pipeline as a user typing into the field. Component-library bridges
-  // cannot rebuild the gate from public state: the effective per-field
-  // mode and the live-error view are closed over above. Identity of the
-  // staged fn is stable and its closure always latest, so one registration
-  // per mount suffices.
+  // Register this field's validation-mode override so path-based
+  // user-change writes (changeValue / changeValueByPath) route through
+  // the same gated core pipeline as a user typing into the field.
+  // Two fields mounted at the same path compete for the slot last-wins:
+  // from here on every user-change write gates on the latest mount's
+  // mode. That is almost always a bug (a stray duplicate name, a remount
+  // racing the old instance) — say so in DEV.
   useEffect(() => {
-    // Two fields mounted at the same path compete for the changeHandler
-    // slot last-wins: from here on every changeValue write routes to the
-    // latest mount, so the earlier field's mode/reValidateMode gating
-    // silently stops applying. That is almost always a bug (a stray
-    // duplicate name, a remount racing the old instance) — say so in DEV.
-    if (__DEV__ && form.changeHandlers.has(path.key)) {
+    const {token, displaced} = registerFieldMode(form, path, modeOption);
+    if (__DEV__ && displaced) {
       // eslint-disable-next-line no-console -- the whole point of this branch
       console.warn(
         `react-f0rm: two fields are mounted at the same path ${path.key}. ` +
-          `The latest mount's change handler owns the slot, so changeValue ` +
-          `writes route to it and the earlier field's validation mode no ` +
+          `The latest mount's mode registration owns the slot, so changeValue ` +
+          `writes gate on it and the earlier field's validation mode no ` +
           `longer applies. Use distinct names if both must stay mounted.`
       );
     }
-    form.changeHandlers.set(path.key, onChange);
-    return () => {
-      // Guard: a later mount on the same path may own the slot now — only
-      // remove our own registration.
-      if (form.changeHandlers.get(path.key) === onChange)
-        form.changeHandlers.delete(path.key);
-    };
-  }, [form, path.key, onChange]);
+    return () => unregisterFieldMode(form, path, token);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are `path.key` on purpose: usePath memoizes the Path per key, so re-registering on key (not object identity) is enough
+  }, [form, path.key, modeOption]);
 
   // Publish this field's validateDeps declaration so the dep fields'
   // change pipelines can find it (revalidateDependentsOnChange). Keyed on
@@ -457,17 +424,6 @@ export function useFieldCore<
     return () => unregisterFieldValidateDeps(form, path.key, depKeys);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are `depsKey` on purpose: depKeys derive from the same option value the key serializes
   }, [form, path.key, depsKey]);
-
-  const onBlur = useStageFn(() => {
-    setTouchedByPath(form, path);
-    if (
-      mode === 'onBlur' ||
-      mode === 'onTouched' ||
-      mode === 'all' ||
-      (liveErrors.length > 0 && form.reValidateMode === 'onBlur')
-    )
-      validator();
-  });
 
   // The focus channel. 'focusError' carries the target's path key —
   // emitted by handleSubmit's failed round (the first error's key, gated

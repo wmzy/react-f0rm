@@ -3,9 +3,9 @@
 // mounted field's own onChange — mode/reValidateMode-gated validation
 // included — and fall back to a plain value set when no field is mounted
 // on the path. This is the channel component-library bridges (controls
-// bound to a field value) need: they cannot rebuild the gating from public
-// form state because the effective per-field mode and live-error view live
-// inside useField's onChange closure.
+// bound to a field value) need: the gating lives in the core's
+// user-change pipeline (userChangeByPath + the field-mode registry), not
+// in public form state.
 import {describe, it, expect, vi} from 'vitest';
 import {renderHook, act} from '@testing-library/react';
 import useField from '../src/hooks/field';
@@ -153,20 +153,16 @@ describe('changeValue', () => {
 
   it('falls back to a plain set after the field unmounts', () => {
     const form = createForm({initialValues: {a: ''}});
-    const field = renderHook(() =>
-      useField({form, name: 'a', validate: required})
-    );
-    // Registered while mounted — and it is the field's own onChange.
-    expect(form.changeHandlers.get(createPath('a').key)).toBe(
-      field.result.current.onChange
-    );
+    const validate = vi.fn(required);
+    const field = renderHook(() => useField({form, name: 'a', validate}));
     field.unmount();
 
     act(() => changeValue(form, 'a', 'after'));
     expect(getValue(form, 'a')).toBe('after');
     expect(form.errors.size).toBe(0);
-    // The registration is gone, not leaked.
-    expect(form.changeHandlers.has(createPath('a').key)).toBe(false);
+    // The unmount disarmed the gated pipeline: with no field mounted on
+    // the path, a changeValue is a plain write — no validation kick.
+    expect(validate).toHaveBeenCalledTimes(0);
   });
 
   it('changeValueByPath takes a parsed path', () => {

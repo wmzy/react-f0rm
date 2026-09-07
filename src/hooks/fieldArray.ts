@@ -129,8 +129,8 @@ export function useFieldArrayCore(
   // without a fresh render in between — without it the table would stay
   // empty and every item would resolve to -1. Unmount drops the entry
   // only while this hook still owns it; a second useFieldArray at the
-  // same path competes for the slot last-wins, same as the changeHandlers
-  // registration.
+  // same path competes for the slot last-wins, same as the field-mode
+  // registration in useField.
   registerArrayIds(form, path.key, idsRef.current);
   useEffect(() => {
     registerArrayIds(form, path.key, idsRef.current);
