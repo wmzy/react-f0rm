@@ -9,10 +9,14 @@
 // CI's `npx tsc --noEmit` compiles and enforces every assertion (same
 // `Equal`/`Expect` self-check style as src/types.ts).
 //
-// Semantics note: unknown path literals (or plain `string` names) keep the
-// `useField` contract — PathValueOf degrades to `any`, it does not error —
-// so dynamic names stay usable; every Equal check below tells `any` and the
-// real type apart.
+// Semantics note: on the generic path APIs (useField, Ctx.useField,
+// setValue/getValue/...), a path that is not in `FieldPath<Values>` — a
+// typo'd literal or a plain `string` variable — fails at compile time
+// (react-hook-form parity); segment arrays (`['a', 0]`) stay accepted and
+// read as `any`. Deliberately dynamic entry points — `useFieldArray`,
+// `removeField`, `trigger`, `setFocus`, `clearErrors` — keep the wide
+// `Name` type so runtime-computed names stay usable without casts. Every
+// Equal check below tells `any` and the real type apart.
 import * as React from 'react';
 import {
   Form,
@@ -25,6 +29,10 @@ import {
   createFormContext,
   type FormInstance,
   useFieldArrayItem,
+  useFieldArray,
+  useField,
+  getValue,
+  setValue,
   type FieldError
 } from '../src/index';
 
@@ -278,5 +286,35 @@ function TagRow() {
   // @ts-expect-error setValue takes the declared row value type
   typedRow.setValue(1);
   void [anyValue, typedValue, rowName, rowIndex, rowErrors];
+  return null;
+}
+
+// ---- goal 6: typo'd paths fail at compile time -------------------------------
+
+// The generic path APIs constrain names to FieldPath<Values> | PathSegments,
+// so a typo'd literal errors at the call site instead of degrading to `any`.
+function TypoGuards() {
+  const form = useForm<LoginValues>({initialValues: loginForm.initialValues});
+  // @ts-expect-error 'emial' is not a field path of LoginValues
+  setValue(form, 'emial', 'x');
+  // @ts-expect-error 'emial' is not a field path of LoginValues
+  getValue(form, 'emial');
+  // @ts-expect-error 'emial' is not a field path of LoginValues
+  useField({form, name: 'emial'});
+  // @ts-expect-error 'emial' is not a field path of LoginValues
+  ProfileForm.useField({name: 'emial'});
+  // @ts-expect-error 'emial' is not a field path of LoginValues
+  useValue(form, 'emial');
+  // @ts-expect-error plain `string` variables must be cast or narrowed too
+  setValue(form, dynamicName, 'x');
+  // Correct paths still infer the exact value type (regression guard).
+  const email: string = getValue(form, 'email');
+  const bio: string | undefined = getValue(form, 'profile.bio');
+  // Segment arrays stay dynamic: PathValueOf falls back to `any`.
+  const segPath: (string | number)[] = ['profile', 'bio'];
+  const segValue: any = getValue(form, segPath);
+  // The deliberately dynamic entry points keep accepting runtime strings.
+  const arr = useFieldArray({name: dynamicName, form});
+  void [email, bio, segValue, arr];
   return null;
 }

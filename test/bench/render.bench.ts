@@ -74,6 +74,16 @@ function RhfHundredRegistered() {
   );
 }
 
+function F0rmHundredUncontrolled() {
+  return h(
+    Form,
+    {initialValues: INITIAL_VALUES},
+    NAMES.map(name =>
+      h(Field, {key: name, name, uncontrolled: true, 'data-testid': name})
+    )
+  );
+}
+
 /**
  * Lazily mount `tree` on the first (warmup) call and resolve the bench
  * target input afterwards. Explicit `cleanup()` first unmounts whatever
@@ -98,6 +108,7 @@ test('single field change - 100 controlled inputs mounted', async ({bench}) => {
   const f0rmInput = mountOnce(h(F0rmHundredFields));
   const rhfControllerInput = mountOnce(h(RhfHundredControllers));
   const rhfRegisterInput = mountOnce(h(RhfHundredRegistered));
+  const f0rmUncontrolledInput = mountOnce(h(F0rmHundredUncontrolled));
   // Rotate the written value: an identical value would compare equal in the
   // subscription snapshot and skip the re-render we are here to measure.
   let flip = 0;
@@ -110,6 +121,12 @@ test('single field change - 100 controlled inputs mounted', async ({bench}) => {
 
   await bench('react-hook-form Controller: change 1 of 100', () => {
     const input = rhfControllerInput();
+    flip = (flip + 1) % 4;
+    fireEvent.change(input, {target: {value: `w${flip}`}});
+  }).run(RUN_OPTIONS);
+
+  await bench('f0rm Field uncontrolled: change 1 of 100', () => {
+    const input = f0rmUncontrolledInput();
     flip = (flip + 1) % 4;
     fireEvent.change(input, {target: {value: `w${flip}`}});
   }).run(RUN_OPTIONS);

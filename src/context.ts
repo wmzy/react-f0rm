@@ -11,7 +11,7 @@ import {
   type UseFieldArrayItemResult
 } from './hooks/fieldArray';
 import type {Form} from './form';
-import type {Name} from './path';
+import type {Name, PathSegments} from './path';
 import type {FieldPath} from './types';
 
 export const FormContext = createContext<Form<any> | null>(null);
@@ -69,7 +69,10 @@ export function createFormContext<TValues extends Record<string, any> = any>() {
     return form;
   }
 
-  function useField<TPath extends FieldPath<TValues> | Name = Name>(
+  function useField<
+    TPath extends FieldPath<TValues> | PathSegments =
+      FieldPath<TValues> | PathSegments
+  >(
     // The bare `{name: TPath}` member keeps `name` a direct inference site
     // for TPath instead of routing it through the mapped Omit type.
     // `form` is omitted on purpose — the form always comes from this

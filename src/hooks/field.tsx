@@ -16,7 +16,7 @@ import {
 } from '../form';
 import type {FieldError, Form, ValidationMode} from '../form';
 import createPath from '../path';
-import type {Name, Path} from '../path';
+import type {Path, PathSegments} from '../path';
 import type {FieldPath, PathValueOf} from '../types';
 import {rulesToValidator} from '../rules';
 import type {FieldRules} from '../rules';
@@ -34,7 +34,8 @@ declare const __DEV__: boolean;
 
 export type UseFieldOptions<
   TValues extends Record<string, any> = any,
-  TPath extends FieldPath<TValues> | Name = Name
+  TPath extends FieldPath<TValues> | PathSegments =
+    FieldPath<TValues> | PathSegments
 > = {
   form?: Form<TValues>;
   name: TPath;
@@ -130,7 +131,8 @@ export type UseFieldOptions<
  */
 export type UseFieldResult<
   TValues extends Record<string, any> = any,
-  TPath extends FieldPath<TValues> | Name = Name
+  TPath extends FieldPath<TValues> | PathSegments =
+    FieldPath<TValues> | PathSegments
 > = {
   /** The form instance this field is bound to (explicit prop or context) —
    * handy for consumers that need direct access to the headless API. */
@@ -291,7 +293,8 @@ function useFieldValue(form: Form, path: Path, uncontrolled: boolean): any {
  */
 export function useFieldCore<
   TValues extends Record<string, any> = any,
-  TPath extends FieldPath<TValues> | Name = Name
+  TPath extends FieldPath<TValues> | PathSegments =
+    FieldPath<TValues> | PathSegments
 >(
   {
     form: f1,
@@ -457,7 +460,10 @@ export function useFieldCore<
 
   useEffect(
     () => () => {
-      if (shouldUnregister !== false) {
+      // Effective unmount behavior: the field's own option, falling back
+      // to the form-level default, then to this library's historical
+      // default (tombstone).
+      if ((shouldUnregister ?? form.shouldUnregister) !== false) {
         removeFieldByPath(form, path);
       }
     },
@@ -480,7 +486,8 @@ export function useFieldCore<
 
 export default function useField<
   TValues extends Record<string, any> = any,
-  TPath extends FieldPath<TValues> | Name = Name
+  TPath extends FieldPath<TValues> | PathSegments =
+    FieldPath<TValues> | PathSegments
 >(options: UseFieldOptions<TValues, TPath>): UseFieldResult<TValues, TPath> {
   return useFieldCore(options, FormContext);
 }

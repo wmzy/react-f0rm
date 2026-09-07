@@ -19,6 +19,7 @@ import useForm, {
   useFormErrors,
   useFormState,
   useIsValid,
+  useIsLoading,
   useWatch
 } from '../../src/hooks/form';
 import createForm, {
@@ -1065,6 +1066,7 @@ describe('useFormState', () => {
       isValidating: false,
       isSubmitSuccessful: undefined,
       submitCount: 0,
+      isLoading: false,
       disabled: false
     });
   });
@@ -1130,5 +1132,41 @@ describe('useIsValid', () => {
     const {result} = renderHook(() => useIsValid(form));
     act(() => setError(form, FORM_ERROR, 'form broken'));
     expect(result.current).toBe(false);
+  });
+});
+
+describe('useForm async initialValues', () => {
+  it('invokes an inline async thunk once per mount across re-renders', async () => {
+    const calls = vi.fn(() => Promise.resolve({email: 'a@b.c'}));
+    const {result, rerender} = renderHook(() =>
+      useForm({initialValues: calls})
+    );
+    expect(result.current.isLoading).toBe(true);
+    // The effect skips function initialValues, so re-renders — inline
+    // thunk or not — never re-invoke the source.
+    rerender();
+    rerender();
+    expect(calls).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(result.current.isLoading).toBe(false));
+    expect(getValue(result.current, 'email')).toBe('a@b.c');
+  });
+
+  it('useIsLoading tracks the resolution cycle and re-syncs on re-render', async () => {
+    let resolve;
+    const pending = () => new Promise(r => (resolve = r));
+    const {result, rerender} = renderHook(
+      ({initialValues}) => useForm({initialValues}),
+      {initialProps: {initialValues: pending}}
+    );
+    const {result: loading} = renderHook(() => useIsLoading(result.current));
+    expect(loading.current).toBe(true);
+    rerender({initialValues: pending});
+    expect(loading.current).toBe(true);
+    await act(async () => {
+      resolve({email: 'a@b.c'});
+      await vi.waitFor(() => expect(result.current.isLoading).toBe(false));
+    });
+    expect(loading.current).toBe(false);
+    expect(getValue(result.current, 'email')).toBe('a@b.c');
   });
 });

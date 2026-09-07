@@ -282,3 +282,25 @@ export function waitUntil(
     });
   });
 }
+
+/**
+ * DEV-only snapshot guard for {@link getValues}: deep-clones and freezes
+ * plain objects and arrays so a consumer mutating the returned tree throws
+ * immediately instead of silently corrupting the shared memoized result
+ * (getValues hands the same cached reference to every reader between
+ * writes). Non-plain values (Date, File, Blob, class instances, Map/Set)
+ * pass through by reference, unfrozen — cloning would strip their
+ * prototypes and freezing would break legitimate methods like
+ * Date#setHours. Callers gate the call behind `__DEV__` so production
+ * builds pay nothing.
+ */
+export function freezeValues(value: any): any {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    return Object.freeze(value.map(freezeValues));
+  }
+  if (Object.getPrototypeOf(value) !== Object.prototype) return value;
+  const clone: Record<string, any> = {};
+  for (const key of Object.keys(value)) clone[key] = freezeValues(value[key]);
+  return Object.freeze(clone);
+}

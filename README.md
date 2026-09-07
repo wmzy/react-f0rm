@@ -12,11 +12,12 @@ Coming from TanStack Form? [Migrating from TanStack Form](./docs/from-tanstack-f
 ## Features
 
 - **Field-level subscriptions.** Editing one field re-renders exactly that field's component, not the whole form. State is read through `useSyncExternalStore`, so snapshots stay consistent under concurrent rendering (no tearing).
-- **Truly type-safe paths.** `FieldPath<T>` enumerates every valid field name for your values shape and `PathValue<T, P>` resolves the value type at that path — typos in field names fail at compile time, values are inferred.
+- **Truly type-safe paths.** `FieldPath<T>` enumerates every valid field name for your values shape and `PathValue<T, P>` resolves the value type at that path — typos in field names fail at compile time on the generic APIs (`useField`, `setValue`, `getValue`, `useValue`, …), values are inferred.
 - **One schema adapter for every library.** The Standard Schema resolver covers zod (v3.24+/v4), valibot v1, arktype and any other Standard Schema v1 implementation through a single tree-shakeable entry point.
 - **Headless, with accessibility hooks.** You own the markup. When you opt into error rendering via `renderError`, `aria-invalid` and `aria-describedby` are wired up automatically.
-- **Tombstone unregister.** Unmounted fields drop out of `getValues()` instead of silently reviving their initial values on the next read.
-- **Copy-on-write `getValues()`.** An ownership-tracked merge allocates each container once per read instead of re-copying whole branches for every key. The result shares references across reads, so treat it as read-only — `structuredClone` the tree when you need a mutable copy.
+- **Tombstone unregister.** Unmounted fields drop out of `getValues()` instead of silently reviving their initial values on the next read; `createForm({shouldUnregister: false})` flips the form-wide default to RHF's keep-the-value semantics.
+- **Async initial values.** `initialValues` accepts a Promise or a thunk returning one — the form starts empty with `isLoading: true` (`useIsLoading`, `useFormState().isLoading`) and lands the resolved values as the baseline, react-hook-form's async `defaultValues` shape.
+- **Copy-on-write `getValues()`.** An ownership-tracked merge allocates each container once per read instead of re-copying whole branches for every key. The result shares references across reads, so treat it as read-only — `structuredClone` the tree when you need a mutable copy. In development the snapshot is deep-frozen: mutating it throws at the offending line instead of silently corrupting the shared cache (production builds share baseline references unchanged).
 - **Multiple errors per field.** Each field stores an ordered `FieldError[]` — `getFieldErrors`/`useFieldErrors` read them all, and schema resolvers forward every issue instead of stopping at the first.
 - **Async validation with cancellation.** `validateDebounce` per field — and on the form-level `validate` — plus an `AbortSignal` handed to every validator: a superseded round aborts its in-flight fetch, and pending debounce windows count as validating so submit waits them out.
 - **Precise lifecycle control.** `reset(form, values, {keepDirtyValues, …})` covers refetch-without-clobbering-dirty-drafts, `setFocus(form, name)` focuses programmatically, and `trigger(form, name?)` resolves `Promise<boolean>` once validation settles.
@@ -36,21 +37,22 @@ yarn add react-f0rm
 
 ## Benchmarks
 
-tinybench; relative margin of error ≤ 0.9% for the first three scenarios, ≤ 2.5% for the scale scenarios.
+tinybench, run on a desktop-class machine (AMD Ryzen 7 8745HS). Measured rme varies by run — 17–249% depending on scenario and load — so treat the µs means as one significant figure.
 
 | Scenario | react-f0rm | Baseline | Speedup |
 |---|---|---|---|
-| Change one of 100 controlled fields | 113µs/change (~8,880 ops/s) | RHF `Controller`: 200µs (~5,000 ops/s) | ~1.8× |
+| Change one of 100 controlled fields | 111µs/change (~9,300 ops/s) | RHF `Controller`: 131µs (~7,800 ops/s) | ~1.2× |
 | Components re-rendered per change | 1 of 100 `Field`s | — | — |
-| `getValues()`, 100 fields × depth 3 | 42.5µs (ownership merge) | legacy chained `set`: 93.0µs | 2.19× |
-| Change one of 1000 controlled fields | 0.418ms/change (~2,390 ops/s, rme ±1.1%) | RHF `Controller`: 1.662ms (~602 ops/s) | 4.0× |
-| Async validation storm — burst of 3 changes × 50 debounced async validators, settled via `trigger` | 20.5ms/burst (~49 ops/s, rme ±2.4%) | — | — |
-| `await trigger(form)` — 100 mixed validators (50 sync + 50 async) settle | 1.48ms (~676 ops/s, rme ±0.9%) | — | — |
+| Change one of 100 uncontrolled fields | 12.6µs/change (~80,500 ops/s) | RHF `register`: 11.9µs (~85,200 ops/s) | parity (~6% apart) |
+| `getValues()`, 100 fields × depth 3 (cold compute; DEV snapshot guard on both paths) | 55.5µs (ownership merge) | legacy chained `set`: 104µs | 1.9× |
+| Change one of 1000 controlled fields | 0.611ms/change (~1,660 ops/s) | RHF `Controller`: 1.07ms (~944 ops/s) | ~1.8× |
+| Async validation storm — burst of 3 changes × 50 debounced async validators, settled via `trigger` | 27.9ms/burst (~36 ops/s) | — | — |
+| `await trigger(form)` — 100 mixed validators (50 sync + 50 async) settle | 1.23ms (~846 ops/s) | — | — |
 
 Notes:
 
-- For reference, RHF's uncontrolled `register` — which has no per-field re-render at all — floors at 21µs/change; the controlled comparison above uses `Controller`, the fair apples-to-apples baseline.
-- In the `getValues()` benchmark, ownership merging also cut container allocations from 300 to 111.
+- The uncontrolled row is the apples-to-apples `register` comparison: react-f0rm's `uncontrolled: true` (no value subscription) runs at RHF-`register` parity — 12.6µs vs 11.9µs per change — while keeping errors/touched/disabled/validating reactive, which raw `register` does not. The controlled comparison above uses `Controller`, RHF's per-field-subscribed controlled counterpart.
+- Both `getValues()` paths pay the DEV snapshot guard (`freezeValues`: clone + freeze), so the comparison isolates the merge strategy; in production neither side pays it. Ownership merging also cut container allocations from 300 to 111.
 
 Reproduce with:
 
@@ -65,25 +67,26 @@ react-f0rm vs the established options. react-f0rm figures come from this repo (s
 
 | | react-f0rm | React Hook Form | TanStack Form | Formik |
 |---|---|---|---|---|
-| Rendering model | Controlled fields with field-level subscriptions (`useSyncExternalStore`): editing one of 100 fields re-renders exactly 1 component | Uncontrolled `register` by default (no React re-render while typing); `Controller` opts into per-field re-renders | Field-level subscriptions (`form.Field` / `useField`), each field re-renders itself | Form-wide context: any state change re-renders all subscribed components |
-| Unregister on unmount | Unregisters by default — an unmounted field drops out of `getValues()` (tombstone) instead of silently reviving its initial value; `shouldUnregister: false` keeps it | Value kept by default (`shouldUnregister` defaults to `false`); opt in per field or form to unregister on unmount | Values live in the form store; unmounting a field's UI keeps its value and state | No unregister concept — values persist until `reset` |
+| Rendering model | Controlled fields with field-level subscriptions (`useSyncExternalStore`): editing one of 100 fields re-renders exactly 1 component; `uncontrolled: true` drops the value subscription and runs at RHF-`register` parity (12.6µs vs 11.9µs bench) while errors/touched/disabled stay reactive | Uncontrolled `register` by default (no React re-render while typing); `Controller` opts into per-field re-renders | Field-level subscriptions (`form.Field` / `useField`), each field re-renders itself | Form-wide context: any state change re-renders all subscribed components |
+| Unregister on unmount | Unregisters by default — an unmounted field drops out of `getValues()` (tombstone) instead of silently reviving its initial value; `shouldUnregister: false` per field or per form (`createForm({shouldUnregister: false})`) keeps it | Value kept by default (`shouldUnregister` defaults to `false`); opt in per field or form to unregister on unmount | Values live in the form store; unmounting a field's UI keeps its value and state | No unregister concept — values persist until `reset` |
 | Schema adapters | One Standard Schema entry point (`react-f0rm/resolvers/standard-schema`) covers zod, valibot, arktype, …; legacy zod/yup resolvers also shipped | `@hookform/resolvers` — one adapter module per validation library | Built-in `standardSchemaValidators` (Standard Schema v1), plus per-library adapter packages | Yup built in via `validationSchema`; other libraries hand-wired in `validate` |
-| Path type safety | `FieldPath<T>` / `PathValue<T, P>`: every valid path enumerated, value type resolved, typos fail at compile time | `Path<T>` / `FieldPath` type-level path checking | Deep inference, including validator argument types — the strongest of the four | Top-level `keyof` only; nested paths are untyped strings |
+| Path type safety | `FieldPath<T>` / `PathValue<T, P>`: every valid path enumerated, value type resolved, typos fail at compile time on the generic APIs (`useField`, `setValue`, `getValue`, …); segment arrays and runtime-dynamic entry points (`useFieldArray`, `removeField`, …) stay untyped | `Path<T>` / `FieldPath` type-level path checking | Deep inference, including validator argument types — the strongest of the four | Top-level `keyof` only; nested paths are untyped strings |
+| Async initial values | `initialValues: T \| Promise<T> \| () => T \| Promise<T>`: async sources start the form empty with `isLoading: true` (`useIsLoading` / `useFormState().isLoading`) and land the resolved values as the baseline | Async `defaultValues` supported (`formState.isLoading`) | `defaultValues: () => Promise<T>` supported | Not built in — resolve before rendering, or re-render after fetch |
 | Async validation | `validateDebounce` per field + `meta.signal` (`AbortSignal`) handed to every validator — superseded rounds cancel their in-flight work; pending debounce counts as validating so submit waits | Async validators supported, but no built-in debounce and no cancellation signal — both are hand-rolled per project | Built in: `asyncDebounceMs` debounces and the validator meta carries an `AbortSignal` | Async `validate` supported; no debounce, no signal |
 | Multiple errors per field | Native: every field holds `FieldError[]`; `getFieldErrors`/`useFieldErrors` read them; resolvers forward every schema issue | `criteriaMode: 'all'` collects all failing rules per field | Errors are arrays of messages per field | — |
-| SSR / hydration | `renderToString` renders initial values out of the box; server snapshot matches the client's first render | SSR-safe | SSR-safe | SSR-safe |
+| SSR / hydration | `renderToString` renders initial values out of the box; server snapshot matches the client's first render (async initialValues render empty + `isLoading` on both sides) | SSR-safe | SSR-safe | SSR-safe |
 | React 19 / Server Actions | Bridge pattern: dispatch the action from `onValidSubmit` via `startTransition`/`useActionState`, passing the values object rather than FormData (see the stance above and the React 19 Server Actions guide); the `react-f0rm/server` entry's `validateValues` re-validates payloads server-side without wrapping them in an action; no submit before JS loads — first-class `action` prop support is not on the 0.x roadmap | `<Form>` accepts a function `action` prop (server-action-style submit) since v7.84, and ships a `react-server` export | Documented server action integration (`createServerValidate` for server-side validation, Next.js examples) | — |
-| Bundle size | 10.05 KB gzip minified (9.16 KB brotli), full core | ~11 KB gzip | ~17.5 KB gzip | ~12.8 KB gzip |
+| Bundle size | 11.83 KB gzip minified (10.73 KB brotli), full core | ~11 KB gzip | ~17.5 KB gzip | ~12.8 KB gzip |
 | Devtools | `<Devtools />` from `react-f0rm/devtools` — separate entry point, tree-shakeable, never lands in the main bundle | `@hookform/devtools` (separate package) | Built-in devtools panel | None (official) |
 | Ecosystem maturity | New, 0.x — small audience, few integrations so far | Most mature: massive adoption, resolvers, UI-kit integrations, abundant examples and answers | Backed by the TanStack family, actively growing | Maintenance mode; the author recommends considering RHF or Final Form for new projects |
 
-Bundle-size basis: every column is gzip. react-f0rm is measured on the local build — gzip of the shipped, unminified `dist/index.mjs` after `npm run build` is 10.33 KB (minified, the same file gzips to 10.05 KB; 9.16 KB brotli via size-limit, which minifies and tree-shakes). Competitor figures are Bundlephobia observations of minified+gzip bundles — so ours is the conservative number, not the flattering one.
+Bundle-size basis: every column is gzip. react-f0rm is measured on the local build — gzip of the shipped, unminified `dist/index.mjs` after `npm run build` is 11.58 KB (minified, the same file gzips to 11.83 KB; 10.73 KB brotli via size-limit, which minifies and tree-shakes). Competitor figures are Bundlephobia observations of minified+gzip bundles — so ours is the conservative number, not the flattering one.
 
 ### Which one should you use?
 
-**Pick react-f0rm** when you want controlled components with true per-field subscriptions (design systems, editor-like forms), one Standard Schema adapter instead of a package per validator, compile-time-checked paths, and a small core (10.05 KB minified gzip / 9.16 KB brotli) — and you are comfortable with a young 0.x library.
+**Pick react-f0rm** when you want controlled components with true per-field subscriptions (design systems, editor-like forms), one Standard Schema adapter instead of a package per validator, compile-time-checked paths, and a small core (11.83 KB minified gzip / 10.73 KB brotli) — and you are comfortable with a young library.
 
-**Pick React Hook Form** when uncontrolled inputs are an option: its raw `register` performs no per-field re-render at all and floors at 21µs/change vs our 113µs (see [Benchmarks](#benchmarks)) — uncontrolled is simply a cheaper rendering model. RHF is also the right call when you need its mature ecosystem of resolvers, UI-library integrations and community answers today. TanStack Form sits in between: choose it when the deepest possible type inference (including validator signatures) matters more to you than bundle size.
+**Pick React Hook Form** when you want the mature ecosystem — resolvers, UI-library integrations and community answers — today. Its performance edge is gone at the rendering level: raw `register` benches at 11.9µs/change and react-f0rm's `uncontrolled: true` at 12.6µs (parity, see [Benchmarks](#benchmarks)), while our controlled model beats `Controller` 1.2–1.8×. TanStack Form sits in between: choose it when the deepest possible type inference (including validator signatures) matters more to you than bundle size.
 
 **Server Actions: bridge, not first-class.** RHF-style `action` prop support, a `react-server` entry point, or a TanStack-style `createServerValidate` helper are **not on the 0.x roadmap** — a deliberate stance, not a gap. react-f0rm's source of truth is the values store, not the DOM: an `action`-prop submit would ship FormData keyed by JSON-stringified path keys, drop every store-only value, and skip the validation gate entirely (the [React 19 Server Actions guide](docs-site/docs/guides/react19-server-actions.md) unpacks all four failure modes). The recommended shape is the bridge — dispatch from `onValidSubmit` via `startTransition`/`useActionState`, passing the values object rather than FormData — which keeps validation gating the action and types/nesting intact. If submitting without JavaScript loaded is a hard requirement, RHF's `action` prop support is the better fit today.
 
@@ -140,6 +143,10 @@ The result also carries `focusRef` — a stable callback ref for the input eleme
 const {value, onChange, focusRef} = useField({name: 'email'});
 <input ref={focusRef} value={value} onChange={e => onChange(e.target.value)} />
 ```
+
+`uncontrolled: true` pins the value at mount and skips the value subscription — typing re-renders nothing (the store still carries every write; errors/touched/disabled/validating still re-render the field), the react-hook-form `register` model at `register` parity (12.6µs vs 11.9µs bench). Bind the element with `defaultValue` instead of `value`, exactly like `<Field uncontrolled />`.
+
+On unmount the field unregisters by default: its live value drops out of reads and `getValues()` (tombstone — no silent revival from `initialValues`). `shouldUnregister: false` keeps the value per field; `createForm({shouldUnregister: false})` or `<Form shouldUnregister={false}>` flips the form-wide default to react-hook-form's keep-the-value semantics, and a field-level option overrides the form-level flag in either direction.
 
 ### `subscribe`
 
@@ -858,6 +865,26 @@ const article = useData<Article>() ?? undefined;
 const form = useForm({initialValues: articleToValues(article)});
 ```
 
+### Async initial values
+
+`initialValues` accepts a Promise, or a thunk returning a value or Promise — react-hook-form's async `defaultValues` shape. The form starts empty with `isLoading: true`, and when the source resolves, its values become the baseline (setInitialValues semantics: value subscribers re-sync, dirty/touched start clean, `reset()` returns to the resolved values):
+
+```jsx
+const form = useForm({
+  initialValues: () => fetchUser(id).then(u => ({name: u.name, email: u.email}))
+});
+const isLoading = useIsLoading(form); // also on useFormState(form).isLoading
+
+if (isLoading) return <Spinner />;
+return <Form form={form}>…</Form>;
+```
+
+Notes:
+
+- The thunk runs at create time — keep its identity stable (`useMemo`, module scope) when passing it inline; StrictMode double-invokes it in development, like every render-phase call.
+- A rejected source keeps the form empty, flips `isLoading` off and logs the error in DEV — attach a `.catch` on the source to handle it.
+- SSR renders the form empty with `isLoading: true` on both sides, so hydration matches; the values land client-side after the fetch (pass the server-resolved record to hydrate eagerly instead).
+
 ### Resetting
 
 `reset(form, initialValues?)` wipes values, errors, touched, tombstones and the submission flags (`isSubmitting`, `submitCount`, `isSubmitSuccessful`). The second argument installs a fresh baseline; omitted (or `undefined`), the form keeps its current `initialValues` and every field simply returns to its initial value — the plain `reset(form)` "undo everything" shape. The third opts into keeping slices of state through the reset:
@@ -1012,14 +1039,21 @@ type ValuesPath = FieldPath<Values>;
 type UserName = PathValue<Values, 'user.name'>;
 
 function UserNameField() {
-  // value is inferred as string; an unknown path degrades to `any`
-  // (PathValueOf), keeping dynamic names usable
+  // value is inferred as string; a path outside FieldPath<Values> — a
+  // typo or an untyped string variable — is a compile error on these
+  // generic APIs (react-hook-form parity). Segment arrays
+  // (['user', 'name']) stay accepted and read as `any`.
   const {value, onChange} = useField<Values, 'user.name'>({name: 'user.name'});
   return <input value={value} onChange={e => onChange(e.target.value)} />;
 }
 ```
 
 The same generics work on `getValue`/`setValue`/`getError` and the other path-taking helpers.
+
+The strictness is on the generic path APIs (`useField`, `setValue`, `getValue`, `useValue`, …): an unknown path fails there. Two escape hatches stay deliberately wide, because their names are runtime-computed by nature:
+
+- **Segment arrays** (`['items', 0]`): accepted everywhere, value reads as `any` — the dynamic-path escape hatch.
+- **Runtime-dynamic entry points**: `useFieldArray`, `useFieldArrayItem`, `removeField`, `setTouched`, `setFocus`, `trigger` and `clearErrors` take the wide `Name` type, so `name={dynamicString}` keeps compiling without casts.
 
 The default context is typed too — `useFormContext<Values>()` returns a `Form<Values>`, so downstream components drop the `any` dances (`eslint-disable no-unsafe-*`, value casts) without buying into `createFormContext`:
 

@@ -3,7 +3,7 @@ import useField from '../hooks/field';
 import type {Validator} from '../hooks/validate';
 import type {Form, ValidationMode} from '../form';
 import type {FieldRules} from '../rules';
-import type {Name, Path} from '../path';
+import type {Name, Path, PathSegments} from '../path';
 import createPath from '../path';
 import type {FieldPath, PathValueOf} from '../types';
 
@@ -17,7 +17,8 @@ import type {FieldPath, PathValueOf} from '../types';
  */
 type UseFieldOptions<
   TValues extends Record<string, any> = any,
-  TPath extends FieldPath<TValues> | Name = Name
+  TPath extends FieldPath<TValues> | PathSegments =
+    FieldPath<TValues> | PathSegments
 > = {
   form?: Form<TValues>;
   name?: TPath;
@@ -86,7 +87,8 @@ type UseFieldOptions<
 
 type FieldProps<
   TValues extends Record<string, any> = any,
-  TPath extends FieldPath<TValues> | Name = Name
+  TPath extends FieldPath<TValues> | PathSegments =
+    FieldPath<TValues> | PathSegments
 > = UseFieldOptions<TValues, TPath> & {
   as?: React.ComponentType<any>;
   asProps?: Record<string, any>;
@@ -169,7 +171,8 @@ export function fieldErrorId(name: Name): string {
 type FieldComponent = {
   <
     TValues extends Record<string, any> = any,
-    TPath extends FieldPath<TValues> | Name = Name
+    TPath extends FieldPath<TValues> | PathSegments =
+      FieldPath<TValues> | PathSegments
   >(
     props: FieldProps<TValues, TPath> & React.RefAttributes<HTMLInputElement>
   ): React.ReactElement | null;
@@ -311,7 +314,8 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
 
 type CheckboxProps<
   TValues extends Record<string, any> = any,
-  TPath extends FieldPath<TValues> | Name = Name
+  TPath extends FieldPath<TValues> | PathSegments =
+    FieldPath<TValues> | PathSegments
 > = UseFieldOptions<TValues, TPath>;
 
 /**
@@ -321,7 +325,8 @@ type CheckboxProps<
 type CheckboxComponent = {
   <
     TValues extends Record<string, any> = any,
-    TPath extends FieldPath<TValues> | Name = Name
+    TPath extends FieldPath<TValues> | PathSegments =
+      FieldPath<TValues> | PathSegments
   >(
     props: CheckboxProps<TValues, TPath> & React.RefAttributes<HTMLInputElement>
   ): React.ReactElement | null;
@@ -385,7 +390,8 @@ export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
 
 type SelectProps<
   TValues extends Record<string, any> = any,
-  TPath extends FieldPath<TValues> | Name = Name
+  TPath extends FieldPath<TValues> | PathSegments =
+    FieldPath<TValues> | PathSegments
 > = UseFieldOptions<TValues, TPath> & {
   multiple?: boolean;
   children?: React.ReactNode;
@@ -414,7 +420,8 @@ function toSelectValue(
 type SelectComponent = {
   <
     TValues extends Record<string, any> = any,
-    TPath extends FieldPath<TValues> | Name = Name
+    TPath extends FieldPath<TValues> | PathSegments =
+      FieldPath<TValues> | PathSegments
   >(
     props: SelectProps<TValues, TPath> & React.RefAttributes<HTMLSelectElement>
   ): React.ReactElement | null;

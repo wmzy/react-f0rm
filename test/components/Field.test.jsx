@@ -636,7 +636,10 @@ describe('Field type="file"', () => {
     fireEvent.change(input, {target: {files}});
     const values = getValues(form);
     expect(values.note).toBe('x');
-    expect(values.avatar).toBe(files);
+    // DEV snapshots clone containers, so compare structure — the File
+    // instances themselves pass through by reference (non-plain values).
+    expect(values.avatar).toEqual(files);
+    expect(values.avatar[0]).toBe(files[0]);
   });
 });
 

@@ -108,7 +108,8 @@ export type SubscribeEvent =
   | 'submitting'
   | 'submitCount'
   | 'submitSuccessful'
-  | 'disabled';
+  | 'disabled'
+  | 'loading';
 
 /** Options accepted by {@link subscribe}. */
 export type SubscribeOptions = {

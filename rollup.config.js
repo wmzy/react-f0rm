@@ -14,7 +14,16 @@ const banner = `
 `;
 
 const extensions = ['.js', '.jsx', '.es6', '.es', '.mjs', '.ts'];
-const external = ['react'];
+// ESM/CJS externals: react plus @for-fun/event-emitter. The emitter stays
+// a real runtime dependency (public d.ts files reference its EventEmitter
+// type, so consumers install it anyway) — keeping it external lets
+// bundlers dedupe it across packages instead of inlining a private copy.
+// use-sync-external-store stays bundled on purpose (React's guidance for
+// libraries: bundle the shim so consumers never see two copies).
+const external = ['react', '@for-fun/event-emitter'];
+// UMD must stay self-contained for script-tag consumers, so it bundles
+// the emitter and keeps react as its only external.
+const umdExternal = ['react'];
 
 const plugins = [
   replace({
@@ -34,10 +43,11 @@ const plugins = [
 const terserMinify = terser({output: {comments: /^!/}});
 
 export default [
-  // Main entry — UMD + ESM + CJS
+  // Main entry — UMD: self-contained (bundles the emitter) for
+  // script-tag consumers.
   {
     input: 'src/index.ts',
-    external,
+    external: umdExternal,
     plugins,
     output: [
       {
@@ -57,7 +67,15 @@ export default [
         sourcemap: true,
         format: 'umd',
         plugins: [terserMinify]
-      },
+      }
+    ]
+  },
+  // Main entry — ESM + CJS: the emitter stays an external import.
+  {
+    input: 'src/index.ts',
+    external,
+    plugins,
+    output: [
       {
         file: pkg.module,
         sourcemap: true,

@@ -28,3 +28,6 @@ tmp
 .node
 .husky
 storybook-static
+
+# vitest json reporter output
+.vitest/

@@ -2,7 +2,7 @@ import * as React from 'react';
 import useField from '../hooks/field';
 import type {UseFieldOptions, UseFieldResult} from '../hooks/field';
 import type {FieldPath} from '../types';
-import type {Name} from '../path';
+import type {PathSegments} from '../path';
 
 /**
  * Props for {@link FormField}: every {@link UseFieldOptions} option plus a
@@ -10,7 +10,8 @@ import type {Name} from '../path';
  */
 export type FormFieldProps<
   TValues extends Record<string, any> = any,
-  TPath extends FieldPath<TValues> | Name = Name
+  TPath extends FieldPath<TValues> | PathSegments =
+    FieldPath<TValues> | PathSegments
 > = UseFieldOptions<TValues, TPath> & {
   children: (field: UseFieldResult<TValues, TPath>) => React.ReactNode;
 };
@@ -31,7 +32,8 @@ export type FormFieldProps<
  */
 export default function FormField<
   TValues extends Record<string, any> = any,
-  TPath extends FieldPath<TValues> | Name = Name
+  TPath extends FieldPath<TValues> | PathSegments =
+    FieldPath<TValues> | PathSegments
 >({children, ...options}: FormFieldProps<TValues, TPath>): React.ReactNode {
   const field = useField<TValues, TPath>(options);
   return children(field);

@@ -175,6 +175,36 @@
       "path": "dist/index.mjs",
       "limit": "12.5 KB",
       "gzip": true
+    },
+    {
+      "path": "dist/devtools/index.mjs",
+      "limit": "9 KB",
+      "gzip": true
+    },
+    {
+      "path": "dist/resolvers/standard-schema.mjs",
+      "limit": "1.5 KB",
+      "gzip": true
+    },
+    {
+      "path": "dist/resolvers/zod.mjs",
+      "limit": "1 KB",
+      "gzip": true
+    },
+    {
+      "path": "dist/resolvers/yup.mjs",
+      "limit": "1 KB",
+      "gzip": true
+    },
+    {
+      "path": "dist/server/index.mjs",
+      "limit": "5 KB",
+      "gzip": true
+    },
+    {
+      "path": "dist/persist.mjs",
+      "limit": "3 KB",
+      "gzip": true
     }
   ]
 }

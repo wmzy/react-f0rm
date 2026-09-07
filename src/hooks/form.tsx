@@ -16,11 +16,11 @@ import createForm, {
   getTouchedFields,
   setInitialValues
 } from '../form';
-import type {FieldError, Form, FormEvents, Options, Name} from '../form';
+import type {FieldError, Form, FormEvents, Options} from '../form';
 import type {FieldPath, PathValueOf} from '../types';
 import createPath from '../path';
-import type {Path} from '../path';
-import {isEqual} from '../util';
+import type {PathSegments, Path} from '../path';
+import {isEqual, isPromise} from '../util';
 
 /**
  * Create a form instance bound to this component.
@@ -67,7 +67,14 @@ export default function useForm<T extends Record<string, any> = any>(
     // undefined = no baseline requested (createForm already defaulted to
     // {}): installing it would clear the values Map on mount for no
     // semantic gain — wiping any render-time useField initialValue seeds.
+    // Async sources (Promise or thunk) are excluded too: createForm owns
+    // their one-shot resolution, and a thunk's identity changes every
+    // render, so re-seeding here would clobber the resolution cycle with
+    // the raw function itself.
     if (initialValues === undefined) return;
+    if (typeof initialValues === 'function' || isPromise(initialValues)) {
+      return;
+    }
     const seeded = seededRef.current!;
     if (
       seeded.done &&
@@ -245,7 +252,7 @@ export function useWatch<T>(
  */
 export function useValue<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | Name = Name
+  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
 >(form: Form<T>, name: P): PathValueOf<T, P> {
   return useValueByPath(form, createPath(name));
 }
@@ -275,7 +282,7 @@ export function useValueByPath(form: Form, path: Path): any {
  */
 export function useTouched<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | Name = Name
+  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
 >(form: Form<T>, name: P): boolean {
   return useTouchedByPath(form, createPath(name));
 }
@@ -305,7 +312,7 @@ export function useTouchedByPath(form: Form, path: Path): boolean {
  */
 export function useError<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | Name = Name
+  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
 >(form: Form<T>, name: P): string | undefined {
   return useErrorByPath(form, createPath(name))?.message;
 }
@@ -334,7 +341,7 @@ export function useErrorByPath(form: Form, path: Path): FieldError | undefined {
  */
 export function useFieldErrors<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | Name = Name
+  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
 >(form: Form<T>, name: P): FieldError[] {
   return useFieldErrorsByPath(form, createPath(name));
 }
@@ -416,6 +423,8 @@ export type FormState = {
   isValidating: boolean;
   isSubmitSuccessful: boolean | undefined;
   submitCount: number;
+  /** Async initialValues still pending ({@link Form.isLoading}). */
+  isLoading: boolean;
   /** The form-level disabled flag (fields OR their own `disabled`). */
   disabled: boolean;
 };
@@ -431,7 +440,8 @@ const FORM_STATE_EVENTS: readonly SubscribeEvent[] = [
   'submitting',
   'submitCount',
   'submitSuccessful',
-  'disabled'
+  'disabled',
+  'loading'
 ];
 
 function getFormState(form: Form): FormState {
@@ -446,6 +456,7 @@ function getFormState(form: Form): FormState {
     isValidating: form.validating.size > 0,
     isSubmitSuccessful: form.isSubmitSuccessful,
     submitCount: form.submitCount,
+    isLoading: form.isLoading,
     disabled: form.disabled
   };
 }
@@ -468,6 +479,7 @@ function isSameFormState(a: FormState, b: FormState): boolean {
     a.isValidating === b.isValidating &&
     a.isSubmitSuccessful === b.isSubmitSuccessful &&
     a.submitCount === b.submitCount &&
+    a.isLoading === b.isLoading &&
     a.disabled === b.disabled
   );
 }
@@ -503,6 +515,16 @@ export function useIsValid(form: Form): boolean {
 
 export function useIsSubmitting(form: Form): boolean {
   return useWatch(form, 'submitting', () => form.isSubmitting);
+}
+
+/**
+ * Get whether an async {@link Options.initialValues} source is still
+ * pending — the flag a loading skeleton or a disabled submit button gates
+ * on until the resolved baseline lands. Subscribes to the 'loading' event
+ * the core emits around the resolution cycle.
+ */
+export function useIsLoading(form: Form): boolean {
+  return useWatch(form, 'loading', () => form.isLoading);
 }
 
 /**

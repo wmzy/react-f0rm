@@ -17,7 +17,8 @@
 import {test} from 'vitest';
 import createForm, {getValues, isDirty} from '../../src/form';
 import type {Form} from '../../src/form';
-import {set, unset} from '../../src/util';
+import {bumpValuesVersion} from '../../src/core/internals';
+import {freezeValues, set, unset} from '../../src/util';
 
 /** Pre-optimization getValues, copied verbatim as the control. */
 function getValuesLegacy(form: Form): any {
@@ -46,8 +47,17 @@ const form100x3 = makeForm(100, 10);
 test('getValues - 100 fields, depth 3', async ({bench}) => {
   // Local aliases: the module runner instruments re-exported bindings
   // with getters, and hot-loop access through them distorts timings.
-  const legacy = getValuesLegacy;
-  const merge = getValues;
+  // Both paths compute a fresh merge per iteration: the legacy control
+  // recomputes unconditionally, the owned path invalidates the per-form
+  // memo first (bumpValuesVersion — test-only import, same convention as
+  // pathCacheSize). Both results run through freezeValues so the DEV
+  // snapshot guard (clone + freeze) is paid by both sides of the
+  // comparison instead of skewing one.
+  const legacy = (form: Form) => freezeValues(getValuesLegacy(form));
+  const merge = (form: Form) => {
+    bumpValuesVersion(form);
+    return getValues(form);
+  };
   await bench('legacy: chained set per key', () => {
     legacy(form100x3);
   }).run();

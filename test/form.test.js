@@ -235,10 +235,16 @@ describe('getValues', () => {
     expect(values).toEqual({a: 1, b: 99, c: 3});
   });
 
-  it('returns the initialValues reference itself when no field is set', () => {
+  it('hands back a deep-frozen snapshot when no field is set (DEV)', () => {
     const initialValues = {a: 1};
     const form = createForm({initialValues});
-    expect(getValues(form)).toBe(initialValues);
+    const values = getValues(form);
+    expect(values).toEqual(initialValues);
+    // DEV builds clone-then-freeze so consumer mutations throw instead of
+    // corrupting the shared memoized result — the baseline itself stays
+    // mutable (production builds share the reference, unchanged).
+    expect(Object.isFrozen(values)).toBe(true);
+    expect(Object.isFrozen(initialValues)).toBe(false);
   });
 
   it('later ancestor write supersedes earlier descendant writes', () => {
@@ -271,6 +277,37 @@ describe('getValues', () => {
     expect(second).toEqual({a: 1, b: 3});
     // Mutating the cached result is unsupported (read-only contract):
     // between writes every reader shares the same reference.
+  });
+
+  it('freezes nested containers and throws on consumer mutation (DEV)', () => {
+    const form = createForm({initialValues: {user: {name: 'zlt'}}});
+    const values = getValues(form);
+    expect(Object.isFrozen(values.user)).toBe(true);
+    expect(() => {
+      values.user.name = 'mutated';
+    }).toThrow(TypeError);
+    // The failed mutation never touched the form state.
+    expect(getValue(form, 'user.name')).toBe('zlt');
+    // Non-plain values pass through by reference, unfrozen.
+    const date = new Date(0);
+    class Token {
+      constructor(v) {
+        this.v = v;
+      }
+    }
+    const token = new Token(1);
+    setValue(form, 'meta', {date, token});
+    const withMeta = getValues(form);
+    expect(withMeta.meta.date).toBe(date);
+    expect(Object.isFrozen(date)).toBe(false);
+    expect(withMeta.meta.token).toBe(token);
+    expect(Object.isFrozen(withMeta.meta.token)).toBe(false);
+    // Fresh writes recompute a fresh frozen snapshot.
+    setValue(form, 'user.name', 'edited');
+    const after = getValues(form);
+    expect(after).not.toBe(values);
+    expect(Object.isFrozen(after.user)).toBe(true);
+    expect(after.user.name).toBe('edited');
   });
 
   it('cache invalidation covers every value-mutating entry point', async () => {
@@ -2904,5 +2941,49 @@ describe('trigger shouldFocus', () => {
 
     expect(focusSpy).toHaveBeenCalledTimes(1);
     expect(focusSpy).toHaveBeenCalledWith('["a"]');
+  });
+});
+
+describe('async initialValues', () => {
+  it('seeds a sync thunk immediately without a loading cycle', () => {
+    const form = createForm({initialValues: () => ({email: 'a@b.c'})});
+    expect(form.isLoading).toBe(false);
+    expect(getValue(form, 'email')).toBe('a@b.c');
+  });
+
+  it('starts empty and loading, then lands resolved values as the baseline', async () => {
+    const form = createForm({
+      initialValues: () => Promise.resolve({email: 'a@b.c', tags: ['x']})
+    });
+    expect(form.isLoading).toBe(true);
+    expect(getValues(form)).toEqual({});
+    await vi.waitFor(() => expect(form.isLoading).toBe(false));
+    expect(getValue(form, 'email')).toBe('a@b.c');
+    expect(getValues(form)).toEqual({email: 'a@b.c', tags: ['x']});
+    // The resolved values are the baseline: a later reset returns to them.
+    setValue(form, 'email', 'edited');
+    reset(form);
+    expect(getValue(form, 'email')).toBe('a@b.c');
+  });
+
+  it('accepts a bare Promise and emits loading around the cycle', async () => {
+    const events = [];
+    const form = createForm({initialValues: Promise.resolve({n: 1})});
+    // The first (true) emit fires synchronously at create — before any
+    // subscriber can exist — so only the settling emit is observable;
+    // the flag itself started true.
+    on(form.emitter, 'loading', () => events.push(form.isLoading));
+    await vi.waitFor(() => expect(form.isLoading).toBe(false));
+    expect(events).toEqual([false]);
+    expect(getValue(form, 'n')).toBe(1);
+  });
+
+  it('flips loading off and keeps the form empty on rejection', async () => {
+    const form = createForm({
+      initialValues: Promise.reject(new Error('boom'))
+    });
+    expect(form.isLoading).toBe(true);
+    await vi.waitFor(() => expect(form.isLoading).toBe(false));
+    expect(getValues(form)).toEqual({});
   });
 });

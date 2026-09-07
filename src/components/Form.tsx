@@ -36,7 +36,18 @@ type FormProps<T extends Record<string, any> = any> = Omit<
    * the form lands in the module-level FormContext as before.
    */
   context?: React.Context<FormApi<any> | null>;
-  initialValues?: T;
+  /**
+   * The values baseline — a sync object, a Promise, or a thunk returning
+   * either ({@link Options.initialValues}). Async sources render the form
+   * empty and gate on `form.isLoading` until they resolve.
+   */
+  initialValues?: T | Promise<T> | (() => T | Promise<T>);
+  /**
+   * Form-level default for a bound field's unmount behavior
+   * ({@link Options.shouldUnregister}): `true` (the default) tombstones
+   * unmounted fields, `false` keeps their values.
+   */
+  shouldUnregister?: boolean;
   /**
    * Controlled external values. When the `values` reference changes, the
    * new object is synced into the form (via setInitialValues semantics):
@@ -87,6 +98,7 @@ export default function Form<T extends Record<string, any> = any>({
   context,
   initialValues,
   values,
+  shouldUnregister,
   onSubmit,
   onValidSubmit,
   onInvalidSubmit,
@@ -94,7 +106,7 @@ export default function Form<T extends Record<string, any> = any>({
   shouldFocusError,
   ...props
 }: FormProps<T>) {
-  const f2 = useForm<T>({initialValues, values});
+  const f2 = useForm<T>({initialValues, values, shouldUnregister});
   const form = f1 || f2;
 
   const submit = handleSubmit(form, {

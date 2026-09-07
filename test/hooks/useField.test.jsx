@@ -256,6 +256,41 @@ describe('useField', () => {
     expect('name' in getValues(form)).toBe(false);
   });
 
+  it('form-level shouldUnregister: false flips the unmount default', () => {
+    const form = createForm({
+      initialValues: {name: 'test'},
+      shouldUnregister: false
+    });
+    const w = ({children}) => (
+      <FormProvider value={form}>{children}</FormProvider>
+    );
+    const {result, unmount} = renderHook(() => useField({name: 'name'}), {
+      wrapper: w
+    });
+    act(() => result.current.onChange('changed'));
+    unmount();
+    // The field's own option was omitted, so the form-level default
+    // governs: the value survives the unmount (RHF semantics).
+    expect(getValues(form).name).toBe('changed');
+  });
+
+  it('a field-level option overrides the form-level default', () => {
+    const form = createForm({
+      initialValues: {name: 'test'},
+      shouldUnregister: false
+    });
+    const w = ({children}) => (
+      <FormProvider value={form}>{children}</FormProvider>
+    );
+    const {result, unmount} = renderHook(
+      () => useField({name: 'name', shouldUnregister: true}),
+      {wrapper: w}
+    );
+    act(() => result.current.onChange('changed'));
+    unmount();
+    expect(getValues(form).name).toBeUndefined();
+  });
+
   it('unmounting one field does not re-render a sibling field component', () => {
     // removeFieldByPath emits path-scoped events: a component watching
     // field A must not re-render when field B unmounts (wizard/tab
