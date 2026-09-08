@@ -49,6 +49,13 @@ type FormProps<T extends Record<string, any> = any> = Omit<
    */
   shouldUnregister?: boolean;
   /**
+   * Validate on mount (see {@link Options.validateOnMount}): every
+   * mounted field with a validator kicks once after mount and the
+   * form-level `validate` (if any) runs once. A field's own
+   * `validateOnMount` prop overrides this flag.
+   */
+  validateOnMount?: boolean;
+  /**
    * Controlled external values. When the `values` reference changes, the
    * new object is synced into the form (via setInitialValues semantics):
    * uncommitted user edits are discarded -- master-detail semantics, where
@@ -99,6 +106,7 @@ export default function Form<T extends Record<string, any> = any>({
   initialValues,
   values,
   shouldUnregister,
+  validateOnMount,
   onSubmit,
   onValidSubmit,
   onInvalidSubmit,
@@ -106,7 +114,12 @@ export default function Form<T extends Record<string, any> = any>({
   shouldFocusError,
   ...props
 }: FormProps<T>) {
-  const f2 = useForm<T>({initialValues, values, shouldUnregister});
+  const f2 = useForm<T>({
+    initialValues,
+    values,
+    shouldUnregister,
+    validateOnMount
+  });
   const form = f1 || f2;
 
   const submit = handleSubmit(form, {

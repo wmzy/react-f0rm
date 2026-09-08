@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@for-fun/event-emitter':
+        specifier: ^1.1.0
+        version: 1.1.0
       valibot:
         specifier: '>=1.0.0'
         version: 1.4.2(typescript@6.0.3)
@@ -2563,6 +2566,9 @@ packages:
     peerDependenciesMeta:
       '@noble/hashes':
         optional: true
+
+  '@for-fun/event-emitter@1.1.0':
+    resolution: {integrity: sha512-IHK1p2VxGhknvSR903EbxUGgd2UwYeTqOQrda2HNM6VmP8ilsTyIRpiiA6NSFFNLbpGHn3132TjHXQzvkeSO2w==}
 
   '@hapi/hoek@9.3.0':
     resolution: {integrity: sha512-/c6rf4UJlmHlC9b5BaNvzAcFv7HZ2QHaV0D4/HNlBdvFnvQq8RI4kYdhyPCl7Xj+oWvTWQ8ujhqS53LIgAe6KQ==}
@@ -13519,6 +13525,8 @@ snapshots:
       levn: 0.4.1
 
   '@exodus/bytes@1.15.1': {}
+
+  '@for-fun/event-emitter@1.1.0': {}
 
   '@hapi/hoek@9.3.0': {}
 

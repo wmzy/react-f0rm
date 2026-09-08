@@ -7,6 +7,10 @@ import type {Name, Path, PathSegments} from '../path';
 import createPath from '../path';
 import type {FieldPath, PathValueOf} from '../types';
 
+/** Dev-only flag, replaced at build time (rollup.config.js `replace`);
+ * defined for the test environment in vitest.config.ts. */
+declare const __DEV__: boolean;
+
 /**
  * Props shared by Field/Checkbox/Select. Generic so a typed form flows into
  * the `validate` callback: with `form` (a `Form<Values>`) and `name`
@@ -50,6 +54,13 @@ type UseFieldOptions<
    * useField/useValidate.
    */
   validateDebounce?: number;
+  /**
+   * Validate this field once on mount (see {@link
+   * UseFieldOptions}' `validateOnMount`): overrides the form-level
+   * `createForm({validateOnMount})` / `<Form validateOnMount>` flag in
+   * either direction. Passed through to useField.
+   */
+  validateOnMount?: boolean;
   /**
    * Disable this field's control: OR-ed with the form-level flag
    * (`createForm({disabled})` / `setDisabled`) — a field cannot opt out
@@ -104,6 +115,22 @@ type FieldProps<
    * wiring for free.
    */
   renderError?: (error: string, id: string) => React.ReactNode;
+  /**
+   * Store `e.target.valueAsNumber` instead of the string value —
+   * react-hook-form's `register({valueAsNumber})` counterpart for number
+   * inputs (`<input type="number">`). `NaN` passes through as-is when the
+   * input cannot be parsed, matching RHF. An explicit `eventToValue`
+   * takes precedence.
+   */
+  valueAsNumber?: boolean;
+  /**
+   * Store `e.target.valueAsDate` instead of the string value — RHF's
+   * `register({valueAsDate})` counterpart for date/time inputs. `null`
+   * passes through when the input cannot be parsed. An explicit
+   * `eventToValue` takes precedence; combining with `valueAsNumber` is a
+   * TypeError.
+   */
+  valueAsDate?: boolean;
 };
 
 function setRef<T>(ref: React.Ref<T> | undefined, value: T | null) {
@@ -193,6 +220,9 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
       shouldUnregister,
       rules,
       validateDebounce,
+      validateOnMount,
+      valueAsNumber,
+      valueAsDate,
       disabled,
       delayError,
       mode,
@@ -222,6 +252,7 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
       shouldUnregister,
       rules,
       validateDebounce,
+      validateOnMount,
       delayError,
       disabled,
       mode,
@@ -271,9 +302,22 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
     }, [nativeInvalidCount]);
 
     const isFile = props.type === 'file';
+    if (__DEV__ && valueAsNumber && valueAsDate) {
+      // eslint-disable-next-line no-console -- dev-only diagnostics
+      console.warn(
+        'react-f0rm: valueAsNumber and valueAsDate are mutually exclusive — ' +
+          'valueAsNumber wins. Use eventToValue for anything else.'
+      );
+    }
     const toValue =
       eventToValue ??
-      (isFile ? (e: any) => e.target.files : (e: any) => e.target.value);
+      (isFile
+        ? (e: any) => e.target.files
+        : valueAsNumber
+          ? (e: any) => e.target.valueAsNumber
+          : valueAsDate
+            ? (e: any) => e.target.valueAsDate
+            : (e: any) => e.target.value);
 
     // file inputs never receive a value/defaultValue prop (they cannot be
     // value-controlled); uncontrolled renders defaultValue, controlled
@@ -342,6 +386,7 @@ export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
       validate,
       rules,
       validateDebounce,
+      validateOnMount,
       disabled,
       delayError,
       mode,
@@ -364,6 +409,7 @@ export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
       validate,
       rules,
       validateDebounce,
+      validateOnMount,
       delayError,
       disabled,
       mode
@@ -439,6 +485,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
       validate,
       rules,
       validateDebounce,
+      validateOnMount,
       disabled,
       delayError,
       mode,
@@ -461,6 +508,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
       validate,
       rules,
       validateDebounce,
+      validateOnMount,
       delayError,
       disabled,
       mode

@@ -20,7 +20,8 @@ import createForm, {
   isFieldDirtyByPath,
   getDirtyFields,
   getTouchedFields,
-  setInitialValues
+  setInitialValues,
+  runFormValidate
 } from '../form';
 import type {FieldError, Form, FormEvents, Options} from '../form';
 import type {FieldPath, PathValueOf} from '../types';
@@ -119,6 +120,28 @@ export default function useForm<T extends Record<string, any> = any>(
     seeded.source = values;
     setInitialValues(form, values);
   }, [form, values]);
+
+  // Mount validation: the form-level `validate` runs once after mount when
+  // the form opted into `validateOnMount` (field kicks are the fields' own
+  // — useValidate schedules them per registration). Children's effects run
+  // before the parent's, so field registrations are in place by the time
+  // this fires. While an async initialValues source is pending, defer to
+  // the 'loading' event — it fires after the resolved baseline has landed.
+  // The run is fire-and-forget: a rejected validator is the submit path's
+  // business, and a sync throw propagates exactly like trigger's.
+  useEffect(() => {
+    if (!form.validateOnMount || !form.validate) return;
+    const run = () => {
+      void runFormValidate(form).catch(() => undefined);
+    };
+    if (!form.isLoading) {
+      run();
+      return;
+    }
+    return on(form.emitter, 'loading', () => {
+      run();
+    });
+  }, [form]);
 
   return form;
 }
@@ -572,6 +595,18 @@ export function useIsSubmitting(form: Form): boolean {
  */
 export function useIsLoading(form: Form): boolean {
   return useWatch(form, 'loading', () => form.isLoading);
+}
+
+/**
+ * Get the form's user-owned metadata slot reactively (Formik's `status`
+ * counterpart): any value the app stores through {@link setStatus} —
+ * server session flags, wizard step state, non-field errors. Subscribes
+ * to the payload-less 'status' event, so unrelated events never re-render
+ * the caller, and the returned reference is stable between writes that
+ * store an equal value (useSyncExternalStore's Object.is bailout).
+ */
+export function useStatus<T = any>(form: Form): T {
+  return useWatch(form, 'status', () => form.status);
 }
 
 /**

@@ -31,7 +31,7 @@ const { value, onChange } = useField<UserForm, 'age'>({ name: 'age' });
 
 ## FieldPath and PathValue
 
-`FieldPath<T>` enumerates every valid path string for a values shape (dot notation, array indices, bracket subscripts — capped at 10 segments). `PathValue<T, P>` resolves the value type a path points at:
+`FieldPath<T>` enumerates every valid path string for a values shape (dot notation, array indices, bracket subscripts — capped at 10 segments). `PathValue<T, P>` resolves the value type a path points at. Past the 10-segment cap a literal stops being a `FieldPath` member, so it is rejected on the generic APIs; spell deeper paths as segment arrays (`['a', 'b', …, 'leaf']`), which stay accepted and read as `any`:
 
 ```tsx
 import type { FieldPath, PathValue } from 'react-f0rm';

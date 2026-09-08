@@ -171,12 +171,14 @@
   "size-limit": [
     {
       "path": "dist/index.mjs",
-      "limit": "12 KB"
+      "limit": "12 KB",
+      "ignore": ["@for-fun/event-emitter"]
     },
     {
       "path": "dist/index.mjs",
       "limit": "12.5 KB",
-      "gzip": true
+      "gzip": true,
+      "ignore": ["@for-fun/event-emitter"]
     },
     {
       "path": "dist/devtools/index.mjs",
@@ -208,5 +210,8 @@
       "limit": "3 KB",
       "gzip": true
     }
-  ]
+  ],
+  "dependencies": {
+    "@for-fun/event-emitter": "^1.1.0"
+  }
 }

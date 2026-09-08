@@ -18,7 +18,7 @@ This guide maps TanStack Form v1 (`@tanstack/react-form`) concepts to react-f0rm
 | Schema validation | Pass a Standard Schema directly to `validators` (adapters deprecated) | `standardSchemaResolver` (field) + `standardSchemaFormValidator` (form) |
 | Parsed schema output | Not preserved — parse again inside `onSubmit` | Kept as the `parsedValues` baseline — `getValues()` reads coerced values |
 | Subscriptions | `form.Subscribe` (component-local re-render) + `useSelector(form.store, selector)` | Named hooks (`useValue`, `useError`, …) that re-render the calling component; `subscribe` for imperative effects |
-| Submit button state | `state.canSubmit` composite flag | No `canSubmit` — compose `useHasErrors` / `useIsDirty` / `useIsSubmitting` |
+| Submit button state | `state.canSubmit` composite flag | `useCanSubmit(form)` — `!isSubmitting && !hasErrors`, the single flag a submit button gates on |
 | Server errors | Validator returning `{form, fields}`, or `form.setErrorMap` | `setServerErrors(form, {field: message})` — one channel, `type: 'server'` |
 | Arrays | `mode="array"` + `field.pushValue/removeValue/…` | `useFieldArray` + `append/remove/insert/swap/move/replace/update`, stable row ids |
 | Paths | String paths, deeply inferred types (`people[0].name`) | `FieldPath<T>`-checked dotted or segment paths (`['people', 0, 'name']`) |

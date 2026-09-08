@@ -654,9 +654,12 @@ function getFormValidateState(form: Form): FormValidateState {
  * or its promise rejected, mirroring the undebounced propagation — so
  * merged callers all observe the same outcome.
  *
- * Only called under `if (form.validate)`.
+ * Only called under `if (form.validate)`. Public: the form-level-only
+ * round (field validators excluded) — `useForm`'s `validateOnMount` run
+ * and cross-cutting re-checks use it; `trigger`/`ensureValidate` compose
+ * it after the field validators settle.
  */
-function runFormValidate(form: Form): Promise<void> {
+export function runFormValidate(form: Form): Promise<void> {
   const validate = form.validate;
   if (!validate) return Promise.resolve();
   const debounce = form.validateDebounce ?? 0;

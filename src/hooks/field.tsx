@@ -43,7 +43,21 @@ export type UseFieldOptions<
   name: TPath;
   initialValue?: any;
   shouldUnregister?: boolean;
-  validate?: Validator;
+  /**
+   * Field-level validator. The value argument follows the path: with a
+   * typed form the callback receives `PathValueOf<TValues, TPath>` (the
+   * TanStack-parity inference — `name: 'age'` on a `{age: number}` shape
+   * types `value` as `number`), and falls back to `any` for untyped call
+   * sites (segment arrays, dynamic names). The return shape mirrors
+   * {@link Validator} — an error (string / FieldError / mixed array) or
+   * undefined when valid, possibly a Promise for async validation. The
+   * second argument carries the validation context (`meta.signal` aborts
+   * when the round is superseded).
+   */
+  validate?: (
+    value: PathValueOf<TValues, TPath>,
+    meta: {form: Form<TValues>; path: Path; signal: AbortSignal}
+  ) => ReturnType<Validator>;
   /**
    * Declarative rules (required/min/max/minLength/maxLength/pattern),
    * compiled into a synchronous validator. `required` is special: it runs
@@ -124,6 +138,15 @@ export type UseFieldOptions<
    * the field's own path is a no-op (its own change already validates it).
    */
   validateDeps?: FieldPath<TValues>[];
+  /**
+   * Validate this field once on mount instead of waiting for the first
+   * submit/change — errors show immediately for an untouched field.
+   * Overrides the form-level `createForm({validateOnMount})` flag in
+   * either direction (`false` opts a field out of a validating form).
+   * While an async `initialValues` source is still pending the kick waits
+   * for the resolved baseline; a field unmounted in between never kicks.
+   */
+  validateOnMount?: boolean;
 };
 
 /**
@@ -323,6 +346,7 @@ export function useFieldCore<
     rules,
     validateDebounce,
     validateDeps,
+    validateOnMount,
     delayError,
     disabled,
     uncontrolled,
@@ -382,6 +406,7 @@ export function useFieldCore<
     : undefined;
   useValidate(combineRulesAndValidate(restRules, validate), path, form, {
     debounce: validateDebounce,
+    validateOnMount,
     sync:
       rules && rules.required !== undefined
         ? rulesToValidator({required: rules.required})

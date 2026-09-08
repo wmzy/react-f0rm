@@ -108,6 +108,7 @@ export type FormEvents =
   | ['submitSuccessful', []]
   | ['reset', []]
   | ['disabled', []]
+  | ['status', []]
   | ['loading', []]
   | ['focusError', [key: string, options?: SetFocusOptions]];
 
@@ -177,6 +178,21 @@ export type Form<T extends Record<string, any> = any> = {
    * {@link setDisabled}, which emits a payload-less 'disabled' event so
    * subscribed fields re-render. */
   disabled: boolean;
+  /** Form-level default for mount validation, seeded from
+   * {@link Options.validateOnMount}: `true` makes every mounted field
+   * with a validator kick once after mount (deferred until an async
+   * {@link Options.initialValues} source lands), and makes `useForm` run
+   * the form-level `validate` once. A field's own `validateOnMount`
+   * option overrides this flag in either direction. */
+  validateOnMount: boolean;
+  /**
+   * User-owned metadata slot for non-field state — session flags, server
+   * backfill that belongs to no field, step indices (Formik's `status`
+   * role). Written with {@link setStatus}, which emits the payload-less
+   * 'status' event; read directly or reactively through {@link useStatus}.
+   * Starts `undefined`.
+   */
+  status: any;
 };
 
 export type Options<T extends Record<string, any> = any> = {
@@ -252,6 +268,20 @@ export type Options<T extends Record<string, any> = any> = {
    * of a disabled form). Toggle later with {@link setDisabled}.
    * Defaults to `false`. */
   disabled?: boolean;
+  /**
+   * Validate on mount: `true` makes every mounted field with a validator
+   * (declarative `rules` or a `validate` callback) run it once after
+   * mount, instead of waiting for the first submit/change — errors show
+   * immediately for an untouched form (Formik's `validateOnMount` /
+   * TanStack Form's per-field `validateOnMount`). The form-level
+   * `validate` also runs once after mount. Mount kicks are deferred
+   * while an async `initialValues` source is still pending: validating
+   * the empty shell would land spurious required errors, so the kicks
+   * fire after the resolved baseline lands instead. A field's own
+   * `useField({validateOnMount})` option overrides the form-level flag
+   * in either direction. Defaults to `false`.
+   */
+  validateOnMount?: boolean;
 };
 
 /**
@@ -281,6 +311,7 @@ export default function create<T extends Record<string, any> = any>(
     mode: options?.mode ?? 'onSubmit',
     reValidateMode: options?.reValidateMode ?? 'onChange',
     disabled: options?.disabled ?? false,
+    validateOnMount: options?.validateOnMount ?? false,
     validateDeps: options?.validateDeps
       ? new Set(options.validateDeps.map(dep => createPath(dep).key))
       : undefined,
@@ -296,7 +327,8 @@ export default function create<T extends Record<string, any> = any>(
     isSubmitted: false,
     submitCount: 0,
     isSubmitSuccessful: undefined,
-    isLoading: false
+    isLoading: false,
+    status: undefined
   };
   if (isPromise(source)) {
     // The form starts empty; when the source resolves, its values become
@@ -308,9 +340,12 @@ export default function create<T extends Record<string, any> = any>(
     emit(emitter, 'loading');
     Promise.resolve(source).then(
       resolved => {
+        // Values land first, then the flag flips and 'loading' fires —
+        // subscribers waking on the event read the resolved baseline, not
+        // the empty shell (mount-validation deferral among them).
+        setInitialValues(form, resolved ?? {});
         form.isLoading = false;
         emit(emitter, 'loading');
-        setInitialValues(form, resolved ?? {});
       },
       error => {
         form.isLoading = false;

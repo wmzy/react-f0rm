@@ -26,6 +26,7 @@ const form = useForm({
 | `mode` | `'onSubmit' \| 'onBlur' \| 'onChange' \| 'onTouched' \| 'all'` | When fields are validated (default: `'onSubmit'`) — see [Validation Timing](../guides/validation.md#validation-timing) |
 | `reValidateMode` | `'onChange' \| 'onBlur' \| 'onSubmit'` | When a field is re-validated **after it already has an error** (default: `'onChange'`) |
 | `disabled` | `boolean` | Start the form with every bound field disabled (default: `false`) — bound fields OR this flag with their own `disabled` option (a field cannot opt out); toggle at runtime with `setDisabled` |
+| `validateOnMount` | `boolean` | Validate on mount (default: `false`): every mounted field with a validator kicks once after mount and the form-level `validate` runs once — errors show on an untouched form. Deferred while an async `initialValues` source is pending (the kicks run after the resolved baseline lands); a field's own `validateOnMount` overrides the flag |
 
 ## Form Instance API
 
@@ -80,6 +81,7 @@ Errors are stored as `FieldError` objects — `{type: string, message: string}` 
 | `getFieldState(form, name)` | `FieldState` — one field's aggregated snapshot; see below |
 | `setFocus(form, name, options?)` | Focus a bound field's element programmatically — see below |
 | `setDisabled(form, value)` | Set the form-level disabled flag and emit a payload-less `'disabled'` event — every subscribed field re-renders with the merged state: the form flag OR-ed with its own `disabled` option |
+| `setStatus(form, value)` | Write the form's user-owned metadata slot (session flags, step state, non-field errors) and emit a payload-less `'status'` event — read it directly (`form.status`) or reactively via `useStatus(form)` |
 | `reset(form, initialValues?, options?)` | Full reset — see below |
 
 `reset` clears values, errors, touched state, validating state **and** the submission flags: `isSubmitting` → `false`, `submitCount` → `0`, `isSubmitted` → `false`, `isSubmitSuccessful` → `undefined`. Pass `initialValues` to start from a fresh baseline; the omitted-fields tombstones are cleared too.
@@ -165,6 +167,7 @@ Rides the same `'focusError'` event channel a failed `handleSubmit` uses to focu
 - `useDirtyFields(form)` — reactive `Record<string, boolean>` of dirty fields (dotted paths), recalculated after changes
 - `useTouchedFields(form)` — reactive `string[]` of touched fields (dotted paths), recalculated after blur/touch events
 - `useHasErrors(form)` — reactive error state
+- `useStatus(form)` — reactive read of the form's metadata slot (`setStatus` writes it; the reference stays stable across unrelated events)
 - `useIsSubmitting(form)` — reactive submitting state
 - `useCanSubmit(form)` — reactive `!isSubmitting && !hasErrors`: the one flag a submit button's `disabled` prop wants
 - `useSubmitCount(form)` — reactive submit count

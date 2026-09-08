@@ -1,4 +1,5 @@
 import {useContext, useEffect, useRef} from 'react';
+import {on} from '../emitter';
 import {FormContext} from '../context';
 import {registerValidatorByPath} from '../form';
 import type {Form, SyncValidator, Validator} from '../form';
@@ -39,6 +40,18 @@ export type UseValidateOptions = {
    * check as the whole round and clears the field's errors.
    */
   sync?: SyncValidator;
+  /**
+   * Validate on mount: kick the registration once after it lands (Formik's
+   * `validateOnMount` / TanStack Form's per-field flag). Falls back to the
+   * form-level `createForm({validateOnMount})` when omitted, so a field
+   * opts out with `validateOnMount: false`. Validator-less registrations
+   * never kick on mount — an empty kick would clear a server error that
+   * landed before the field mounted. While an async `initialValues` source
+   * is still pending the kick is deferred until the resolved baseline
+   * lands (validating the empty shell would land spurious required
+   * errors); a field unmounted in between never kicks.
+   */
+  validateOnMount?: boolean;
 };
 
 /**
@@ -73,16 +86,46 @@ export default function useValidate(
   const syncRef = useRef(options?.sync);
   syncRef.current = options?.sync;
 
-  useEffect(
-    () =>
-      registerValidatorByPath(form, path, {
-        validate: () => validateRef.current,
-        debounce: () => debounceRef.current,
-        sync: () => syncRef.current
-      }),
+  useEffect(() => {
+    const dispose = registerValidatorByPath(form, path, {
+      validate: () => validateRef.current,
+      debounce: () => debounceRef.current,
+      sync: () => syncRef.current
+    });
+    // Mount validation: kick the registration once after it lands. The
+    // field's own option wins over the form-level flag in either
+    // direction. Validator-less registrations never kick — an empty kick
+    // clears whatever error was already stored at the path (a server
+    // backfill that landed before mount, say).
+    const validateOnMount = options?.validateOnMount ?? form.validateOnMount;
+    if (!validateOnMount || (!validateRef.current && !syncRef.current)) {
+      return dispose;
+    }
+    // A deferred kick must never fire after this mount's registration was
+    // disposed (unmount, or StrictMode's setup→cleanup→setup remount): the
+    // flag drops it, and a remounted field's own setup schedules its kick.
+    let disposed = false;
+    const kick = () => {
+      if (disposed) return;
+      form.validators.get(path.key)?.();
+    };
+    if (!form.isLoading) {
+      kick();
+    } else {
+      // Async initialValues pending: the 'loading' event fires after the
+      // resolved baseline has landed (setInitialValues first), so the kick
+      // validates real values instead of the empty shell.
+      const off = on(form.emitter, 'loading', () => {
+        off();
+        kick();
+      });
+    }
+    return () => {
+      disposed = true;
+      dispose();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are `path.key` on purpose: usePath returns a stable Path per key, so re-subscribing on key (not object identity) is enough
-    [form, path.key]
-  );
+  }, [form, path.key]);
 
   return useStageFn(() => form.validators.get(path.key)?.());
 }

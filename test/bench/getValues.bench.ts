@@ -20,15 +20,28 @@ import type {Form} from '../../src/form';
 import {bumpValuesVersion} from '../../src/core/internals';
 import {freezeValues, set, unset} from '../../src/util';
 
-/** Pre-optimization getValues, copied verbatim as the control. */
-function getValuesLegacy(form: Form): any {
+/**
+ * Pre-optimization getValues, copied verbatim as the control. The hot
+ * helpers (`set`/`unset`) are injected so the control can alias them the
+ * same way the bench body aliases its direct imports — the module runner
+ * instruments every imported binding with a getter, and hot-loop access
+ * through getters distorts timings (see the vitest "module runner
+ * overhead" guidance; the residual warnings below are internal
+ * cross-module calls inside `getValues`/`isDirty` themselves, which hit
+ * both compared paths equally and cannot be aliased from here).
+ */
+function getValuesLegacy(
+  form: Form,
+  setFn: typeof set,
+  unsetFn: typeof unset
+): any {
   const {initialValues, values, deleted} = form;
   let merged = Array.from(values.keys()).reduce(
-    (v, k) => set(v, JSON.parse(k), values.get(k)),
+    (v, k) => setFn(v, JSON.parse(k), values.get(k)),
     initialValues
   );
   for (const key of deleted) {
-    merged = unset(merged, JSON.parse(key));
+    merged = unsetFn(merged, JSON.parse(key));
   }
   return merged;
 }
@@ -45,18 +58,24 @@ function makeForm(fields: number, sections: number): Form {
 const form100x3 = makeForm(100, 10);
 
 test('getValues - 100 fields, depth 3', async ({bench}) => {
-  // Local aliases: the module runner instruments re-exported bindings
-  // with getters, and hot-loop access through them distorts timings.
-  // Both paths compute a fresh merge per iteration: the legacy control
+  // Local aliases: the module runner instruments imported bindings with
+  // getters, and hot-loop access through them distorts timings. Both
+  // paths compute a fresh merge per iteration: the legacy control
   // recomputes unconditionally, the owned path invalidates the per-form
   // memo first (bumpValuesVersion — test-only import, same convention as
   // pathCacheSize). Both results run through freezeValues so the DEV
   // snapshot guard (clone + freeze) is paid by both sides of the
   // comparison instead of skewing one.
-  const legacy = (form: Form) => freezeValues(getValuesLegacy(form));
+  const getValuesLocal = getValues;
+  const setLocal = set;
+  const unsetLocal = unset;
+  const freezeLocal = freezeValues;
+  const bumpLocal = bumpValuesVersion;
+  const legacy = (form: Form) =>
+    freezeLocal(getValuesLegacy(form, setLocal, unsetLocal));
   const merge = (form: Form) => {
-    bumpValuesVersion(form);
-    return getValues(form);
+    bumpLocal(form);
+    return getValuesLocal(form);
   };
   await bench('legacy: chained set per key', () => {
     legacy(form100x3);

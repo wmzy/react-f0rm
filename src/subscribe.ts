@@ -94,10 +94,10 @@ export function onKeyEvent(
 /** Events {@link subscribe} can watch. `'errors'` and `'touched'` are
  * stored per exact key, so they match exact keys ({@link onKeyEvent});
  * `'change'`, `'validating'`, `'submitting'`, `'submitCount'`,
- * `'disabled'` and `'submitSuccessful'` go through
+ * `'disabled'`, `'status'` and `'submitSuccessful'` go through
  * {@link onPathEvent}. `'validating'` carries paths (one per async
  * validator round) and matches by path exactly like `'change'`;
- * `'submitting'`, `'submitCount'`, `'disabled'` and
+ * `'submitting'`, `'submitCount'`, `'disabled'`, `'status'` and
  * `'submitSuccessful'` are payload-less broadcasts, so `name` never
  * narrows them — every subscriber hears every emission. */
 export type SubscribeEvent =
@@ -109,6 +109,7 @@ export type SubscribeEvent =
   | 'submitCount'
   | 'submitSuccessful'
   | 'disabled'
+  | 'status'
   | 'loading';
 
 /** Options accepted by {@link subscribe}. */
@@ -124,9 +125,10 @@ export type SubscribeOptions = {
   /** Which writes around `name` are relevant — `'leaf'` or `'branch'`.
    * Only meaningful for the path-carrying events `'change'` and
    * `'validating'`: `'errors'`/`'touched'` match exact keys and
-   * `'submitting'`/`'submitCount'`/`'disabled'`/`'submitSuccessful'`
-   * are payload-less. Defaults to `'branch'` — the intuitive linkage
-   * semantics, where subscribing to `'tags'` means the whole branch. */
+   * `'submitting'`/`'submitCount'`/`'disabled'`/`'status'`/
+   * `'submitSuccessful'` are payload-less. Defaults to `'branch'` — the
+   * intuitive linkage semantics, where subscribing to `'tags'` means the
+   * whole branch. */
   scope?: WatchScope;
   /** Invoked with no arguments after each matching emission. Read fresh
    * state through the `get*` readers inside it. */

@@ -14,11 +14,13 @@ const banner = `
 `;
 
 const extensions = ['.js', '.jsx', '.es6', '.es', '.mjs', '.ts'];
-// ESM/CJS externals: react only. The emitter is vendored in src/emitter.ts
-// and bundles into every output, so react-f0rm ships zero runtime
-// dependencies (and no d.ts references a third-party type anymore).
-const external = ['react'];
-// UMD: self-contained except react, which stays the only external.
+// ESM/CJS externals: react (peer) and @for-fun/event-emitter (runtime
+// dependency, shared/deduped with consumers — deliberately not bundled,
+// see src/emitter.ts). Public d.ts references both, so the declaration
+// build externalizes them too.
+const external = ['react', '@for-fun/event-emitter'];
+// UMD: self-contained except react — a script-tag consumer has no module
+// graph, so the emitter is inlined there.
 const umdExternal = ['react'];
 
 const plugins = [
@@ -66,7 +68,7 @@ export default [
       }
     ]
   },
-  // Main entry — ESM + CJS: the emitter stays an external import.
+  // Main entry — ESM + CJS: react and the emitter stay external imports.
   {
     input: 'src/index.ts',
     external,
@@ -136,6 +138,11 @@ export default [
       'server/index': 'src/server.ts',
       persist: 'src/persist.ts'
     },
+    // react and the emitter stay referenced (not inlined): the emitter's
+    // branded EventEmitter<T> appears on Form.emitter, and consumers that
+    // pass the handle into the package's own on()/emit() need the *same*
+    // brand, which only an external type reference can preserve.
+    external,
     plugins: [dts({ tsconfig: './tsconfig.build.json' })],
     output: [
       {

@@ -318,3 +318,50 @@ function TypoGuards() {
   void [email, bio, segValue, arr];
   return null;
 }
+
+// ---- goal 7: headless useField validate argument inference -------------------
+
+// The `validate` value argument follows the path on the hook API too
+// (PathValueOf<TValues, TPath>), not only on Field/Checkbox/Select —
+// TanStack-parity inference for headless consumers.
+function TypedUseFieldValidate() {
+  const form = useForm<LoginValues>({initialValues: loginForm.initialValues});
+  const {value} = useField({
+    form,
+    name: 'profile.bio',
+    validate: v => {
+      const check: Expect<Equal<typeof v, string | undefined>> = true;
+      return check && !v ? 'Bio is required' : undefined;
+    }
+  });
+  const typedValue: Expect<Equal<typeof value, string | undefined>> = true;
+  // The scoped context bundle's useField narrows identically.
+  const {value: ctxValue} = ProfileForm.useField({
+    name: 'remember',
+    validate: v => {
+      const check: Expect<Equal<typeof v, boolean>> = true;
+      return check || v ? undefined : 'Required';
+    }
+  });
+  const typedCtxValue: Expect<Equal<typeof ctxValue, boolean>> = true;
+  // @ts-expect-error validate value is typed — arithmetic on a string fails
+  useField({form, name: 'email', validate: v => (v * 2 ? 'x' : undefined)});
+  // FormField (the render-prop bridge) inherits the same narrowing.
+  void [typedValue, typedCtxValue];
+  return null;
+}
+
+// Backward compat: without a typed form (context-resolved or dynamic name)
+// the validate value stays `any`, like Field's untyped call sites.
+function PermissiveUseFieldValidate() {
+  useField({
+    name: dynamicName,
+    validate: v => {
+      const permissive: any = v;
+      return permissive ? undefined : 'Required';
+    }
+  });
+  return null;
+}
+
+void PermissiveUseFieldValidate;

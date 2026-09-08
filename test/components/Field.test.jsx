@@ -707,3 +707,73 @@ describe('Field uncontrolled', () => {
     );
   });
 });
+
+describe('Field valueAsNumber / valueAsDate', () => {
+  it('valueAsNumber stores e.target.valueAsNumber (a number)', () => {
+    const form = createForm({initialValues: {age: 0}});
+    render(
+      <Form form={form}>
+        <Field name="age" type="number" valueAsNumber />
+      </Form>
+    );
+    const input = screen.getByDisplayValue('0');
+    // jsdom derives valueAsNumber from the element's value — only value
+    // is injected into the target (assigning valueAsNumber directly
+    // throws InvalidStateError on unsupported input types).
+    fireEvent.change(input, {target: {value: '42'}});
+    expect(getValue(form, 'age')).toBe(42);
+  });
+
+  it('valueAsDate stores e.target.valueAsDate (a Date)', () => {
+    const form = createForm({initialValues: {day: undefined}});
+    render(
+      <Form form={form}>
+        <Field name="day" type="date" valueAsDate />
+      </Form>
+    );
+    const input = document.querySelector('input[type="date"]');
+    fireEvent.change(input, {target: {value: '2026-09-08'}});
+    expect(getValue(form, 'day')).toEqual(new Date('2026-09-08'));
+  });
+
+  it('an explicit eventToValue takes precedence over valueAsNumber', () => {
+    const form = createForm({initialValues: {n: 0}});
+    render(
+      <Form form={form}>
+        <Field name="n" valueAsNumber eventToValue={e => e.target.value} />
+      </Form>
+    );
+    fireEvent.change(screen.getByDisplayValue('0'), {target: {value: '7'}});
+    expect(getValue(form, 'n')).toBe('7');
+  });
+
+  it('valueAsNumber and valueAsDate together warn in DEV and number wins', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const form = createForm({initialValues: {x: 0}});
+      render(
+        <Form form={form}>
+          <Field name="x" type="number" valueAsNumber valueAsDate />
+        </Form>
+      );
+      fireEvent.change(screen.getByDisplayValue('0'), {target: {value: '5'}});
+      expect(getValue(form, 'x')).toBe(5);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('mutually exclusive')
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('never spreads the conversion props onto the DOM element', () => {
+    const form = createForm({initialValues: {age: 0}});
+    render(
+      <Form form={form}>
+        <Field name="age" type="number" valueAsNumber />
+      </Form>
+    );
+    const input = screen.getByDisplayValue('0');
+    expect(input.hasAttribute('valueAsNumber')).toBe(false);
+  });
+});

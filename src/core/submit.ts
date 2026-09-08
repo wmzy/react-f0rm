@@ -32,6 +32,20 @@ export function setDisabled(form: Form, value: boolean): void {
   emit(form.emitter, 'disabled');
 }
 
+/**
+ * Set the form's user-owned metadata slot (Formik's `status` role): the
+ * payload-less 'status' event wakes {@link useStatus} and any imperative
+ * `subscribe(form, {event: 'status'})` listeners. Nothing else reads or
+ * interprets the value — server session flags, step state, non-field
+ * errors of any shape are all fair game. Starts `undefined`.
+ * @param form
+ * @param value
+ */
+export function setStatus(form: Form, value: any): void {
+  form.status = value;
+  emit(form.emitter, 'status');
+}
+
 /** Structural slice of a <form>-like element: an elements collection whose
  * controls expose the constraint-validation members we read. Matches the
  * DOM HTMLFormElement shape without coupling the core to DOM types. */
