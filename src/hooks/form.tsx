@@ -17,6 +17,7 @@ import createForm, {
   hasTouchedByPath,
   hasErrors,
   isDirty,
+  isFieldDirtyByPath,
   getDirtyFields,
   getTouchedFields,
   setInitialValues
@@ -377,6 +378,38 @@ export function useIsDirty(form: Form): boolean {
   // Dirty state is driven by value changes, not touch state: subscribe to
   // 'change' so typing flips this immediately, even before a blur.
   return useWatch(form, 'change', isDirty.bind(null, form));
+}
+
+/**
+ * Get whether one field is dirty: its live value exists and differs from
+ * the field's effective baseline — the same per-field rule
+ * `getFieldState(form, name).isDirty` applies (committed
+ * `shouldDirty: false` baselines included). Subscribes to 'change' at
+ * leaf scope like {@link useValue}: own-key and ancestor writes re-check
+ * the flag, payload-less broadcasts (reset, setInitialValues) always
+ * sync, and writes elsewhere never re-render it.
+ */
+export function useIsFieldDirty<
+  T extends Record<string, any> = any,
+  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
+>(form: Form<T>, name: P): boolean {
+  return useIsFieldDirtyByPath(form, createPath(name));
+}
+
+/**
+ * Get whether one field is dirty, by parsed path. See {@link
+ * useIsFieldDirty}.
+ */
+export function useIsFieldDirtyByPath(form: Form, path: Path): boolean {
+  const {emitter} = form;
+  const {key} = path;
+  const subscribeFactory = useCallback(
+    (invalidate: () => void) =>
+      onPathEvent(emitter, 'change', path, 'leaf', invalidate),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- same key-pinning convention as useValueByPath
+    [emitter, key]
+  );
+  return useWatchCore(subscribeFactory, () => isFieldDirtyByPath(form, path));
 }
 
 /**

@@ -5,6 +5,7 @@ import {FormContext} from '../context';
 import {
   emitChangeByPath,
   getValueByPath,
+  isFieldDirtyByPath,
   registerFieldMode,
   registerFieldValidateDeps,
   seedValueByPath,
@@ -20,7 +21,7 @@ import type {FieldPath, PathValueOf} from '../types';
 import {rulesToValidator} from '../rules';
 import type {FieldRules} from '../rules';
 import {useFieldErrorsByPath, useWatch, useWatchCore} from './form';
-import {onPathEvent} from '../subscribe';
+import {onKeyEvent, onPathEvent} from '../subscribe';
 import usePath from './path';
 import useValidate from './validate';
 import type {Validator} from './validate';
@@ -147,6 +148,22 @@ export type UseFieldResult<
    * and `errorObject` are its first entry. Empty (and reference-stable)
    * when the field has no errors. */
   errors: FieldError[];
+  /**
+   * Whether the field is dirty: its live value exists and differs from
+   * the field's effective baseline (the same per-field rule
+   * `getFieldState(form, name).isDirty` applies — committed
+   * `shouldDirty: false` baselines included). Live in controlled mode;
+   * pinned at mount in uncontrolled mode (like `value`) so typing never
+   * re-renders the field — {@link useIsFieldDirty} is the live scoped
+   * channel for either mode.
+   */
+  isDirty: boolean;
+  /**
+   * Whether a validator round for this field is currently in flight —
+   * a pending debounce window or an unresolved async validator (the
+   * `getFieldState(form, name).isValidating` reading, made reactive).
+   */
+  validating: boolean;
   onChange: (v: any) => void;
   onBlur: () => void;
   name: string;
@@ -381,6 +398,33 @@ export function useFieldCore<
   const errorObject = errors[0];
   const error = errorObject?.message;
   const value = useFieldValue(form, path, !!uncontrolled);
+  // isDirty is a value-derived flag: like the value itself, it stays live
+  // only in controlled mode. Uncontrolled fields pin it at mount — a live
+  // subscription here would re-render the field on every keystroke and
+  // break the register-parity contract (typing re-renders nothing). The
+  // live scoped channel for either mode is useIsFieldDirty. `validating`
+  // is a non-value flag: it stays subscribed in both modes (like errors/
+  // touched/disabled), matching its exact key with payload-less
+  // broadcasts still syncing everything.
+  const isDirty = useWatchCore(
+    useCallback(
+      (invalidate: () => void) =>
+        uncontrolled
+          ? () => {}
+          : onPathEvent(form.emitter, 'change', path, 'leaf', invalidate),
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- usePath memoizes the Path per key, so key pins the subscription like every path-scoped hook
+      [form.emitter, path.key, uncontrolled]
+    ),
+    () => isFieldDirtyByPath(form, path)
+  );
+  const validating = useWatchCore(
+    useCallback(
+      (invalidate: () => void) =>
+        onKeyEvent(form.emitter, 'validating', path.key, invalidate),
+      [form.emitter, path.key]
+    ),
+    () => form.validating.has(path.key)
+  );
 
   // The form-level disabled flag, subscribed so setDisabled re-renders
   // this field; the field's own option is OR-ed in on every render.
@@ -482,6 +526,8 @@ export function useFieldCore<
     error,
     errorObject,
     errors,
+    isDirty,
+    validating,
     onChange,
     onBlur,
     name: path.key,

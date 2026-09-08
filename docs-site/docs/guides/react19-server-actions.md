@@ -4,9 +4,9 @@ React 19 ships [Actions](https://react.dev/reference/react/useActionState) — f
 
 `useActionState` and `startTransition` require React 19. The bridge itself — validation gating the action, `getValues()` flowing to it, pending-state coexistence — is plain React 18-compatible logic, and is exactly what [`test/react19.test.jsx`](https://github.com/wmzy/react-f0rm/blob/main/test/react19.test.jsx) verifies (via a hand-rolled `useActionState` stand-in, since the repo's own tests run React 18.3).
 
-## Why not `<form action={serverAction}>`
+## Why not the native `<form action={serverAction}>`
 
-With react-f0rm the source of truth is the form's values store, not the DOM. Pointing the `action` prop straight at a server action breaks in four ways:
+With react-f0rm the source of truth is the form's values store, not the DOM. Pointing the browser's native `action` attribute straight at a server action breaks in four ways — note this is about the native attribute (`<form action={…}>`, React's progressive-enhancement dispatch); react-f0rm's own `<Form action={fn}>` **callback prop** is different and supported, see below:
 
 1. **Field names are internal path keys.** `<Field name={['profile', 'name']}>` renders `<input name='["profile","name"]'>` — the FormData your action receives is keyed by JSON-stringified paths, not your field names.
 2. **Values without a DOM control never arrive.** Custom `as` components that render no `<input>`, values set programmatically with `setValue`, and field-array entries kept after unmount all live in the values store only — `FormData` cannot see them. `getValues()` always can.
@@ -14,6 +14,22 @@ With react-f0rm the source of truth is the form's values store, not the DOM. Poi
 4. **Validation is skipped.** A bare `action` prop bypasses `handleSubmit` entirely: no custom validators, no `onInvalidSubmit`, no focus-on-error.
 
 And you can't fix it by combining `action={formAction}` with `onSubmit={handleSubmit(...)}`: `handleSubmit` always calls `preventDefault()` first, which cancels the action dispatch. Everything must flow through the submit callbacks.
+
+## The library's own `<Form action={fn}>` prop
+
+`<Form action={fn}>` is not the native attribute above: `<Form>` never renders the browser's `action` — it runs `handleSubmit` internally and calls `fn` **after** validation passes, with `formDataFromValues(values)` — FormData built from the values store (real field names, arrays as repeated entries, `Date` → ISO string, objects → JSON, `null`/`undefined` skipped). Server Functions written for RHF-style FormData payloads work unchanged:
+
+```tsx
+import {Form, Field} from 'react-f0rm';
+import {createUser} from './actions'; // 'use server', accepts FormData
+
+<Form initialValues={{email: ''}} action={createUser}>
+  <Field name="email" type="email" required />
+  <button type="submit">Create</button>
+</Form>
+```
+
+The four failure modes above do not apply: the payload comes from the values store (not DOM name attributes), the validation gate runs first (invalid submits fire `onInvalidSubmit` and never reach the action), and `isSubmitting` covers the flight. What it does not give you is progressive enhancement — the browser cannot submit before JavaScript loads — which is the native attribute's one advantage.
 
 ## Pattern: `useActionState` + `onValidSubmit`
 
@@ -64,7 +80,7 @@ export async function saveProfile(previousState, values) {
 Three details that make this work:
 
 - **`formAction(values)`** — the dispatch's argument becomes the action's second parameter. It doesn't have to be `FormData`; passing the values object keeps names, nesting and types intact.
-- **`startTransition` is required** for manual dispatches: React only tracks `isPending` inside transitions. (Passing the dispatch to an `action` prop wraps it automatically — but see above why the `action` prop doesn't fit here.)
+- **`startTransition` is required** for manual dispatches: React only tracks `isPending` inside transitions. (Passing the dispatch to the library's own `<Form action>` prop wraps it automatically — the payload becomes `formDataFromValues(values)`, FormData, so that shape only fits server functions accepting FormData; see above.)
 - **Validation gates the dispatch.** Invalid submits fire `onInvalidSubmit` and focus the first error field; the action never runs.
 
 The headless variant is identical, with `handleSubmit` wired by hand (see [`useForm`](../api/use-form.md)):

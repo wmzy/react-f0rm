@@ -1,6 +1,22 @@
-import type {PathSegments} from '../path';
+import type {Path, PathSegments} from '../path';
 import type {Form} from '../form';
 import {dirtyFieldsCaches, getDirtyBaseline} from './internals';
+
+/**
+ * Is one field dirty — the per-field rule behind `getFieldState`'s
+ * `isDirty` and {@link useIsFieldDirty}: a live value exists at the path
+ * and differs from the field's effective baseline (committed
+ * `shouldDirty: false` baselines included). A leaf under a wholesale
+ * ancestor write reports clean — dirtiness belongs to the branch that
+ * actually diverged, the same attribution {@link getDirtyFields} applies.
+ */
+export function isFieldDirtyByPath(form: Form, path: Path): boolean {
+  const live = form.values.get(path.key);
+  return (
+    form.values.has(path.key) &&
+    getDirtyBaseline(form, path.key, path.value) !== live
+  );
+}
 
 /**
  * Is dirty -- any value differs from initialValues

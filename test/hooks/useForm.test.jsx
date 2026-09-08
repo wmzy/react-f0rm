@@ -7,6 +7,7 @@ import useForm, {
   useFieldErrors,
   useTouched,
   useIsDirty,
+  useIsFieldDirty,
   useDirtyFields,
   useTouchedFields,
   useHasErrors,
@@ -445,6 +446,90 @@ describe('useIsDirty', () => {
       return {form, dirty: useIsDirty(form)};
     });
     act(() => setTouched(result.current.form, 'name'));
+    expect(result.current.dirty).toBe(false);
+  });
+});
+
+describe('useIsFieldDirty', () => {
+  it('stays false on a clean field and flips on own writes, back to baseline included', () => {
+    const initialValues = {name: 'test', other: 'x'};
+    const {result} = renderHook(() => {
+      const form = useForm({initialValues});
+      return {form, dirty: useIsFieldDirty(form, 'name')};
+    });
+    expect(result.current.dirty).toBe(false);
+
+    act(() => setValue(result.current.form, 'name', 'changed'));
+    expect(result.current.dirty).toBe(true);
+
+    // Writing the baseline value back reads as clean again.
+    act(() => setValue(result.current.form, 'name', 'test'));
+    expect(result.current.dirty).toBe(false);
+  });
+
+  it('is scoped: sibling writes never re-render it', () => {
+    const initialValues = {name: 'a', other: 'b'};
+    let renders = 0;
+    const {result} = renderHook(() => {
+      renders++;
+      const form = useForm({initialValues});
+      return {form, dirty: useIsFieldDirty(form, 'name')};
+    });
+    const afterMount = renders;
+
+    act(() => setValue(result.current.form, 'other', 'B'));
+    expect(renders).toBe(afterMount);
+    expect(result.current.dirty).toBe(false);
+  });
+
+  it('tracks ancestor writes: a whole-branch replace reports at the branch, and a dirty leaf whose key dies flips clean', () => {
+    const initialValues = {a: {b: 'x'}};
+    const {result} = renderHook(() => {
+      const form = useForm({initialValues});
+      return {
+        form,
+        leaf: useIsFieldDirty(form, 'a.b'),
+        branch: useIsFieldDirty(form, 'a')
+      };
+    });
+
+    // A leaf edit creates the leaf's own live key: dirty at the leaf.
+    act(() => setValue(result.current.form, 'a.b', 'y'));
+    expect(result.current.leaf).toBe(true);
+
+    // A whole-branch replace drops the leaf key (dirtiness now belongs to
+    // the branch — the same rule getFieldState/getDirtyFields apply), so
+    // the leaf flips clean while the branch reports the divergence.
+    act(() => setValue(result.current.form, 'a', {b: 'z'}));
+    expect(result.current.leaf).toBe(false);
+    expect(result.current.branch).toBe(true);
+  });
+
+  it('reads a shouldDirty:false commit as clean', () => {
+    const initialValues = {name: 'test'};
+    const {result} = renderHook(() => {
+      const form = useForm({initialValues});
+      return {form, dirty: useIsFieldDirty(form, 'name')};
+    });
+    act(() =>
+      setValue(result.current.form, 'name', 'committed', {shouldDirty: false})
+    );
+    expect(result.current.dirty).toBe(false);
+
+    // A later edit diverging from the committed baseline dirties it.
+    act(() => setValue(result.current.form, 'name', 'edited'));
+    expect(result.current.dirty).toBe(true);
+  });
+
+  it('cleans on reset', () => {
+    const initialValues = {name: 'test'};
+    const {result} = renderHook(() => {
+      const form = useForm({initialValues});
+      return {form, dirty: useIsFieldDirty(form, 'name')};
+    });
+    act(() => setValue(result.current.form, 'name', 'changed'));
+    expect(result.current.dirty).toBe(true);
+    act(() => reset(result.current.form));
     expect(result.current.dirty).toBe(false);
   });
 });

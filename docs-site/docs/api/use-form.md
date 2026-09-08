@@ -161,6 +161,7 @@ Rides the same `'focusError'` event channel a failed `handleSubmit` uses to focu
 - `useFieldErrors(form, name)` — reactive `FieldError[]` of every error on the field (insertion order; reference-stable when clean)
 - `useTouched(form, name)` — reactive touched state
 - `useIsDirty(form)` — reactive dirty state
+- `useIsFieldDirty(form, name)` — reactive per-field dirty state (leaf-scope subscription; the same rule `getFieldState(form, name).isDirty` applies)
 - `useDirtyFields(form)` — reactive `Record<string, boolean>` of dirty fields (dotted paths), recalculated after changes
 - `useTouchedFields(form)` — reactive `string[]` of touched fields (dotted paths), recalculated after blur/touch events
 - `useHasErrors(form)` — reactive error state

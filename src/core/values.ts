@@ -5,6 +5,7 @@ import type {FieldPath, PathValueOf} from '../types';
 import {freezeValues, get, isEqual, setOwned, unset} from '../util';
 import type {FieldError, Form} from '../form';
 import {clearErrors, getErrorByPath, getFieldErrorsByPath} from './errors';
+import {isFieldDirtyByPath} from './dirty';
 import {setTouchedByPath} from './touched';
 import {
   bumpDirtyVersion,
@@ -283,17 +284,14 @@ export function getFieldState<
   P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
 >(form: Form<T>, name: P): FieldState<PathValueOf<T, P>> {
   const path = createPath(name);
-  const {values, touched, validating} = form;
-  const live = values.get(path.key);
+  const {touched, validating} = form;
   return {
     value: getValueByPath(form, path),
     error: getErrorByPath(form, path),
     errors: getFieldErrorsByPath(form, path),
-    // Same rule as getDirtyFields, committed baselines included: the field
+    // The shared per-field rule (committed baselines included): the field
     // is dirty while its live value differs from its effective baseline.
-    isDirty:
-      values.has(path.key) &&
-      getDirtyBaseline(form, path.key, path.value) !== live,
+    isDirty: isFieldDirtyByPath(form, path),
     isTouched: touched.has(path.key),
     isValidating: validating.has(path.key)
   };

@@ -744,9 +744,11 @@ describe('useField', () => {
       'errors',
       'focusRef',
       'form',
+      'isDirty',
       'name',
       'onBlur',
       'onChange',
+      'validating',
       'value'
     ]);
   });
@@ -1498,6 +1500,121 @@ describe('useField', () => {
         })
       ).not.toThrow();
       expect(document.activeElement).not.toBe(screen.getByTestId('name-input'));
+    });
+  });
+
+  describe('isDirty / validating on the field result', () => {
+    it('tracks the per-field dirty rule: clean, dirty on change, clean at the baseline again', () => {
+      const form = createForm({initialValues: {name: 'test'}});
+      const {result} = renderHook(() => useField({form, name: 'name'}));
+      expect(result.current.isDirty).toBe(false);
+
+      act(() => result.current.onChange('edited'));
+      expect(result.current.isDirty).toBe(true);
+
+      act(() => result.current.onChange('test'));
+      expect(result.current.isDirty).toBe(false);
+    });
+
+    it('reads a shouldDirty:false commit as clean and later divergence as dirty', () => {
+      const form = createForm({initialValues: {name: 'test'}});
+      const {result} = renderHook(() => useField({form, name: 'name'}));
+      act(() => setValue(form, 'name', 'committed', {shouldDirty: false}));
+      expect(result.current.isDirty).toBe(false);
+
+      act(() => setValue(form, 'name', 'edited'));
+      expect(result.current.isDirty).toBe(true);
+    });
+
+    it('pins at mount in uncontrolled mode, like the value (useIsFieldDirty is the live channel)', () => {
+      const form = createForm({initialValues: {name: 'test'}});
+      const {result} = renderHook(() =>
+        useField({form, name: 'name', uncontrolled: true})
+      );
+      expect(result.current.value).toBe('test');
+      expect(result.current.isDirty).toBe(false);
+
+      // The store carries the write, but neither the pinned value nor the
+      // pinned isDirty moves — a live subscription would re-render the
+      // field on every keystroke and break the register-parity contract.
+      act(() => setValue(form, 'name', 'edited'));
+      expect(getValue(form, 'name')).toBe('edited');
+      expect(result.current.value).toBe('test');
+      expect(result.current.isDirty).toBe(false);
+    });
+
+    it('flips validating across a debounce window and an in-flight async round', async () => {
+      vi.useFakeTimers();
+      try {
+        let resolveValidation;
+        const form = createForm({initialValues: {name: ''}, mode: 'all'});
+        const {result} = renderHook(() =>
+          useField({
+            form,
+            name: 'name',
+            validate: value =>
+              new Promise(resolve => {
+                resolveValidation = () =>
+                  resolve(value ? undefined : 'required');
+              }),
+            validateDebounce: 30
+          })
+        );
+        expect(result.current.validating).toBe(false);
+
+        // The keystroke opens the debounce window: the pending timer
+        // already holds this field's slot in form.validating.
+        act(() => result.current.onChange('a'));
+        expect(result.current.validating).toBe(true);
+
+        // Window fired: the async validator is in flight — the flag
+        // holds through the whole span.
+        act(() => vi.advanceTimersByTime(30));
+        expect(result.current.validating).toBe(true);
+
+        await act(async () => {
+          resolveValidation();
+        });
+        expect(result.current.validating).toBe(false);
+        expect(result.current.error).toBeUndefined();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('stays false while a sibling field validates', async () => {
+      vi.useFakeTimers();
+      try {
+        const form = createForm({initialValues: {a: '', b: ''}, mode: 'all'});
+        const a = renderHook(() =>
+          useField({
+            form,
+            name: 'a',
+            validate: () => new Promise(() => {}),
+            validateDebounce: 30
+          })
+        );
+        const b = renderHook(() =>
+          useField({
+            form,
+            name: 'b',
+            validate: () => new Promise(() => {}),
+            validateDebounce: 30
+          })
+        );
+
+        // b opens a debounce window and starts a round; a's exact-key
+        // flag must not move.
+        act(() => b.result.current.onChange('x'));
+        expect(b.result.current.validating).toBe(true);
+        expect(a.result.current.validating).toBe(false);
+
+        act(() => vi.advanceTimersByTime(30));
+        expect(b.result.current.validating).toBe(true);
+        expect(a.result.current.validating).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

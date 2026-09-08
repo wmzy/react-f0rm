@@ -79,20 +79,20 @@ react-f0rm vs the established options. react-f0rm figures come from this repo (s
 | Async validation | `validateDebounce` per field + `meta.signal` (`AbortSignal`) handed to every validator — superseded rounds cancel their in-flight work; pending debounce counts as validating so submit waits | Async validators supported, but no built-in debounce and no cancellation signal — both are hand-rolled per project | Built in: `asyncDebounceMs` debounces and the validator meta carries an `AbortSignal` | Async `validate` supported; no debounce, no signal |
 | Multiple errors per field | Native: every field holds `FieldError[]`; `getFieldErrors`/`useFieldErrors` read them; resolvers forward every schema issue | `criteriaMode: 'all'` collects all failing rules per field | Errors are arrays of messages per field | — |
 | SSR / hydration | `renderToString` renders initial values out of the box; server snapshot matches the client's first render (async initialValues render empty + `isLoading` on both sides) | SSR-safe | SSR-safe | SSR-safe |
-| React 19 / Server Actions | Bridge pattern: dispatch the action from `onValidSubmit` via `startTransition`/`useActionState`, passing the values object rather than FormData (see the stance above and the React 19 Server Actions guide); the `react-f0rm/server` entry's `validateValues` re-validates payloads server-side without wrapping them in an action; no submit before JS loads — first-class `action` prop support is not on the roadmap | `<Form>` accepts a function `action` prop (server-action-style submit) since v7.84, and ships a `react-server` export | Documented server action integration (`createServerValidate` for server-side validation, Next.js examples) | — |
-| Bundle size | 10.78 KB gzip minified (9.83 KB brotli), full core, zero runtime dependencies | 14.06 KB gzip (bundlephobia, v7.87.0, 2026-09) | 19.02 KB gzip (v1.33.5 measured locally: minified + gzip, `@tanstack/form-core` and `react-store` bundled, react external — the bundlephobia methodology) | ~12.8 KB gzip |
+| React 19 / Server Actions | Function `action` prop on `<Form>`: after validation passes, the validated values are converted to FormData and dispatched to it (a Server Action or a `useActionState` bridge; `onSubmit`/`onValidSubmit` also receive the values object). The `react-f0rm/server` entry's `validateValues` re-validates payloads server-side. No native no-JS submit — deliberate (see the stance below) | `<Form>` accepts a function `action` prop (native server-action-style submit, works without JS) since v7.84, and ships a `react-server` export | Documented server action integration (`createServerValidate` for server-side validation, Next.js examples) | — |
+| Bundle size | 11.25 KB gzip minified (10.23 KB brotli), full core, zero runtime dependencies | 14.06 KB gzip (bundlephobia, v7.87.0, 2026-09) | 19.02 KB gzip (v1.33.5 measured locally: minified + gzip, `@tanstack/form-core` and `react-store` bundled, react external — the bundlephobia methodology) | ~12.8 KB gzip |
 | Devtools | `<Devtools />` from `react-f0rm/devtools` — separate entry point, tree-shakeable, never lands in the main bundle | `@hookform/devtools` (separate package) | Built-in devtools panel | None (official) |
 | Ecosystem maturity | New — small audience, few integrations so far | Most mature: massive adoption, resolvers, UI-kit integrations, abundant examples and answers | Backed by the TanStack family, actively growing | Maintenance mode; the author recommends considering RHF or Final Form for new projects |
 
-Bundle-size basis: every column is gzip. react-f0rm is measured on the local build — the shipped, minified `dist/index.mjs` gzips to 10.78 KB (9.83 KB brotli; size-limit, which minifies and tree-shakes, reports the same file). The RHF figure is a bundlephobia API observation of v7.87.0 (2026-09); the TanStack figure is a local measurement of v1.33.5 following the bundlephobia methodology (minified + gzip, its two runtime deps bundled, react external). Formik's is the historical bundlephobia ballpark. Ours is the conservative number — measured on the built artifact, not a promise.
+Bundle-size basis: every column is gzip. react-f0rm is measured on the local build — the shipped, minified `dist/index.mjs` gzips to 11.25 KB (10.23 KB brotli; size-limit, which minifies and tree-shakes, reports the same file). The RHF figure is a bundlephobia API observation of v7.87.0 (2026-09); the TanStack figure is a local measurement of v1.33.5 following the bundlephobia methodology (minified + gzip, its two runtime deps bundled, react external). Formik's is the historical bundlephobia ballpark. Ours is the conservative number — measured on the built artifact, not a promise.
 
 ### Which one should you use?
 
-**Pick react-f0rm** when you want controlled components with true per-field subscriptions (design systems, editor-like forms), one Standard Schema adapter instead of a package per validator, compile-time-checked paths, and the smallest core of the four (10.78 KB minified gzip / 9.83 KB brotli, zero runtime dependencies) — and you are comfortable with a young library.
+**Pick react-f0rm** when you want controlled components with true per-field subscriptions (design systems, editor-like forms), one Standard Schema adapter instead of a package per validator, compile-time-checked paths, and the smallest core of the four (11.25 KB minified gzip / 10.23 KB brotli, zero runtime dependencies) — and you are comfortable with a young library.
 
 **Pick React Hook Form** when you want the mature ecosystem — resolvers, UI-library integrations and community answers — today. Its performance edge is gone at the rendering level: raw `register` benches at 12.1µs/change and react-f0rm's `uncontrolled: true` at 12.3µs (parity, see [Benchmarks](#benchmarks)), while our controlled model beats `Controller` 1.2× and TanStack's `form.Field` 3.2×. TanStack Form sits in between: choose it when the deepest possible type inference (including validator signatures) matters more to you than bundle size and per-change cost.
 
-**Server Actions: bridge, not first-class.** RHF-style `action` prop support, a `react-server` entry point, or a TanStack-style `createServerValidate` helper are **not on the roadmap** — a deliberate stance, not a gap. react-f0rm's source of truth is the values store, not the DOM: an `action`-prop submit would ship FormData keyed by JSON-stringified path keys, drop every store-only value, and skip the validation gate entirely (the [React 19 Server Actions guide](docs-site/docs/guides/react19-server-actions.md) unpacks all four failure modes). The recommended shape is the bridge — dispatch from `onValidSubmit` via `startTransition`/`useActionState`, passing the values object rather than FormData — which keeps validation gating the action and types/nesting intact. If submitting without JavaScript loaded is a hard requirement, RHF's `action` prop support is the better fit today.
+**Server Actions: the callback `action` prop, not the native one.** `<Form>` ships a function `action` prop — after validation passes, the validated values are converted to FormData (`formDataFromValues`) and dispatched to it, e.g. a React 19 Server Action or a `useActionState` bridge. What is deliberately **not on the roadmap** is native progressive enhancement (the browser submitting without JavaScript), a `react-server` entry point, and a TanStack-style `createServerValidate` helper — a stance, not a gap. react-f0rm's source of truth is the values store, not the DOM: a no-JS submit would ship FormData keyed by JSON-stringified path keys, drop every store-only value, and skip the validation gate entirely (the [React 19 Server Actions guide](docs-site/docs/guides/react19-server-actions.md) unpacks all four failure modes). The recommended shape is the bridge — pass `action` directly, or dispatch from `onValidSubmit` via `startTransition`/`useActionState`, passing the values object rather than FormData — which keeps validation gating the action and types/nesting intact. If submitting without JavaScript loaded is a hard requirement, RHF's native `action` prop support is the better fit today.
 
 ## Usage
 
@@ -284,6 +284,24 @@ Rows whose index migrates — `remove`/`move`/`swap`/`insert` reshuffles — re-
 The hook returns `{value, setValue, errors, error, name, index, form}` — the `useField`-style shape plus `index` and `name` (the row's current path key, e.g. `["tags",0]`) for building nested fields. Value reads and writes live on the array layer — the same layer every `useFieldArray` operation touches — so `value`, `setValue` and `update`/`append`/… always agree with each other; editing through a leaf-path `useField({name: ['tags', i]})` writes a different layer and does not flow into `item.value`.
 
 Without a paired `useFieldArray` the row is inert rather than broken: `index` is `-1`, `value` is `undefined`, and `setValue` is a no-op.
+
+### `useTransform`
+
+Bind a control whose display value differs from the stored value — number inputs, date pickers, selects that store objects. TanStack Form's `useTransform` counterpart, with the round trip split into two explicit directions: the store always carries the raw typed value, `toDisplay` maps it to what the control renders, `fromDisplay` maps the control's value back to the raw value on write:
+
+```jsx
+import {useTransform} from 'react-f0rm';
+
+function AgeField() {
+  const age = useTransform(form, 'age', {
+    toDisplay: raw => String(raw),
+    fromDisplay: display => Number(display)
+  });
+  return <input value={age.value} onChange={e => age.onChange(e.target.value)} />;
+}
+```
+
+`value` subscribes to 'change' at leaf scope like a controlled `useField` value — typing, programmatic `setValue` and ancestor writes re-derive it, writes elsewhere never re-render it. `onChange` writes through the user-change channel: with a field mounted at the same path, the mode/reValidateMode-gated validation fires exactly as if the user typed into a bound field (and validators receive the raw value, not the display string); with no mounted field it degrades to a plain value write. Touched marking stays a blur concern — pair with `useField` at the same path when blur semantics matter. Both directions are optional: omit `toDisplay`/`fromDisplay` for identity, and either one alone gives you a one-way transform.
 
 ### `createFormContext`
 
@@ -881,6 +899,8 @@ function FormStatus({form}) {
 ```
 
 Both hooks expose user-facing dotted paths (`'a.b'`, `'a.0.c'`). The imperative counterparts `getDirtyFields(form)` and `getTouchedFields(form)` return the same shapes without subscribing.
+
+For one field, `useIsFieldDirty(form, name)` subscribes at leaf scope — the per-field twin of `useIsDirty(form)`, applying the same rule `getFieldState(form, name).isDirty` does (committed `shouldDirty: false` baselines included; a leaf under a wholesale ancestor write reports clean, since dirtiness belongs to the branch that diverged). `useField` carries the same flag as `field.isDirty`, live in controlled mode; in `uncontrolled: true` mode it is pinned at mount like `value` (typing never re-renders the field), so `useIsFieldDirty` is the live channel there.
 
 ### Seeding new initial values
 

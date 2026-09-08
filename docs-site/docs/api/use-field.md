@@ -78,6 +78,8 @@ HTML attributes (`required`, `type='email'`, `min`, …) keep running through th
 | `error` | `string \| undefined` | Current error's message string (for display) |
 | `errorObject` | `FieldError \| undefined` | Full error object (`{type, message}`) |
 | `errors` | `FieldError[]` | Every error registered for the field, insertion order — `error`/`errorObject` are its first entry; empty and reference-stable when clean |
+| `isDirty` | `boolean` | Whether the field is dirty — a live value exists and differs from the field's effective baseline (committed `shouldDirty: false` baselines included). Live in controlled mode; **pinned at mount in uncontrolled mode** (like `value`) so typing never re-renders the field — `useIsFieldDirty(form, name)` is the live scoped channel for either mode |
+| `validating` | `boolean` | Whether a validator round for this field is in flight — a pending debounce window or an unresolved async validator (the reactive `getFieldState(form, name).isValidating`) |
 | `onChange` | `(value: any) => void` | Update value |
 | `onBlur` | `() => void` | Mark as touched |
 | `name` | `string` | Serialized field name (path key) |
