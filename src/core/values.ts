@@ -1,4 +1,4 @@
-import {emit} from '@for-fun/event-emitter';
+import {emit} from '../emitter';
 import createPath from '../path';
 import type {Name, Path, PathSegments} from '../path';
 import type {FieldPath, PathValueOf} from '../types';
@@ -154,7 +154,11 @@ export type SetFieldOptions = {
 };
 
 /**
- * Set field value
+ * Set field value. The value may also be an updater function receiving
+ * the field's current value and returning the next one (TanStack Form's
+ * `setFieldValue` contract) — handy for increments and array transforms:
+ * `setValue(form, 'count', c => c + 1)`. The tradeoff: a function can
+ * never itself be stored as a field value through this function.
  * @param form
  * @param name
  * @param value
@@ -166,14 +170,17 @@ export function setValue<
 >(
   form: Form<T>,
   name: P,
-  value: PathValueOf<T, P>,
+  value: PathValueOf<T, P> | ((prev: PathValueOf<T, P>) => PathValueOf<T, P>),
   options?: SetFieldOptions
 ): void {
   setValueByPath(form, createPath(name), value, options);
 }
 
 /**
- * Set field value
+ * Set field value. The value may also be an updater function receiving
+ * the field's current value and returning the next one (TanStack Form's
+ * `setFieldValue` contract) — note that a function can therefore never
+ * itself be stored as a field value through this function.
  * @param form
  * @param path
  * @param value
@@ -182,11 +189,13 @@ export function setValue<
 export function setValueByPath(
   form: Form,
   path: Path,
-  value: any,
+  value: any | ((prev: any) => any),
   options?: SetFieldOptions
 ): void {
   const {emitter, values, deleted} = form;
-  values.set(path.key, value);
+  const next =
+    typeof value === 'function' ? value(getValueByPath(form, path)) : value;
+  values.set(path.key, next);
   // The write replaces the whole subtree below it, so descendant keys in
   // the values Map belong to an older generation of that subtree: without
   // this prune they would shadow the new value on exact-key reads and
@@ -199,7 +208,7 @@ export function setValueByPath(
   // subscribers reading dirty state inside the emission never see a stale
   // commit suppressing the write they are being told about.
   pruneDirtyBaselines(form, path);
-  if (options?.shouldDirty === false) setDirtyBaseline(form, path, value);
+  if (options?.shouldDirty === false) setDirtyBaseline(form, path, next);
   bumpDirtyVersion(form);
   bumpValuesVersion(form);
   if (options?.shouldTouch) setTouchedByPath(form, path);
@@ -479,9 +488,12 @@ export type ResetOptions = {
   keepTouched?: boolean;
   /** Keep field errors instead of clearing them. */
   keepErrors?: boolean;
-  /** Keep the submitted flag (`isSubmitSuccessful`) instead of clearing
-   * it. */
+  /** Keep the submitted flag (`isSubmitted`) instead of clearing it —
+   * react-hook-form's `keepIsSubmitted`. */
   keepIsSubmitted?: boolean;
+  /** Keep the last submit's success flag (`isSubmitSuccessful`) instead of
+   * clearing it. */
+  keepIsSubmitSuccessful?: boolean;
   /** Keep `submitCount` instead of resetting it to 0. */
   keepSubmitCount?: boolean;
   /** Keep `isSubmitting` instead of resetting it to false. */
@@ -573,7 +585,8 @@ export function reset(
   validating.clear();
   if (!options?.keepIsSubmitting) form.isSubmitting = false;
   if (!options?.keepSubmitCount) form.submitCount = 0;
-  if (!options?.keepIsSubmitted) form.isSubmitSuccessful = undefined;
+  if (!options?.keepIsSubmitted) form.isSubmitted = false;
+  if (!options?.keepIsSubmitSuccessful) form.isSubmitSuccessful = undefined;
   bumpDirtyVersion(form);
   bumpValuesVersion(form);
   // Write the kept values back over the fresh baseline: plain

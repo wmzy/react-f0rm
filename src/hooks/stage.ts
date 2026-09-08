@@ -1,4 +1,4 @@
-import {useCallback, useRef, type MutableRefObject} from 'react';
+import {useCallback, useEffect, useRef, type MutableRefObject} from 'react';
 
 export default function useStage<T>(value: T): MutableRefObject<T> {
   const ref = useRef(value);
@@ -12,4 +12,39 @@ export function useStageFn<T extends (...args: any[]) => any>(fn: T): T {
     (...params: any[]) => ref.current(...params),
     [ref]
   ) as unknown as T;
+}
+
+/**
+ * Run destructive unmount `teardown` synchronously on every cleanup —
+ * real unmounts behave exactly like a plain effect cleanup — and let a
+ * setup that immediately follows a cleanup (`restore`) undo it.
+ *
+ * React 19's StrictMode double-invokes effects on the initial mount
+ * (setup → cleanup → setup), so a plain cleanup would run the teardown
+ * and then remount with the state gone. The cycle's second setup finds
+ * the `removed` flag and calls `restore` before any render or event can
+ * observe the gap; a real unmount has no following setup and the
+ * teardown simply stands.
+ *
+ * `teardown`/`restore` must be referentially stable (build them with
+ * {@link useStageFn}); the effect intentionally runs once per mount.
+ */
+export function useUnmountRestore(
+  teardown: () => void,
+  restore: () => void
+): void {
+  const removedRef = useRef(false);
+  useEffect(() => {
+    // The previous cleanup ran the teardown — this setup is the StrictMode
+    // remount: put the state back.
+    if (removedRef.current) {
+      removedRef.current = false;
+      restore();
+    }
+    return () => {
+      removedRef.current = true;
+      teardown();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- teardown/restore are stage-stable; the effect must run exactly once per mount
+  }, []);
 }

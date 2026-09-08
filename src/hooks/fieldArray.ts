@@ -3,10 +3,15 @@ import type {Context} from 'react';
 import {FormContext} from '../context';
 import {getValueByPath, setValueByPath} from '../form';
 import type {FieldError, Form, Name} from '../form';
+import {removeFieldForUnmount, restoreRemovedField} from '../core/unmount';
+import type {RemovedFieldSnapshot} from '../core/unmount';
+import {rulesToValidator} from '../rules';
+import type {FieldRules} from '../rules';
 import {onPathEvent} from '../subscribe';
 import {useFieldErrorsByPath} from './form';
 import usePath from './path';
-import useStage, {useStageFn} from './stage';
+import useStage, {useStageFn, useUnmountRestore} from './stage';
+import useValidate from './validate';
 
 /** Per-form row-id counter. A module-level counter would grow across
  * every form on the page — and, on the server, across requests (ids like
@@ -47,10 +52,40 @@ function bumpReducer(count: number): number {
   return count + 1;
 }
 
-type FieldArrayItem = {id: string; index: number};
+type FieldArrayItem<K extends string> = {id: string; index: number} & Record<
+  K,
+  string
+>;
 
-export type UseFieldArrayResult = {
-  fields: FieldArrayItem[];
+/** Options accepted by {@link useFieldArray} and the per-instance hook
+ * returned by `createFormContext()`. */
+export type UseFieldArrayOptions<K extends string = 'id'> = {
+  name: Name;
+  form?: Form;
+  /**
+   * Property name the stable row key is exposed under on each `fields`
+   * entry (react-hook-form's `keyName`): defaults to `'id'`, a custom
+   * name (e.g. `'key'`) avoids clashing with a row data field of the
+   * same name. The underlying id is unchanged.
+   */
+  keyName?: K;
+  /**
+   * Declarative rules validated against the whole array value
+   * (react-hook-form's `useFieldArray` `rules`): `required` fails on an
+   * empty array, `minLength`/`maxLength` read the array's length. Checked
+   * on submit and `trigger`, like every registered validator.
+   */
+  rules?: FieldRules;
+  /**
+   * Whether unmounting this array removes its branch. Defaults to the
+   * form-level `shouldUnregister` — tombstone (drop values) like a bound
+   * field's unmount; pass `false` to keep the values.
+   */
+  shouldUnregister?: boolean;
+};
+
+export type UseFieldArrayResult<K extends string = 'id'> = {
+  fields: FieldArrayItem<K>[];
   append: (value: any) => void;
   prepend: (value: any) => void;
   insert: (index: number, value: any) => void;
@@ -66,15 +101,17 @@ export type UseFieldArrayResult = {
  * `createFormContext()`: identical behavior, but the form is resolved from
  * whichever Context instance is passed in instead of the module-level one.
  */
-export function useFieldArrayCore(
-  options: {name: Name; form?: Form},
+export function useFieldArrayCore<K extends string = 'id'>(
+  options: UseFieldArrayOptions<K>,
   Context: Context<Form<any> | null>
-): UseFieldArrayResult {
+): UseFieldArrayResult<K> {
   // Read the context unconditionally (hook call order must be stable), then
   // let an explicitly passed form win — works without a <FormProvider>.
   const contextForm = useContext(Context);
   const form = options.form || contextForm;
   if (!form) throw new Error('no form provided');
+  const keyName = (options.keyName ?? 'id') as K;
+  const {rules, shouldUnregister} = options;
   const path = usePath(options.name);
   const idsRef = useRef<string[]>([]);
 
@@ -98,8 +135,12 @@ export function useFieldArrayCore(
     while (idsRef.current.length > arr.length) {
       idsRef.current.pop();
     }
-    return idsRef.current.map((id, index) => ({id, index}));
-  }, [getArray, form]);
+    return idsRef.current.map((id, index) => ({
+      id,
+      index,
+      [keyName]: id
+    })) as FieldArrayItem<K>[];
+  }, [getArray, form, keyName]);
 
   // Subscribe to 'change' events scoped to this array's branch: the array
   // key itself, its ancestors (an ancestor write replaces what the leaf
@@ -139,6 +180,41 @@ export function useFieldArrayCore(
       if (registry?.get(path.key) === idsRef.current) registry.delete(path.key);
     };
   }, [form, path.key]);
+
+  // Unmount behavior mirrors a bound field's: the effective
+  // shouldUnregister (this hook's option, falling back to the form-level
+  // default — tombstone unless the form opts into RHF's keep-the-value
+  // semantics) decides whether the branch drops out of reads and
+  // getValues(). Removing the branch also clears its
+  // errors/touched/dirty entries. The snapshot/restore pair rides
+  // useUnmountRestore so StrictMode's dev setup→cleanup→setup cycle does
+  // not wipe the branch on mount while real unmounts stay synchronous.
+  const removalSnapshotRef = useRef<RemovedFieldSnapshot | null>(null);
+  const teardownOnUnmount = useStageFn(() => {
+    if ((shouldUnregister ?? form.shouldUnregister) === false) return;
+    removalSnapshotRef.current = removeFieldForUnmount(form, path);
+  });
+  const restoreAfterStrictMode = useStageFn(() => {
+    const snapshot = removalSnapshotRef.current;
+    removalSnapshotRef.current = null;
+    if (snapshot) restoreRemovedField(form, path, snapshot);
+  });
+  useUnmountRestore(teardownOnUnmount, restoreAfterStrictMode);
+
+  // Declarative array rules: `required` splits into the synchronous gate
+  // (runs immediately on every kick, never debounced) exactly like
+  // useField's rules; the remaining rules land as the debounced validator.
+  useValidate(
+    rules ? rulesToValidator({...rules, required: undefined}) : undefined,
+    path,
+    form,
+    {
+      sync:
+        rules && rules.required !== undefined
+          ? rulesToValidator({required: rules.required})
+          : undefined
+    }
+  );
 
   const append = useStageFn((value: any) => {
     const arr = getArray();
@@ -208,10 +284,9 @@ export function useFieldArrayCore(
   return {fields, append, prepend, insert, remove, swap, move, replace, update};
 }
 
-export default function useFieldArray(options: {
-  name: Name;
-  form?: Form;
-}): UseFieldArrayResult {
+export default function useFieldArray<K extends string = 'id'>(
+  options: UseFieldArrayOptions<K>
+): UseFieldArrayResult<K> {
   return useFieldArrayCore(options, FormContext);
 }
 

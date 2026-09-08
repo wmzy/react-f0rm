@@ -41,7 +41,7 @@ import createForm, {
   changeValue,
   trigger
 } from '../../src/form';
-import {create as createEmitter, emit} from '@for-fun/event-emitter';
+import {create as createEmitter, emit} from '../../src/emitter';
 import {onKeyEvent, onPathEvent} from '../../src/subscribe';
 import createPath from '../../src/path';
 import useField from '../../src/hooks/field';
@@ -1063,6 +1063,7 @@ describe('useFormState', () => {
       hasErrors: false,
       isValid: true,
       isSubmitting: false,
+      isSubmitted: false,
       isValidating: false,
       isSubmitSuccessful: undefined,
       submitCount: 0,

@@ -17,6 +17,9 @@
  *   subscribed counterpart from RHF, same tree shape and same interaction.
  *   react-hook-form is a devDependency used ONLY for this comparison bench;
  *   it never ships in runtime dependencies.
+ * Scenario b2) @tanstack/react-form `form.Field`: the field-level-subscribed
+ *   controlled counterpart — the architectural twin of f0rm's <Field>.
+ *   Also a devDependency used ONLY for this comparison bench.
  * Scenario c) react-hook-form register(): uncontrolled ref-only floor (no
  *   React re-render at all) for context.
  * Scenario d) submit path: getValues + validate with 100 sync validators
@@ -26,6 +29,7 @@ import {test} from 'vitest';
 import {cleanup, fireEvent, render, screen} from '@testing-library/react';
 import * as React from 'react';
 import {Controller, useForm as useRhfForm} from 'react-hook-form';
+import {useForm as useTanStackForm} from '@tanstack/react-form';
 import Form from '../../src/components/Form';
 import {Field} from '../../src/components/Field';
 import createForm, {getValues, setValue, validate} from '../../src/form';
@@ -74,6 +78,27 @@ function RhfHundredRegistered() {
   );
 }
 
+function TanStackHundredFields() {
+  const form = useTanStackForm({defaultValues: INITIAL_VALUES});
+  return h(
+    React.Fragment,
+    null,
+    NAMES.map(name =>
+      h(form.Field, {
+        key: name,
+        name,
+        children: (field: any) =>
+          h('input', {
+            'data-testid': name,
+            value: field.state.value as string,
+            onChange: (e: any) => field.handleChange(e.target.value),
+            onBlur: field.handleBlur
+          })
+      })
+    )
+  );
+}
+
 function F0rmHundredUncontrolled() {
   return h(
     Form,
@@ -107,6 +132,7 @@ const RUN_OPTIONS = {time: 2000, warmupTime: 1000};
 test('single field change - 100 controlled inputs mounted', async ({bench}) => {
   const f0rmInput = mountOnce(h(F0rmHundredFields));
   const rhfControllerInput = mountOnce(h(RhfHundredControllers));
+  const tanStackInput = mountOnce(h(TanStackHundredFields));
   const rhfRegisterInput = mountOnce(h(RhfHundredRegistered));
   const f0rmUncontrolledInput = mountOnce(h(F0rmHundredUncontrolled));
   // Rotate the written value: an identical value would compare equal in the
@@ -121,6 +147,12 @@ test('single field change - 100 controlled inputs mounted', async ({bench}) => {
 
   await bench('react-hook-form Controller: change 1 of 100', () => {
     const input = rhfControllerInput();
+    flip = (flip + 1) % 4;
+    fireEvent.change(input, {target: {value: `w${flip}`}});
+  }).run(RUN_OPTIONS);
+
+  await bench('tanstack-react-form field: change 1 of 100', () => {
+    const input = tanStackInput();
     flip = (flip + 1) % 4;
     fireEvent.change(input, {target: {value: `w${flip}`}});
   }).run(RUN_OPTIONS);

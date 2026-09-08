@@ -11,7 +11,8 @@ Coming from TanStack Form? [Migrating from TanStack Form](./docs/from-tanstack-f
 
 ## Features
 
-- **Field-level subscriptions.** Editing one field re-renders exactly that field's component, not the whole form. State is read through `useSyncExternalStore`, so snapshots stay consistent under concurrent rendering (no tearing).
+- **Field-level subscriptions.** Editing one field re-renders exactly that field's component, not the whole form. State is read through React's native `useSyncExternalStore`, so snapshots stay consistent under concurrent rendering (no tearing).
+- **Zero runtime dependencies.** The event core is vendored in-repo (typed, ~1.5 KB) and `useSyncExternalStore` comes from React itself — the peer range is `react >=18`.
 - **Truly type-safe paths.** `FieldPath<T>` enumerates every valid field name for your values shape and `PathValue<T, P>` resolves the value type at that path — typos in field names fail at compile time on the generic APIs (`useField`, `setValue`, `getValue`, `useValue`, …), values are inferred.
 - **One schema adapter for every library.** The Standard Schema resolver covers zod (v3.24+/v4), valibot v1, arktype and any other Standard Schema v1 implementation through a single tree-shakeable entry point.
 - **Headless, with accessibility hooks.** You own the markup. When you opt into error rendering via `renderError`, `aria-invalid` and `aria-describedby` are wired up automatically.
@@ -26,6 +27,8 @@ Coming from TanStack Form? [Migrating from TanStack Form](./docs/from-tanstack-f
 - Event-driven core with refined tree-shaking — you don't pay for features you don't use.
 
 ## Install
+
+Requires React 18 or newer (native `useSyncExternalStore`, no shim).
 
 ```sh
 npm i react-f0rm
@@ -42,6 +45,7 @@ tinybench, run on a desktop-class machine (AMD Ryzen 7 8745HS). Measured rme var
 | Scenario | react-f0rm | Baseline | Speedup |
 |---|---|---|---|
 | Change one of 100 controlled fields | 111µs/change (~9,300 ops/s) | RHF `Controller`: 131µs (~7,800 ops/s) | ~1.2× |
+| Change one of 100 controlled fields | 111µs/change (~9,300 ops/s) | TanStack `form.Field`: 355µs (~2,900 ops/s) | ~3.2× |
 | Components re-rendered per change | 1 of 100 `Field`s | — | — |
 | Change one of 100 uncontrolled fields | 12.6µs/change (~80,500 ops/s) | RHF `register`: 11.9µs (~85,200 ops/s) | parity (~6% apart) |
 | `getValues()`, 100 fields × depth 3 (cold compute; DEV snapshot guard on both paths) | 55.5µs (ownership merge) | legacy chained `set`: 104µs | 1.9× |
@@ -51,7 +55,7 @@ tinybench, run on a desktop-class machine (AMD Ryzen 7 8745HS). Measured rme var
 
 Notes:
 
-- The uncontrolled row is the apples-to-apples `register` comparison: react-f0rm's `uncontrolled: true` (no value subscription) runs at RHF-`register` parity — 12.6µs vs 11.9µs per change — while keeping errors/touched/disabled/validating reactive, which raw `register` does not. The controlled comparison above uses `Controller`, RHF's per-field-subscribed controlled counterpart.
+- The uncontrolled row is the apples-to-apples `register` comparison: react-f0rm's `uncontrolled: true` (no value subscription) runs at RHF-`register` parity — 12.3µs vs 12.1µs per change — while keeping errors/touched/disabled/validating reactive, which raw `register` does not. The controlled comparison uses `Controller`, RHF's per-field-subscribed controlled counterpart, and `form.Field` is TanStack's same-model counterpart: field-level subscriptions, 3.2× the change cost.
 - Both `getValues()` paths pay the DEV snapshot guard (`freezeValues`: clone + freeze), so the comparison isolates the merge strategy; in production neither side pays it. Ownership merging also cut container allocations from 300 to 111.
 
 Reproduce with:
@@ -67,7 +71,7 @@ react-f0rm vs the established options. react-f0rm figures come from this repo (s
 
 | | react-f0rm | React Hook Form | TanStack Form | Formik |
 |---|---|---|---|---|
-| Rendering model | Controlled fields with field-level subscriptions (`useSyncExternalStore`): editing one of 100 fields re-renders exactly 1 component; `uncontrolled: true` drops the value subscription and runs at RHF-`register` parity (12.6µs vs 11.9µs bench) while errors/touched/disabled stay reactive | Uncontrolled `register` by default (no React re-render while typing); `Controller` opts into per-field re-renders | Field-level subscriptions (`form.Field` / `useField`), each field re-renders itself | Form-wide context: any state change re-renders all subscribed components |
+| Rendering model | Controlled fields with field-level subscriptions (`useSyncExternalStore`): editing one of 100 fields re-renders exactly 1 component; `uncontrolled: true` drops the value subscription and runs at RHF-`register` parity (12.3µs vs 12.1µs bench) while errors/touched/disabled stay reactive | Uncontrolled `register` by default (no React re-render while typing); `Controller` opts into per-field re-renders | Field-level subscriptions (`form.Field` / `useField`), each field re-renders itself — the same model, 3.2× the per-change cost (355µs vs 111µs bench) | Form-wide context: any state change re-renders all subscribed components |
 | Unregister on unmount | Unregisters by default — an unmounted field drops out of `getValues()` (tombstone) instead of silently reviving its initial value; `shouldUnregister: false` per field or per form (`createForm({shouldUnregister: false})`) keeps it | Value kept by default (`shouldUnregister` defaults to `false`); opt in per field or form to unregister on unmount | Values live in the form store; unmounting a field's UI keeps its value and state | No unregister concept — values persist until `reset` |
 | Schema adapters | One Standard Schema entry point (`react-f0rm/resolvers/standard-schema`) covers zod, valibot, arktype, …; legacy zod/yup resolvers also shipped | `@hookform/resolvers` — one adapter module per validation library | Built-in `standardSchemaValidators` (Standard Schema v1), plus per-library adapter packages | Yup built in via `validationSchema`; other libraries hand-wired in `validate` |
 | Path type safety | `FieldPath<T>` / `PathValue<T, P>`: every valid path enumerated, value type resolved, typos fail at compile time on the generic APIs (`useField`, `setValue`, `getValue`, …); segment arrays and runtime-dynamic entry points (`useFieldArray`, `removeField`, …) stay untyped | `Path<T>` / `FieldPath` type-level path checking | Deep inference, including validator argument types — the strongest of the four | Top-level `keyof` only; nested paths are untyped strings |
@@ -75,20 +79,20 @@ react-f0rm vs the established options. react-f0rm figures come from this repo (s
 | Async validation | `validateDebounce` per field + `meta.signal` (`AbortSignal`) handed to every validator — superseded rounds cancel their in-flight work; pending debounce counts as validating so submit waits | Async validators supported, but no built-in debounce and no cancellation signal — both are hand-rolled per project | Built in: `asyncDebounceMs` debounces and the validator meta carries an `AbortSignal` | Async `validate` supported; no debounce, no signal |
 | Multiple errors per field | Native: every field holds `FieldError[]`; `getFieldErrors`/`useFieldErrors` read them; resolvers forward every schema issue | `criteriaMode: 'all'` collects all failing rules per field | Errors are arrays of messages per field | — |
 | SSR / hydration | `renderToString` renders initial values out of the box; server snapshot matches the client's first render (async initialValues render empty + `isLoading` on both sides) | SSR-safe | SSR-safe | SSR-safe |
-| React 19 / Server Actions | Bridge pattern: dispatch the action from `onValidSubmit` via `startTransition`/`useActionState`, passing the values object rather than FormData (see the stance above and the React 19 Server Actions guide); the `react-f0rm/server` entry's `validateValues` re-validates payloads server-side without wrapping them in an action; no submit before JS loads — first-class `action` prop support is not on the 0.x roadmap | `<Form>` accepts a function `action` prop (server-action-style submit) since v7.84, and ships a `react-server` export | Documented server action integration (`createServerValidate` for server-side validation, Next.js examples) | — |
-| Bundle size | 11.83 KB gzip minified (10.73 KB brotli), full core | ~11 KB gzip | ~17.5 KB gzip | ~12.8 KB gzip |
+| React 19 / Server Actions | Bridge pattern: dispatch the action from `onValidSubmit` via `startTransition`/`useActionState`, passing the values object rather than FormData (see the stance above and the React 19 Server Actions guide); the `react-f0rm/server` entry's `validateValues` re-validates payloads server-side without wrapping them in an action; no submit before JS loads — first-class `action` prop support is not on the roadmap | `<Form>` accepts a function `action` prop (server-action-style submit) since v7.84, and ships a `react-server` export | Documented server action integration (`createServerValidate` for server-side validation, Next.js examples) | — |
+| Bundle size | 10.78 KB gzip minified (9.83 KB brotli), full core, zero runtime dependencies | 14.06 KB gzip (bundlephobia, v7.87.0, 2026-09) | 19.02 KB gzip (v1.33.5 measured locally: minified + gzip, `@tanstack/form-core` and `react-store` bundled, react external — the bundlephobia methodology) | ~12.8 KB gzip |
 | Devtools | `<Devtools />` from `react-f0rm/devtools` — separate entry point, tree-shakeable, never lands in the main bundle | `@hookform/devtools` (separate package) | Built-in devtools panel | None (official) |
-| Ecosystem maturity | New, 0.x — small audience, few integrations so far | Most mature: massive adoption, resolvers, UI-kit integrations, abundant examples and answers | Backed by the TanStack family, actively growing | Maintenance mode; the author recommends considering RHF or Final Form for new projects |
+| Ecosystem maturity | New — small audience, few integrations so far | Most mature: massive adoption, resolvers, UI-kit integrations, abundant examples and answers | Backed by the TanStack family, actively growing | Maintenance mode; the author recommends considering RHF or Final Form for new projects |
 
-Bundle-size basis: every column is gzip. react-f0rm is measured on the local build — gzip of the shipped, unminified `dist/index.mjs` after `npm run build` is 11.58 KB (minified, the same file gzips to 11.83 KB; 10.73 KB brotli via size-limit, which minifies and tree-shakes). Competitor figures are Bundlephobia observations of minified+gzip bundles — so ours is the conservative number, not the flattering one.
+Bundle-size basis: every column is gzip. react-f0rm is measured on the local build — the shipped, minified `dist/index.mjs` gzips to 10.78 KB (9.83 KB brotli; size-limit, which minifies and tree-shakes, reports the same file). The RHF figure is a bundlephobia API observation of v7.87.0 (2026-09); the TanStack figure is a local measurement of v1.33.5 following the bundlephobia methodology (minified + gzip, its two runtime deps bundled, react external). Formik's is the historical bundlephobia ballpark. Ours is the conservative number — measured on the built artifact, not a promise.
 
 ### Which one should you use?
 
-**Pick react-f0rm** when you want controlled components with true per-field subscriptions (design systems, editor-like forms), one Standard Schema adapter instead of a package per validator, compile-time-checked paths, and a small core (11.83 KB minified gzip / 10.73 KB brotli) — and you are comfortable with a young library.
+**Pick react-f0rm** when you want controlled components with true per-field subscriptions (design systems, editor-like forms), one Standard Schema adapter instead of a package per validator, compile-time-checked paths, and the smallest core of the four (10.78 KB minified gzip / 9.83 KB brotli, zero runtime dependencies) — and you are comfortable with a young library.
 
-**Pick React Hook Form** when you want the mature ecosystem — resolvers, UI-library integrations and community answers — today. Its performance edge is gone at the rendering level: raw `register` benches at 11.9µs/change and react-f0rm's `uncontrolled: true` at 12.6µs (parity, see [Benchmarks](#benchmarks)), while our controlled model beats `Controller` 1.2–1.8×. TanStack Form sits in between: choose it when the deepest possible type inference (including validator signatures) matters more to you than bundle size.
+**Pick React Hook Form** when you want the mature ecosystem — resolvers, UI-library integrations and community answers — today. Its performance edge is gone at the rendering level: raw `register` benches at 12.1µs/change and react-f0rm's `uncontrolled: true` at 12.3µs (parity, see [Benchmarks](#benchmarks)), while our controlled model beats `Controller` 1.2× and TanStack's `form.Field` 3.2×. TanStack Form sits in between: choose it when the deepest possible type inference (including validator signatures) matters more to you than bundle size and per-change cost.
 
-**Server Actions: bridge, not first-class.** RHF-style `action` prop support, a `react-server` entry point, or a TanStack-style `createServerValidate` helper are **not on the 0.x roadmap** — a deliberate stance, not a gap. react-f0rm's source of truth is the values store, not the DOM: an `action`-prop submit would ship FormData keyed by JSON-stringified path keys, drop every store-only value, and skip the validation gate entirely (the [React 19 Server Actions guide](docs-site/docs/guides/react19-server-actions.md) unpacks all four failure modes). The recommended shape is the bridge — dispatch from `onValidSubmit` via `startTransition`/`useActionState`, passing the values object rather than FormData — which keeps validation gating the action and types/nesting intact. If submitting without JavaScript loaded is a hard requirement, RHF's `action` prop support is the better fit today.
+**Server Actions: bridge, not first-class.** RHF-style `action` prop support, a `react-server` entry point, or a TanStack-style `createServerValidate` helper are **not on the roadmap** — a deliberate stance, not a gap. react-f0rm's source of truth is the values store, not the DOM: an `action`-prop submit would ship FormData keyed by JSON-stringified path keys, drop every store-only value, and skip the validation gate entirely (the [React 19 Server Actions guide](docs-site/docs/guides/react19-server-actions.md) unpacks all four failure modes). The recommended shape is the bridge — dispatch from `onValidSubmit` via `startTransition`/`useActionState`, passing the values object rather than FormData — which keeps validation gating the action and types/nesting intact. If submitting without JavaScript loaded is a hard requirement, RHF's `action` prop support is the better fit today.
 
 ## Usage
 
@@ -214,6 +218,21 @@ update(1, 'B');           // overwrite one value, keeping that row's id — no k
 ```
 
 `replace(values)` is the refetch shape — a server response replaces the whole list — while `update(index, value)` rewrites a single row in place.
+
+Three more options cover the react-hook-form `useFieldArray` surface:
+
+```jsx
+const {fields, append} = useFieldArray({
+  name: 'tags',
+  keyName: 'key',                              // expose the stable row id as field.key (default: 'id')
+  rules: {required: true, minLength: 1, maxLength: 5}, // validated against the whole array
+  shouldUnregister: false                      // keep the branch on unmount (default: form-level flag)
+});
+
+fields.map(field => <div key={field.key}>…</div>);
+```
+
+`rules` check the array itself — `required` fails on an empty array, `minLength`/`maxLength` read its length — on submit and `trigger`, like every registered validator. On unmount the array branch follows the same effective `shouldUnregister` as a bound field: tombstone by default, keep the values when the option or the form-level `createForm({shouldUnregister: false})` says so.
 
 ### `useFieldArrayItem`
 
@@ -552,7 +571,7 @@ setError(form, 'password', [
 ]);
 ```
 
-`setError` accepts a string, a `FieldError`, an array mixing both, or `undefined` to clear. Schema resolvers pass every issue through — a value breaking several rules collects all of them (Standard Schema/zod by design, yup via `abortEarly: false`) — and `getErrors()` contributes one entry per error. For imperative clears, `clearErrors(form)` wipes every error while `clearErrors(form, name)` — one name or an array of names — clears only those fields.
+`setError` accepts a string, a `FieldError`, an array mixing both, or `undefined` to clear. A fourth argument opts into side effects: `setError(form, 'email', 'taken', {shouldFocus: true})` focuses the field's element right after the error lands (the same `'focusError'` channel a failed submit's auto-focus uses — only mounted bound fields react). Schema resolvers pass every issue through — a value breaking several rules collects all of them (Standard Schema/zod by design, yup via `abortEarly: false`) — and `getErrors()` contributes one entry per error. For imperative clears, `clearErrors(form)` wipes every error while `clearErrors(form, name)` — one name or an array of names — clears only those fields.
 
 ### `setValue` options
 
@@ -579,6 +598,15 @@ setValue(form, 'email', 'a@b.com');          // dirty: differs from it
 ```
 
 Use it whenever a programmatic write is not user input — normalized/formatted values, autofill, defaults applied after mount — and you don't want it to trip the "unsaved changes" state. `shouldDirty: true` (or omitting the flag) is the default derived behavior spelled out; unlike react-hook-form, where `setValue` skips dirty marking unless opted in, react-f0rm always derives dirty from the comparison and `false` is the opt-out.
+
+The value argument may also be an updater function receiving the field's current value and returning the next one (TanStack Form's `setFieldValue` contract) — handy for increments and array transforms:
+
+```jsx
+setValue(form, 'count', c => c + 1);
+setValue(form, 'tags', tags => [...tags, 'new']);
+```
+
+The tradeoff this implies: a function can never itself be stored as a field value through `setValue`.
 
 Committed baselines follow the form's lifecycle: `reset`, `setInitialValues` and `resetField`/`removeField` drop them (the state they measured against is gone), and a wholesale write at an ancestor path — a `useFieldArray` rewrite, say — drops baselines beneath it, since the subtree they were committed against no longer exists.
 
@@ -1144,6 +1172,13 @@ Coming from another library? [Migrating from TanStack Form](./docs/from-tanstack
 - [Migrating from Formik](docs-site/docs/migration/from-formik.md)
 - [Migrating from React Hook Form](docs-site/docs/migration/from-react-hook-form.md)
 - [Migrating from TanStack Form](docs-site/docs/migration/from-tanstack-form.md)
+
+## Breaking changes in 1.0
+
+- **`react >=18` peer.** The `use-sync-external-store` shim is gone — subscriptions use React's native `useSyncExternalStore`, and the package ships zero runtime dependencies (the event emitter is vendored in-repo with identical semantics).
+- **`reset` keep-flag split.** `keepIsSubmitted` now keeps the new `isSubmitted` flag (set on every submit attempt, cleared by reset — RHF's `formState.isSubmitted` semantics). Keeping the last submit's success flag is the new `keepIsSubmitSuccessful`. Previously `keepIsSubmitted` controlled `isSubmitSuccessful`; migration is a one-word rename for that use case.
+- **`useFieldArray` unmount.** Unmounting the array now removes its branch by default (tombstone), exactly like a bound field — previously the values silently stayed. Keep them with `shouldUnregister: false` per array, or `createForm({shouldUnregister: false})` form-wide.
+- **`setValue` functions are updaters.** `setValue(form, 'count', c => c + 1)` updates from the current value (TanStack's `setFieldValue` contract); a function can no longer itself be stored as a field value through `setValue`.
 
 ## Breaking changes in 0.2
 

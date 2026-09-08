@@ -11,10 +11,12 @@ import useFieldArray from '../../src/hooks/fieldArray';
 import useField from '../../src/hooks/field';
 import useForm from '../../src/hooks/form';
 import createForm, {
+  getFieldErrors,
   getValueByPath,
   getValues,
   setValue,
-  reset
+  reset,
+  trigger
 } from '../../src/form';
 import createPath from '../../src/path';
 import React from 'react';
@@ -471,6 +473,126 @@ describe('useFieldArray', () => {
       const baseline = renderHarness(form, 'items[0].name');
       // One wake: the removed path is a descendant of the array branch.
       expect(renders).toBe(baseline + 1);
+    });
+  });
+
+  describe('keyName', () => {
+    it('exposes the stable row id under a custom property name', () => {
+      const wrapper = createWrapper({items: ['a', 'b']});
+      const {result} = renderHook(
+        () => useFieldArray({name: 'items', keyName: 'key'}),
+        {wrapper}
+      );
+      const [first] = result.current.fields;
+      expect(first.key).toBe(first.id);
+      expect(typeof first.key).toBe('string');
+      // The default `id` stays alongside the custom key.
+      expect(first.id).toBeDefined();
+    });
+
+    it('defaults the property name to id', () => {
+      const wrapper = createWrapper({items: ['a']});
+      const {result} = renderHook(() => useFieldArray({name: 'items'}), {
+        wrapper
+      });
+      expect(result.current.fields[0].id).toBeDefined();
+    });
+  });
+
+  describe('rules', () => {
+    it('required fails on an empty array', async () => {
+      const form = createForm({initialValues: {tags: []}});
+      renderHook(() =>
+        useFieldArray({name: 'tags', form, rules: {required: true}})
+      );
+      await act(async () => {
+        expect(await trigger(form, 'tags')).toBe(false);
+      });
+      expect(getFieldErrors(form, 'tags').map(e => e.type)).toEqual([
+        'required'
+      ]);
+    });
+
+    it('length rules read the array length', async () => {
+      const form = createForm({initialValues: {tags: ['a']}});
+      const {result} = renderHook(() =>
+        useFieldArray({
+          name: 'tags',
+          form,
+          rules: {minLength: 2, maxLength: 3}
+        })
+      );
+      await act(async () => {
+        expect(await trigger(form, 'tags')).toBe(false);
+      });
+      expect(getFieldErrors(form, 'tags').map(e => e.type)).toEqual([
+        'minLength'
+      ]);
+      act(() => {
+        result.current.append('b');
+        result.current.append('c');
+        result.current.append('d');
+      });
+      await act(async () => {
+        expect(await trigger(form, 'tags')).toBe(false);
+      });
+      expect(getFieldErrors(form, 'tags').map(e => e.type)).toEqual([
+        'maxLength'
+      ]);
+    });
+  });
+
+  describe('shouldUnregister', () => {
+    it('tombstones the branch on unmount by default', () => {
+      const form = createForm({initialValues: {items: ['a']}});
+      const {unmount} = renderHook(() => useFieldArray({name: 'items', form}));
+      expect(getValues(form)).toEqual({items: ['a']});
+      unmount();
+      expect(getValueByPath(form, createPath('items'))).toBeUndefined();
+      expect(getValues(form)).toEqual({});
+    });
+
+    it('keeps values on unmount with shouldUnregister: false', () => {
+      const form = createForm({initialValues: {items: ['a']}});
+      const {unmount} = renderHook(() =>
+        useFieldArray({name: 'items', form, shouldUnregister: false})
+      );
+      unmount();
+      expect(getValues(form)).toEqual({items: ['a']});
+    });
+
+    it('keeps the branch through StrictMode mount effect cycle', () => {
+      // StrictMode's dev setup→cleanup→setup cycle runs the unmount removal
+      // on mount: a plain removal would wipe the branch. The snapshot
+      // restore keeps the rows readable and editable after the cycle.
+      const form = createForm({initialValues: {items: ['a']}});
+      function List() {
+        const {fields, append} = useFieldArray({name: 'items', form});
+        return (
+          <div>
+            <span data-testid="len">{fields.length}</span>
+            <button data-testid="add" onClick={() => append('b')} />
+          </div>
+        );
+      }
+      render(
+        <React.StrictMode>
+          <List />
+        </React.StrictMode>
+      );
+      expect(screen.getByTestId('len').textContent).toBe('1');
+      act(() => fireEvent.click(screen.getByTestId('add')));
+      expect(getValues(form)).toEqual({items: ['a', 'b']});
+    });
+
+    it('follows the form-level shouldUnregister: false default', () => {
+      const form = createForm({
+        initialValues: {items: ['a']},
+        shouldUnregister: false
+      });
+      const {unmount} = renderHook(() => useFieldArray({name: 'items', form}));
+      unmount();
+      expect(getValues(form)).toEqual({items: ['a']});
     });
   });
 });

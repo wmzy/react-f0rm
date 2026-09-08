@@ -1,13 +1,12 @@
 import {useCallback, useContext, useEffect, useRef, useState} from 'react';
 import type {Context} from 'react';
-import {on} from '@for-fun/event-emitter';
+import {on} from '../emitter';
 import {FormContext} from '../context';
 import {
   emitChangeByPath,
   getValueByPath,
   registerFieldMode,
   registerFieldValidateDeps,
-  removeFieldByPath,
   seedValueByPath,
   unregisterFieldMode,
   unregisterFieldValidateDeps,
@@ -25,7 +24,9 @@ import {onPathEvent} from '../subscribe';
 import usePath from './path';
 import useValidate from './validate';
 import type {Validator} from './validate';
-import {useStageFn} from './stage';
+import {removeFieldForUnmount, restoreRemovedField} from '../core/unmount';
+import type {RemovedFieldSnapshot} from '../core/unmount';
+import {useStageFn, useUnmountRestore} from './stage';
 import {isPromise} from '../util';
 
 /** Dev-only flag, replaced at build time (rollup.config.js `replace`);
@@ -458,17 +459,22 @@ export function useFieldCore<
     [form, path.key]
   );
 
-  useEffect(
-    () => () => {
-      // Effective unmount behavior: the field's own option, falling back
-      // to the form-level default, then to this library's historical
-      // default (tombstone).
-      if ((shouldUnregister ?? form.shouldUnregister) !== false) {
-        removeFieldByPath(form, path);
-      }
-    },
-    [path, form, shouldUnregister]
-  );
+  // Effective unmount behavior: the field's own option, falling back
+  // to the form-level default, then to this library's historical
+  // default (tombstone). The removal snapshots first and a setup that
+  // immediately follows the cleanup (StrictMode's dev
+  // setup→cleanup→setup cycle) restores it — see useUnmountRestore.
+  const removalSnapshotRef = useRef<RemovedFieldSnapshot | null>(null);
+  const teardownOnUnmount = useStageFn(() => {
+    if ((shouldUnregister ?? form.shouldUnregister) === false) return;
+    removalSnapshotRef.current = removeFieldForUnmount(form, path);
+  });
+  const restoreAfterStrictMode = useStageFn(() => {
+    const snapshot = removalSnapshotRef.current;
+    removalSnapshotRef.current = null;
+    if (snapshot) restoreRemovedField(form, path, snapshot);
+  });
+  useUnmountRestore(teardownOnUnmount, restoreAfterStrictMode);
 
   return {
     form,

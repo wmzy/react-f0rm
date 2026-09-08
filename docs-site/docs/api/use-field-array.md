@@ -31,6 +31,9 @@ function TodoList() {
 |--------|------|-------------|
 | `name` | `string` | Array field name |
 | `form` | `Form` | Explicit form instance — wins over the context and makes the hook work outside a `<Form>` provider |
+| `keyName` | `string` | Property name the stable row key is exposed under on each `fields` entry — defaults to `'id'`; a custom name (e.g. `'key'`) avoids clashing with a row data field of the same name |
+| `rules` | `FieldRules` | Declarative rules validated against the whole array: `required` fails on an empty array, `minLength`/`maxLength` read the array's length. Checked on submit and `trigger`, like every registered validator |
+| `shouldUnregister` | `boolean` | Whether unmounting this array removes its branch. Defaults to the form-level `shouldUnregister` — tombstone (drop values) like a bound field's unmount; pass `false` to keep the values |
 
 ## Returns
 

@@ -1,7 +1,12 @@
-import {useState, useEffect, useCallback, useRef} from 'react';
-import {useSyncExternalStore} from 'use-sync-external-store/shim';
-import {on} from '@for-fun/event-emitter';
-import type {EventEmitter} from '@for-fun/event-emitter';
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useSyncExternalStore
+} from 'react';
+import {on} from '../emitter';
+import type {EventEmitter} from '../emitter';
 import {onKeyEvent, onPathEvent} from '../subscribe';
 import type {SubscribeEvent} from '../subscribe';
 import createForm, {
@@ -418,6 +423,13 @@ export type FormState = {
    * separate signal; async rounds temporarily pass this flag like RHF's). */
   isValid: boolean;
   isSubmitting: boolean;
+  /**
+   * Whether a submit has been attempted on this form — set on the first
+   * `handleSubmit` call (validation outcome aside) and cleared by
+   * `reset`, react-hook-form's `formState.isSubmitted` semantics. Read
+   * after a failed submit to render a "fix the errors below" panel.
+   */
+  isSubmitted: boolean;
   /** Any validation round is running (field, form-level, or a pending
    * debounce window). */
   isValidating: boolean;
@@ -453,6 +465,7 @@ function getFormState(form: Form): FormState {
     hasErrors: hasErrors(form),
     isValid: !hasErrors(form),
     isSubmitting: form.isSubmitting,
+    isSubmitted: form.isSubmitted,
     isValidating: form.validating.size > 0,
     isSubmitSuccessful: form.isSubmitSuccessful,
     submitCount: form.submitCount,
@@ -476,6 +489,7 @@ function isSameFormState(a: FormState, b: FormState): boolean {
     a.hasErrors === b.hasErrors &&
     a.isValid === b.isValid &&
     a.isSubmitting === b.isSubmitting &&
+    a.isSubmitted === b.isSubmitted &&
     a.isValidating === b.isValidating &&
     a.isSubmitSuccessful === b.isSubmitSuccessful &&
     a.submitCount === b.submitCount &&

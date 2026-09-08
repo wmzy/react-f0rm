@@ -1,4 +1,4 @@
-import {emit} from '@for-fun/event-emitter';
+import {emit} from '../emitter';
 import type {FieldErrorEntry, Form} from '../form';
 import {getErrors} from './errors';
 import {getValues} from './values';
@@ -159,6 +159,10 @@ export function handleSubmit<T extends Record<string, any> = any>(
       e.preventDefault();
     }
     const formEl = e?.currentTarget;
+    // Land the submitted flag before the isSubmitting flip: the single
+    // 'submitting' emit setIsSubmitting fires carries both state changes
+    // to FormState subscribers.
+    form.isSubmitted = true;
     setIsSubmitting(form, true);
     incrementSubmitCount(form);
     const values = getValues(form);

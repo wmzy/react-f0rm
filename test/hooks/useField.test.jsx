@@ -6,7 +6,7 @@ import {
   fireEvent,
   screen
 } from '@testing-library/react';
-import {on} from '@for-fun/event-emitter';
+import {on} from '../../src/emitter';
 import {FormProvider} from '../../src/context';
 import useField from '../../src/hooks/field';
 import useForm, {useValue} from '../../src/hooks/form';
@@ -385,6 +385,27 @@ describe('useField', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+
+  it('keeps the value through StrictMode mount effect cycle', () => {
+    // StrictMode's dev setup→cleanup→setup cycle runs the unmount cleanup
+    // on mount: a plain removal would wipe the field. The removal is
+    // snapshot-restored by the setup that follows, so the first paint and
+    // every read after it keep the value.
+    const form = createForm({initialValues: {name: 'x'}});
+    function Probe() {
+      const field = useField({form, name: 'name'});
+      return <div data-testid="value">{String(field.value)}</div>;
+    }
+    render(
+      <React.StrictMode>
+        <FormProvider value={form}>
+          <Probe />
+        </FormProvider>
+      </React.StrictMode>
+    );
+    expect(screen.getByTestId('value').textContent).toBe('x');
+    expect(getValues(form)).toEqual({name: 'x'});
   });
 
   it('remounted field writes new values over its own tombstone', () => {

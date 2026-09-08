@@ -82,7 +82,7 @@ Errors are stored as `FieldError` objects — `{type: string, message: string}` 
 | `setDisabled(form, value)` | Set the form-level disabled flag and emit a payload-less `'disabled'` event — every subscribed field re-renders with the merged state: the form flag OR-ed with its own `disabled` option |
 | `reset(form, initialValues?, options?)` | Full reset — see below |
 
-`reset` clears values, errors, touched state, validating state **and** the submission flags: `isSubmitting` → `false`, `submitCount` → `0`, `isSubmitSuccessful` → `undefined`. Pass `initialValues` to start from a fresh baseline; the omitted-fields tombstones are cleared too.
+`reset` clears values, errors, touched state, validating state **and** the submission flags: `isSubmitting` → `false`, `submitCount` → `0`, `isSubmitted` → `false`, `isSubmitSuccessful` → `undefined`. Pass `initialValues` to start from a fresh baseline; the omitted-fields tombstones are cleared too.
 
 #### Reset options
 
@@ -93,7 +93,8 @@ The third argument opts into keeping slices of state through the reset. Every fl
 | `keepDirtyValues` | `boolean` | Keep the current values of fields that are dirty — differ from the pre-reset `initialValues` (same rule as `getDirtyFields`); clean fields fall back to the new baseline |
 | `keepTouched` | `boolean` | Keep the touched set instead of clearing it |
 | `keepErrors` | `boolean` | Keep field errors instead of clearing them |
-| `keepIsSubmitted` | `boolean` | Keep `isSubmitSuccessful` instead of clearing it |
+| `keepIsSubmitted` | `boolean` | Keep `isSubmitted` instead of clearing it |
+| `keepIsSubmitSuccessful` | `boolean` | Keep the last submit's `isSubmitSuccessful` instead of clearing it |
 | `keepSubmitCount` | `boolean` | Keep `submitCount` instead of resetting it to 0 |
 | `keepIsSubmitting` | `boolean` | Keep `isSubmitting` instead of resetting it to `false` |
 

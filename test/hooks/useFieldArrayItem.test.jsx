@@ -27,12 +27,12 @@ function makeRow() {
   return {Item, counts, latest};
 }
 
-function setup(initialValues = {tags: ['a', 'b', 'c']}) {
+function setup(initialValues = {tags: ['a', 'b', 'c']}, arrayOptions) {
   const form = createForm({initialValues});
   const {Item, counts, latest} = makeRow();
   let arrayApi;
   function Tags() {
-    arrayApi = useFieldArray({name: 'tags', form});
+    arrayApi = useFieldArray({name: 'tags', form, ...arrayOptions});
     return (
       <ul>
         {arrayApi.fields.map(f => (
@@ -280,7 +280,9 @@ describe('useFieldArrayItem', () => {
   });
 
   it('clears the id table when the array unmounts, so a remount is clean', () => {
-    const s = setup();
+    // shouldUnregister: false keeps the branch across the unmount so the
+    // id-table cleanliness (not value removal) is what this asserts.
+    const s = setup(undefined, {shouldUnregister: false});
     const form = s.form;
     const firstIds = s.ids();
     s.unmount();

@@ -1,9 +1,5 @@
-import {
-  create as createEmitter,
-  emit,
-  setMaxListeners
-} from '@for-fun/event-emitter';
-import type {EventEmitter} from '@for-fun/event-emitter';
+import {create as createEmitter, emit, setMaxListeners} from './emitter';
+import type {EventEmitter} from './emitter';
 import createPath from './path';
 import type {Name, Path} from './path';
 import type {FieldPath} from './types';
@@ -156,6 +152,11 @@ export type Form<T extends Record<string, any> = any> = {
    * Options.validateDeps} at create time and fixed thereafter. */
   validateDeps?: ReadonlySet<string>;
   isSubmitting: boolean;
+  /** Whether a submit has been attempted — set by `handleSubmit` on every
+   * attempt (validation outcome aside), cleared by `reset`.
+   * `useFormState().isSubmitted` reads it (react-hook-form's
+   * `formState.isSubmitted` semantics). */
+  isSubmitted: boolean;
   submitCount: number;
   isSubmitSuccessful: boolean | undefined;
   /** True while an async {@link Options.initialValues} source (a Promise,
@@ -292,6 +293,7 @@ export default function create<T extends Record<string, any> = any>(
     validating: new Set(),
     parsedValues: undefined,
     isSubmitting: false,
+    isSubmitted: false,
     submitCount: 0,
     isSubmitSuccessful: undefined,
     isLoading: false

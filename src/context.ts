@@ -7,9 +7,11 @@ import {
 import {
   useFieldArrayCore,
   useFieldArrayItemCore,
+  type UseFieldArrayOptions,
   type UseFieldArrayResult,
   type UseFieldArrayItemResult
 } from './hooks/fieldArray';
+import type {FieldRules} from './rules';
 import type {Form} from './form';
 import type {Name, PathSegments} from './path';
 import type {FieldPath} from './types';
@@ -82,10 +84,13 @@ export function createFormContext<TValues extends Record<string, any> = any>() {
     return useFieldCore(options as UseFieldOptions<TValues, TPath>, Context);
   }
 
-  function useFieldArray(options: {
+  function useFieldArray<K extends string = 'id'>(options: {
     name: FieldPath<TValues> | Name;
-  }): UseFieldArrayResult {
-    return useFieldArrayCore(options as {name: Name}, Context);
+    keyName?: K;
+    rules?: FieldRules;
+    shouldUnregister?: boolean;
+  }): UseFieldArrayResult<K> {
+    return useFieldArrayCore(options as UseFieldArrayOptions<K>, Context);
   }
 
   function useFieldArrayItem<TValue = any>(options: {

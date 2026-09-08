@@ -1,4 +1,4 @@
-import {emit} from '@for-fun/event-emitter';
+import {emit} from '../emitter';
 import createPath from '../path';
 import type {Name, Path, PathSegments} from '../path';
 import type {FieldPath} from '../types';
@@ -111,6 +111,17 @@ export function getFirstError({errors}: Form): string | undefined {
 /** Snapshot of one field's aggregated state, as {@link getFieldState}
  * returns it. `errors` is the stored array shared with the form — treat it
  * as read-only, like every {@link getFieldErrors} result. */
+/** Options accepted by {@link setError}. */
+export type SetErrorOptions = {
+  /**
+   * Focus the named field's element after the error lands (react-hook-form's
+   * `setError` `shouldFocus`). Rides the same 'focusError' channel
+   * `setFocus` and a failed submit's auto-focus use: only mounted bound
+   * fields react, unmounted ones are silent no-ops.
+   */
+  shouldFocus?: boolean;
+};
+
 /**
  * Set field error
  * @param form
@@ -118,6 +129,8 @@ export function getFirstError({errors}: Form): string | undefined {
  * @param error string is normalized to {type: 'custom', message}; a
  *        FieldError object is stored as-is; an array holds several errors
  *        (falsy items dropped, strings normalized); undefined clears
+ * @param options {@link SetErrorOptions} — `shouldFocus` focuses the field
+ *        after the error lands
  */
 export function setError<
   T extends Record<string, any> = any,
@@ -125,9 +138,10 @@ export function setError<
 >(
   form: Form<T>,
   name: P,
-  error: string | FieldError | (string | FieldError)[] | undefined
+  error: string | FieldError | (string | FieldError)[] | undefined,
+  options?: SetErrorOptions
 ): void {
-  setErrorByPath(form, createPath(name), error);
+  setErrorByPath(form, createPath(name), error, options);
 }
 
 /**
@@ -137,12 +151,16 @@ export function setError<
  * @param error string is normalized to {type: 'custom', message}; a
  *        FieldError object is stored as-is; an array holds several errors
  *        (falsy items dropped, strings normalized); undefined clears
+ * @param options {@link SetErrorOptions} — `shouldFocus` focuses the field
+ *        after the error lands
  */
 export function setErrorByPath(
-  {emitter, errors}: Form,
+  form: Form,
   path: Path,
-  error: string | FieldError | (string | FieldError)[] | undefined
+  error: string | FieldError | (string | FieldError)[] | undefined,
+  options?: SetErrorOptions
 ): void {
+  const {emitter, errors} = form;
   const list = normalizeErrors(error);
   // An empty result (undefined, '', or an array of only falsy items) clears
   // the key: the errors Map never stores an empty list, so hasErrors stays
@@ -152,6 +170,7 @@ export function setErrorByPath(
   // Path payload lets key-scoped subscribers (onKeyEvent) skip unrelated
   // fields; payload-less listeners ignore it.
   emit(emitter, 'errors', path);
+  if (options?.shouldFocus) emit(emitter, 'focusError', path.key);
 }
 
 /** Normalize any {@link setErrorByPath} input into the stored non-empty

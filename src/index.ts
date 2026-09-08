@@ -5,6 +5,11 @@ export * from './form';
 // consumers get the component where they asked for the interface. Ship the
 // interface under its ecosystem-standard alias instead (antd precedent).
 export type {Form as FormInstance} from './form';
+// Form.emitter is part of the public API, so the vendored emitter's handle
+// type must be publicly re-exported — otherwise rollup-plugin-dts leaves it
+// in a private chunk and downstream isolatedDeclarations builds fail
+// (TS2742).
+export type {EventEmitter} from './emitter';
 export type {FieldPath, PathValue, PathValueOf} from './types';
 // 入口 d.ts 引用了 Path/PathSegments（UseFieldOptions 的验证相关类型经
 // hooks/form 暴露，core 模块的泛型约束直接引用 PathSegments），

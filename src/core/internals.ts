@@ -1,4 +1,4 @@
-import {emit} from '@for-fun/event-emitter';
+import {emit} from '../emitter';
 import {get} from '../util';
 import type {Name, Path, PathSegments} from '../path';
 import type {FieldError, Form} from '../form';

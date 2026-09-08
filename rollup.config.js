@@ -14,15 +14,11 @@ const banner = `
 `;
 
 const extensions = ['.js', '.jsx', '.es6', '.es', '.mjs', '.ts'];
-// ESM/CJS externals: react plus @for-fun/event-emitter. The emitter stays
-// a real runtime dependency (public d.ts files reference its EventEmitter
-// type, so consumers install it anyway) — keeping it external lets
-// bundlers dedupe it across packages instead of inlining a private copy.
-// use-sync-external-store stays bundled on purpose (React's guidance for
-// libraries: bundle the shim so consumers never see two copies).
-const external = ['react', '@for-fun/event-emitter'];
-// UMD must stay self-contained for script-tag consumers, so it bundles
-// the emitter and keeps react as its only external.
+// ESM/CJS externals: react only. The emitter is vendored in src/emitter.ts
+// and bundles into every output, so react-f0rm ships zero runtime
+// dependencies (and no d.ts references a third-party type anymore).
+const external = ['react'];
+// UMD: self-contained except react, which stays the only external.
 const umdExternal = ['react'];
 
 const plugins = [

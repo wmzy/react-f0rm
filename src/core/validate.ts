@@ -1,4 +1,4 @@
-import {emit} from '@for-fun/event-emitter';
+import {emit} from '../emitter';
 import createPath from '../path';
 import type {Name, Path, PathSegments} from '../path';
 import {isIndex, isPromise, normalizePath, waitUntil} from '../util';

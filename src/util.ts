@@ -1,5 +1,5 @@
-import {on} from '@for-fun/event-emitter';
-import type {EventEmitter} from '@for-fun/event-emitter';
+import {on} from './emitter';
+import type {EventEmitter} from './emitter';
 
 /** FIFO bound for {@link pathCache}. Static field names ('user.email')
  * number in the dozens per app, so the cache barely grows in practice;

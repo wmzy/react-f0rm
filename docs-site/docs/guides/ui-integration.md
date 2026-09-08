@@ -81,16 +81,24 @@ function ControlField({form, name, control: Control, ...rest}) {
 
 ## Adapting a Real Design System
 
-Nothing about the pattern changes with a real library — only the prop names and the error convention do. MUI's `TextField`, for illustration:
+Nothing about the pattern changes with a real library — only the prop names and the error convention do. Every adapter below is runnable exactly as written: `test/ui-integration.test.tsx` renders each one and asserts the state flows (the suite pulls antd/MUI/Radix in as devDependencies).
+
+### MUI
+
+MUI's `TextField`, for illustration:
 
 ```tsx
 import TextField from '@mui/material/TextField';
 
 function MuiEmailField({form}) {
-  const field = useField({form, name: 'email'});
+  const field = useField({
+    form,
+    name: 'email',
+    validate: v => (v.includes('@') ? undefined : 'Invalid email')
+  });
   return (
     <TextField
-      label='Email'
+      label="Email"
       value={field.value ?? ''}
       onChange={e => field.onChange(e.target.value)} // MUI forwards the event
       onBlur={field.onBlur}
@@ -102,7 +110,95 @@ function MuiEmailField({form}) {
 }
 ```
 
-The state contract is identical — `value`/`onChange` keep their names (unwrap `e.target.value`, as ever), and the error string maps onto MUI's boolean-plus-slot convention. Chakra, antd and Mantine differ the same way: write one adapter per control, never per form.
+The state contract is identical — `value`/`onChange` keep their names (unwrap `e.target.value`, as ever), and the error string maps onto MUI's boolean-plus-slot convention. The `error` flag flips MUI's red styling and `aria-invalid`; the message lands in `helperText`, announced by MUI's own wiring.
+
+### antd
+
+antd inverts the convention: the error message is a boolean too, but the slot is a `status` — no `helperText`:
+
+```tsx
+import {Input} from 'antd';
+
+function AntdEmailField({form}) {
+  const {value, onChange, onBlur, disabled, error} = useField({
+    form,
+    name: 'email',
+    validate: v => (v.includes('@') ? undefined : 'Invalid email')
+  });
+  return (
+    <Input
+      value={value ?? ''}
+      onChange={e => onChange(e.target.value)}
+      onBlur={onBlur}
+      disabled={disabled}
+      status={error ? 'error' : undefined}
+      aria-invalid={error ? true : undefined}
+      aria-describedby={error ? 'email-error' : undefined}
+    />
+  );
+}
+```
+
+`status="error"` paints antd's error chrome; keep the `aria-*` pair for screen readers — antd does not derive them from `status`. If you render the message yourself in antd's `Form.Item`-free layout, point `aria-describedby` at it (the library-wide convention is `fieldErrorId(name)` — see [Field](./../api/field.md)).
+
+### Radix
+
+Radix Primitives are unstyled, so the recipe is the generic adapter plus Radix's `Label`:
+
+```tsx
+import * as Label from '@radix-ui/react-label';
+
+function RadixEmailField({form}) {
+  const {value, onChange, onBlur, disabled, error, focusRef} = useField({
+    form,
+    name: 'email'
+  });
+  return (
+    <div>
+      <Label.Root htmlFor="email-input">Email</Label.Root>
+      <input
+        ref={focusRef}
+        id="email-input"
+        value={value ?? ''}
+        onChange={e => onChange(e.target.value)}
+        onBlur={onBlur}
+        disabled={disabled}
+        aria-invalid={error ? true : undefined}
+      />
+      {error && <span role="alert">{error}</span>}
+    </div>
+  );
+}
+```
+
+Bind `focusRef` to the innermost focusable node — with the unstyled primitives the input is yours to write, so `setFocus`/failed-submit auto-focus keep working out of the box.
+
+### shadcn/ui
+
+shadcn ships source, not a package — the components live in your tree. Its `FormItem`/`FormControl` shape maps 1:1 onto the adapter pattern; the only shadcn-specific part is the error slot and the `cn` class merge:
+
+```tsx
+function ShadcnEmailField({form}) {
+  const {value, onChange, onBlur, disabled, error} = useField({
+    form,
+    name: 'email',
+    validate: v => (v.includes('@') ? undefined : 'Invalid email')
+  });
+  return (
+    <FormItem label="Email" error={error}>
+      <input
+        className={cn('border rounded px-2 py-1', error && 'border-red-500')}
+        value={value ?? ''}
+        onChange={e => onChange(e.target.value)}
+        onBlur={onBlur}
+        disabled={disabled}
+      />
+    </FormItem>
+  );
+}
+```
+
+A shadcn-style `FormItem` is the generic error slot with Tailwind classes — if you have it from `npx shadcn@latest add form`, pass `error` straight through. Chakra and Mantine differ the same way: write one adapter per control, never per form.
 
 ## `changeValue`: Bridges That Hold a Plain Setter
 

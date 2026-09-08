@@ -14,19 +14,22 @@ export type RuleType =
  */
 export type FieldRules = {
   /**
-   * Fails on empty values: `''`, `undefined` or `null` (`0` and `false`
-   * count as filled). A string is the error message; `true` uses the
-   * default. When it fails, the remaining rules are skipped — an empty
-   * value reports only its required error.
+   * Fails on empty values: `''`, `undefined`, `null` or an empty array
+   * (`0` and `false` count as filled) — react-hook-form's `required`
+   * semantics. A string is the error message; `true` uses the default.
+   * When it fails, the remaining rules are skipped — an empty value
+   * reports only its required error.
    */
   required?: string | true;
   /** Fails when `Number(value)` is below this bound; `NaN` values skip. */
   min?: number;
   /** Fails when `Number(value)` is above this bound; `NaN` values skip. */
   max?: number;
-  /** Fails when a string value is shorter than this; non-strings skip. */
+  /** Fails when a string value is shorter than this, or an array has
+   * fewer entries; other values skip. */
   minLength?: number;
-  /** Fails when a string value is longer than this; non-strings skip. */
+  /** Fails when a string value is longer than this, or an array has more
+   * entries; other values skip. */
   maxLength?: number;
   /** Fails when the value does not match `pattern.value`. */
   pattern?: {value: RegExp; message: string};
@@ -73,7 +76,12 @@ function defaultMessage(type: RuleType, bound?: number): string {
 export function rulesToValidator(rules: FieldRules): SyncValidator {
   return value => {
     if (rules.required) {
-      if (value === '' || value === undefined || value === null) {
+      if (
+        value === '' ||
+        value === undefined ||
+        value === null ||
+        (Array.isArray(value) && value.length === 0)
+      ) {
         return [
           {
             type: 'required',
@@ -100,9 +108,10 @@ export function rulesToValidator(rules: FieldRules): SyncValidator {
         errors.push({type: 'max', message: message('max', rules.max)});
       }
     }
+    const isSized = typeof value === 'string' || Array.isArray(value);
     if (
       rules.minLength !== undefined &&
-      typeof value === 'string' &&
+      isSized &&
       value.length < rules.minLength
     ) {
       errors.push({
@@ -112,7 +121,7 @@ export function rulesToValidator(rules: FieldRules): SyncValidator {
     }
     if (
       rules.maxLength !== undefined &&
-      typeof value === 'string' &&
+      isSized &&
       value.length > rules.maxLength
     ) {
       errors.push({

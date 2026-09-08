@@ -1,4 +1,4 @@
-import {emit} from '@for-fun/event-emitter';
+import {emit} from '../emitter';
 import createPath from '../path';
 import type {Name, Path, PathSegments} from '../path';
 import type {FieldPath} from '../types';

@@ -1,5 +1,5 @@
-import {on} from '@for-fun/event-emitter';
-import type {EventEmitter} from '@for-fun/event-emitter';
+import {on} from './emitter';
+import type {EventEmitter} from './emitter';
 import createPath from './path';
 import type {Name, Path} from './path';
 import type {Form, FormEvents} from './form';

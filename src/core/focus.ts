@@ -1,4 +1,4 @@
-import {emit} from '@for-fun/event-emitter';
+import {emit} from '../emitter';
 import createPath from '../path';
 import type {Name} from '../path';
 import type {Form} from '../form';
