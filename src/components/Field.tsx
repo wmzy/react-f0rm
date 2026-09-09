@@ -2,6 +2,7 @@ import * as React from 'react';
 import useField from '../hooks/field';
 import type {Validator} from '../hooks/validate';
 import type {Form, ValidationMode} from '../form';
+import {rulesToConstraintAttrs} from '../rules';
 import type {FieldRules} from '../rules';
 import type {Name, Path, PathSegments} from '../path';
 import createPath from '../path';
@@ -41,10 +42,17 @@ type UseFieldOptions<
     meta: {form: Form; path: Path; signal: AbortSignal}
   ) => ReturnType<Validator>;
   /**
-   * Declarative rules (required/min/max/minLength/maxLength/pattern),
-   * compiled into a validator that runs before `validate`; failures land
-   * in the form's error state. Passed through to useField — like
-   * validateDebounce it is never spread onto the DOM element.
+   * Declarative rules (required/min/max/minLength/maxLength/pattern,
+   * plus custom `validate` callbacks), compiled into a validator that
+   * runs before `validate`; failures land in the form's error state.
+   * The declarative subset is also rendered as native constraint
+   * attributes (`required`, `minLength`, `pattern`, …) onto the element
+   * for browser/AT hints — `:invalid` styling, screen-reader
+   * announcements — while the store pipeline stays the source of truth
+   * for messages (`renderError`/`aria-invalid` keep working; a user-passed
+   * `required`/`pattern`/… prop overrides the derived attribute). Passed
+   * through to useField — like validateDebounce it is never spread onto
+   * the DOM element.
    */
   rules?: FieldRules;
   /**
@@ -54,6 +62,14 @@ type UseFieldOptions<
    * useField/useValidate.
    */
   validateDebounce?: number;
+  /**
+   * Run this field's debounced validator even when its `required` gate
+   * failed (TanStack Form's `asyncAlways`): the gate's errors land
+   * immediately, the validator's own result lands alongside them
+   * per-source. Falls back to the form-level `createForm({asyncAlways})`.
+   * Passed through to useField.
+   */
+  asyncAlways?: boolean;
   /**
    * Validate this field once on mount (see {@link
    * UseFieldOptions}' `validateOnMount`): overrides the form-level
@@ -88,9 +104,10 @@ type UseFieldOptions<
    * Uncontrolled mode: render the element with `defaultValue` instead of
    * `value` — typing re-renders nothing (the store still carries every
    * write; errors/touched/disabled still re-render the field). The
-   * snapshot is pinned at mount; reset does not clear the DOM element
-   * (read live values with useValue/getValues). Passed through to
-   * useField, never spread onto the DOM element.
+   * snapshot is pinned at mount; bulk operations (reset/setInitialValues)
+   * sync the DOM element directly without a render — RHF-register
+   * behavior (read live values with useValue/getValues). Passed through
+   * to useField, never spread onto the DOM element.
    */
   uncontrolled?: boolean;
   [key: string]: any;
@@ -223,6 +240,7 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
       validateOnMount,
       valueAsNumber,
       valueAsDate,
+      asyncAlways,
       disabled,
       delayError,
       mode,
@@ -255,6 +273,7 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
       validateOnMount,
       delayError,
       disabled,
+      asyncAlways,
       mode,
       // File inputs cannot be value-controlled at all — force the
       // uncontrolled path so no `value` prop ever reaches the element.
@@ -332,10 +351,21 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
 
     // fieldKey is the field's path key (set by useField), e.g. '["a","0"]'.
     const errorId = errorIdFromKey(fieldKey);
+    // Declarative rules → native constraint attributes for browser/AT
+    // hints (:invalid styling, screen-reader announcements). Spread
+    // before `props` so a user-passed required/minLength/pattern always
+    // wins over the derived one. The store pipeline keeps owning
+    // messages: rules run ahead of the wrapper below, so their errors
+    // land in the form state (renderError/aria-invalid) even when the
+    // native checkValidity gate now also sees the derived attrs and
+    // skips the user's `validate` for that kick (RHF first-error
+    // semantics).
+    const constraintAttrs = rules ? rulesToConstraintAttrs(rules) : undefined;
 
     return (
       <>
         <Component
+          {...constraintAttrs}
           {...props}
           name={fieldKey}
           onBlur={onBlur}
@@ -387,6 +417,7 @@ export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
       rules,
       validateDebounce,
       validateOnMount,
+      asyncAlways,
       disabled,
       delayError,
       mode,
@@ -410,14 +441,17 @@ export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
       rules,
       validateDebounce,
       validateOnMount,
+      asyncAlways,
       delayError,
       disabled,
       mode
     });
     // Same error-id convention as Field: the checkbox describes the
     // fieldErrorId(name) element whenever it has an error.
+    const constraintAttrs = rules ? rulesToConstraintAttrs(rules) : undefined;
     return (
       <input
+        {...constraintAttrs}
         {...props}
         name={fieldKey}
         onBlur={onBlur}
@@ -486,6 +520,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
       rules,
       validateDebounce,
       validateOnMount,
+      asyncAlways,
       disabled,
       delayError,
       mode,
@@ -509,14 +544,17 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
       rules,
       validateDebounce,
       validateOnMount,
+      asyncAlways,
       delayError,
       disabled,
       mode
     });
     // Same error-id convention as Field: the select describes the
     // fieldErrorId(name) element whenever it has an error.
+    const constraintAttrs = rules ? rulesToConstraintAttrs(rules) : undefined;
     return (
       <select
+        {...constraintAttrs}
         {...props}
         name={fieldKey}
         onBlur={onBlur}

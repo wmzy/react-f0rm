@@ -416,3 +416,42 @@ describe('Form action', () => {
     await vi.waitFor(() => expect(action).toHaveBeenCalledTimes(1));
   });
 });
+
+describe('Form disabled', () => {
+  it('disables every bound field', () => {
+    render(
+      <Form initialValues={{a: 'x', b: 'y'}} disabled>
+        <Field name="a" />
+        <Field name="b" />
+      </Form>
+    );
+    const [a, b] = screen.getAllByRole('textbox');
+    expect(a.disabled).toBe(true);
+    expect(b.disabled).toBe(true);
+  });
+
+  it('a changing prop flips the flag live', () => {
+    const form = createForm({initialValues: {a: 'x'}});
+    const {rerender} = render(
+      <Form form={form} disabled>
+        <Field name="a" />
+      </Form>
+    );
+    expect(screen.getByRole('textbox').disabled).toBe(true);
+    rerender(
+      <Form form={form} disabled={false}>
+        <Field name="a" />
+      </Form>
+    );
+    expect(screen.getByRole('textbox').disabled).toBe(false);
+  });
+
+  it('a field cannot opt out of a disabled form', () => {
+    render(
+      <Form initialValues={{a: 'x'}} disabled>
+        <Field name="a" disabled={false} />
+      </Form>
+    );
+    expect(screen.getByRole('textbox').disabled).toBe(true);
+  });
+});

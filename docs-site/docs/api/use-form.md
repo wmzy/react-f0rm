@@ -158,7 +158,7 @@ Rides the same `'focusError'` event channel a failed `handleSubmit` uses to focu
 
 ## Related Hooks
 
-- `useValue(form, name)` — reactive field value
+- `useValue(form, name, options?)` — reactive field value. Options: `defaultValue` (returned while the field reads `undefined` — an untouched, never-seeded field; RHF `useWatch`'s `defaultValue`), `exact: false` (watch descendants too — a write to `a.b` invalidates a `useValue(form, 'a')` read, which then resolves the merged subtree; the default leaf scope only wakes on the exact key and its ancestors)
 - `useError(form, name)` — reactive error **message** string
 - `useFieldErrors(form, name)` — reactive `FieldError[]` of every error on the field (insertion order; reference-stable when clean)
 - `useTouched(form, name)` — reactive touched state

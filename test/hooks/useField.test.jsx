@@ -17,6 +17,7 @@ import createForm, {
   changeValue,
   setInitialValues,
   getError,
+  getFieldErrors,
   setError,
   trigger,
   ensureValidate,
@@ -1616,5 +1617,59 @@ describe('useField', () => {
         vi.useRealTimers();
       }
     });
+  });
+});
+
+describe('useField asyncAlways', () => {
+  it('field-level flag runs the validator despite a failing required gate', async () => {
+    const form = createForm({initialValues: {name: ''}, mode: 'onChange'});
+    const validate = vi.fn(() => 'backend says no');
+    const {result} = renderHook(() =>
+      useField({
+        form,
+        name: 'name',
+        rules: {required: true},
+        validate,
+        asyncAlways: true
+      })
+    );
+    act(() => result.current.onChange(''));
+    expect(getError(form, 'name')).toEqual({
+      type: 'required',
+      message: 'This field is required'
+    });
+    expect(validate).toHaveBeenCalled();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(getFieldErrors(form, 'name')).toEqual([
+      {type: 'required', message: 'This field is required'},
+      {type: 'custom', message: 'backend says no'}
+    ]);
+  });
+
+  it('form-level createForm({asyncAlways}) is the default; field opts out', () => {
+    const form = createForm({
+      initialValues: {name: ''},
+      mode: 'onChange',
+      asyncAlways: true
+    });
+    const validate = vi.fn(() => 'backend says no');
+    const {result} = renderHook(() =>
+      useField({form, name: 'name', rules: {required: true}, validate})
+    );
+    act(() => result.current.onChange(''));
+    expect(validate).toHaveBeenCalledTimes(1);
+
+    const validate2 = vi.fn(() => 'backend says no');
+    const {result: r2} = renderHook(() =>
+      useField({
+        form,
+        name: 'email',
+        rules: {required: true},
+        validate: validate2,
+        asyncAlways: false
+      })
+    );
+    act(() => r2.current.onChange(''));
+    expect(validate2).not.toHaveBeenCalled();
   });
 });

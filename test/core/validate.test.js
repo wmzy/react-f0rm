@@ -23,6 +23,7 @@ import createForm, {
   trigger,
   setServerErrors,
   revalidateFormOnChange,
+  registerValidatorByPath,
   VALIDATION_OUTCOME
 } from '../../src/form';
 import createPath from '../../src/path';
@@ -1217,5 +1218,104 @@ describe('trigger shouldFocus', () => {
 
     expect(focusSpy).toHaveBeenCalledTimes(1);
     expect(focusSpy).toHaveBeenCalledWith('["a"]');
+  });
+});
+
+describe('registerValidatorByPath asyncAlways', () => {
+  const register = (form, {validate, debounce = 0, asyncAlways = true}) => {
+    const path = createPath('name');
+    const dispose = registerValidatorByPath(form, path, {
+      validate: () => validate,
+      debounce: () => debounce,
+      sync: () => v => (v === '' ? 'required' : undefined),
+      asyncAlways: () => asyncAlways
+    });
+    return {kick: () => form.validators.get(path.key)(), dispose};
+  };
+  const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+
+  it('gate failure still short-circuits the validator by default', () => {
+    const form = createForm({initialValues: {name: 'x'}});
+    const validate = vi.fn(() => 'validator error');
+    const {kick, dispose} = register(form, {validate, asyncAlways: false});
+    setValue(form, 'name', '');
+    kick();
+    expect(validate).not.toHaveBeenCalled();
+    expect(getFieldErrors(form, 'name')).toEqual([
+      {type: 'custom', message: 'required'}
+    ]);
+    dispose();
+  });
+
+  it('runs the validator and merges both sources (sync validator)', () => {
+    const form = createForm({initialValues: {name: 'x'}});
+    const validate = vi.fn(() => 'backend says no');
+    const {kick, dispose} = register(form, {validate});
+    setValue(form, 'name', '');
+    kick();
+    expect(validate).toHaveBeenCalled();
+    expect(getFieldErrors(form, 'name')).toEqual([
+      {type: 'custom', message: 'required'},
+      {type: 'custom', message: 'backend says no'}
+    ]);
+    dispose();
+  });
+
+  it('a passing async round clears only its own errors, keeping the gate', async () => {
+    const form = createForm({initialValues: {name: 'x'}});
+    const {kick, dispose} = register(form, {
+      validate: () => Promise.resolve(undefined)
+    });
+    setValue(form, 'name', '');
+    kick();
+    await flush();
+    expect(getFieldErrors(form, 'name')).toEqual([
+      {type: 'custom', message: 'required'}
+    ]);
+    dispose();
+  });
+
+  it('an async error lands alongside the gate verdict', async () => {
+    const form = createForm({initialValues: {name: 'x'}});
+    const {kick, dispose} = register(form, {
+      validate: () => Promise.resolve('server error')
+    });
+    setValue(form, 'name', '');
+    kick();
+    await flush();
+    expect(getFieldErrors(form, 'name')).toEqual([
+      {type: 'custom', message: 'required'},
+      {type: 'custom', message: 'server error'}
+    ]);
+    dispose();
+  });
+
+  it('with a passing gate the validator owns the whole key as usual', () => {
+    const form = createForm({initialValues: {name: 'ok'}});
+    const validate = vi.fn(() => 'validator error');
+    const {kick, dispose} = register(form, {validate});
+    kick();
+    expect(validate).toHaveBeenCalled();
+    expect(getFieldErrors(form, 'name')).toEqual([
+      {type: 'custom', message: 'validator error'}
+    ]);
+    dispose();
+  });
+
+  it('survives the debounce-window re-gate', () => {
+    vi.useFakeTimers();
+    try {
+      const form = createForm({initialValues: {name: 'x'}});
+      const validate = vi.fn(() => 'validator error');
+      const {kick, dispose} = register(form, {validate, debounce: 50});
+      setValue(form, 'name', '');
+      kick();
+      expect(validate).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(50);
+      expect(validate).toHaveBeenCalled();
+      dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

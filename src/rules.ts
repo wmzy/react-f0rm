@@ -34,6 +34,17 @@ export type FieldRules = {
   /** Fails when the value does not match `pattern.value`. */
   pattern?: {value: RegExp; message: string};
   /**
+   * Custom rule callbacks — react-hook-form's `register({validate})`
+   * shape: one function, or a record of named functions. Each runs after
+   * the declarative checks, and only when they passed (`required` failing
+   * short-circuits the rest, RHF's first-error semantics). A returned
+   * error keeps its message; its `type` becomes the record key
+   * (`'validate'` for the single-function form) so consumers can switch
+   * on `error.type`. Sync-only — async checks belong in the field's
+   * `validate` option.
+   */
+  validate?: SyncValidator | Record<string, SyncValidator>;
+  /**
    * Overrides the message per rule type — `min`, `max`, `minLength`,
    * `maxLength` defaults and pattern's inline `message` alike — e.g. for
    * centralizing or localizing messages.
@@ -74,7 +85,7 @@ function defaultMessage(type: RuleType, bound?: number): string {
  * @return synchronous validator producing FieldError[] | undefined
  */
 export function rulesToValidator(rules: FieldRules): SyncValidator {
-  return value => {
+  return (value, meta) => {
     if (rules.required) {
       if (
         value === '' ||
@@ -139,6 +150,50 @@ export function rulesToValidator(rules: FieldRules): SyncValidator {
           defaultMessage('pattern')
       });
     }
+    if (rules.validate !== undefined) {
+      const fns =
+        typeof rules.validate === 'function'
+          ? {validate: rules.validate}
+          : rules.validate;
+      for (const [type, fn] of Object.entries(fns)) {
+        const result = fn(value, meta);
+        if (result === undefined) continue;
+        // Each custom rule owns its `type`: the record key (or
+        // 'validate' for the single-function form), so consumers can
+        // switch on error.type like with every declarative rule.
+        for (const entry of Array.isArray(result) ? result : [result]) {
+          errors.push(
+            typeof entry === 'string'
+              ? {type, message: entry}
+              : {...entry, type}
+          );
+        }
+      }
+    }
     return errors.length ? errors : undefined;
   };
+}
+
+/**
+ * Map declarative {@link FieldRules} onto native HTML constraint
+ * attributes — the subset the platform exposes: `required`, `min`,
+ * `max`, `minLength`, `maxLength`, `pattern`. Rendered onto a bound
+ * control they give browsers and assistive tech the native hints
+ * (`:invalid`/`:user-invalid` styling, screen-reader announcements,
+ * mobile input modes) while the store-based pipeline stays the source of
+ * truth for messages: `rulesToValidator` still lands errors in the form
+ * state and `renderError`/`aria-invalid` keep working. `validate`
+ * callbacks have no native counterpart and are skipped. Native `min`/
+ * `max` only constrain numeric/date inputs; the store checks apply
+ * regardless of input type — render hints, not the validation gate.
+ */
+export function rulesToConstraintAttrs(rules: FieldRules): Record<string, any> {
+  const attrs: Record<string, any> = {};
+  if (rules.required) attrs.required = true;
+  if (rules.min !== undefined) attrs.min = rules.min;
+  if (rules.max !== undefined) attrs.max = rules.max;
+  if (rules.minLength !== undefined) attrs.minLength = rules.minLength;
+  if (rules.maxLength !== undefined) attrs.maxLength = rules.maxLength;
+  if (rules.pattern) attrs.pattern = rules.pattern.value.source;
+  return attrs;
 }

@@ -16,7 +16,10 @@ import createForm, {
   setError,
   setFocus,
   setDisabled,
-  handleSubmit
+  handleSubmit,
+  reset,
+  setInitialValues,
+  trigger
 } from '../../src/form';
 
 describe('Field', () => {
@@ -775,5 +778,146 @@ describe('Field valueAsNumber / valueAsDate', () => {
     );
     const input = screen.getByDisplayValue('0');
     expect(input.hasAttribute('valueAsNumber')).toBe(false);
+  });
+});
+
+describe('Field native constraint attributes', () => {
+  it('renders rules-derived native attributes', () => {
+    render(
+      <Form initialValues={{code: ''}}>
+        <Field
+          name="code"
+          rules={{
+            required: true,
+            min: 2,
+            max: 9,
+            minLength: 3,
+            maxLength: 8,
+            pattern: {value: /^\d+$/, message: 'digits only'}
+          }}
+        />
+      </Form>
+    );
+    const input = screen.getByRole('textbox');
+    expect(input.required).toBe(true);
+    expect(input.getAttribute('min')).toBe('2');
+    expect(input.getAttribute('max')).toBe('9');
+    expect(input.getAttribute('minLength')).toBe('3');
+    expect(input.getAttribute('maxlength')).toBe('8');
+    expect(input.getAttribute('pattern')).toBe('^\\d+$');
+  });
+
+  it('a user-passed attribute wins over the derived one', () => {
+    render(
+      <Form initialValues={{code: ''}}>
+        <Field name="code" required={false} rules={{required: true}} />
+      </Form>
+    );
+    const input = screen.getByRole('textbox');
+    expect(input.hasAttribute('required')).toBe(false);
+  });
+
+  it('rule errors still land in the store and renderError', async () => {
+    const form = createForm({initialValues: {code: ''}});
+    render(
+      <Form form={form}>
+        <Field
+          name="code"
+          rules={{minLength: 3}}
+          renderError={error => error}
+        />
+      </Form>
+    );
+    await act(() => trigger(form));
+    expect(getErrors(form)).toEqual([
+      {
+        path: 'code',
+        type: 'minLength',
+        message: 'Must be at least 3 characters'
+      }
+    ]);
+    expect(screen.getByRole('alert').textContent).toBe(
+      'Must be at least 3 characters'
+    );
+  });
+
+  it('rules.validate errors land typed by their key', async () => {
+    const form = createForm({initialValues: {name: 'wmzy'}});
+    render(
+      <Form form={form}>
+        <Field
+          name="name"
+          rules={{
+            validate: {notWmzy: v => (v === 'wmzy' ? 'no wmzy' : undefined)}
+          }}
+        />
+      </Form>
+    );
+    await act(() => trigger(form));
+    expect(getErrors(form)).toEqual([
+      {path: 'name', type: 'notWmzy', message: 'no wmzy'}
+    ]);
+  });
+});
+
+describe('Field uncontrolled DOM sync', () => {
+  it('reset writes the baseline back into the DOM without a render', () => {
+    const form = createForm({initialValues: {name: 'initial'}});
+    render(
+      <Form form={form}>
+        <Field name="name" uncontrolled data-testid="name-input" />
+      </Form>
+    );
+    const input = screen.getByTestId('name-input');
+    expect(input.value).toBe('initial');
+    fireEvent.change(input, {target: {value: 'typed'}});
+    expect(input.value).toBe('typed');
+    act(() => reset(form));
+    expect(input.value).toBe('initial');
+  });
+
+  it('setInitialValues syncs the DOM', () => {
+    const form = createForm({initialValues: {name: 'initial'}});
+    render(
+      <Form form={form}>
+        <Field name="name" uncontrolled data-testid="name-input" />
+      </Form>
+    );
+    const input = screen.getByTestId('name-input');
+    fireEvent.change(input, {target: {value: 'typed'}});
+    act(() => setInitialValues(form, {name: 'fresh'}));
+    expect(input.value).toBe('fresh');
+  });
+
+  it('reset clears a removed value to an empty string', () => {
+    const form = createForm({initialValues: {}});
+    render(
+      <Form form={form}>
+        <Field name="name" uncontrolled initialValue="seeded" />
+      </Form>
+    );
+    const input = screen.getByRole('textbox');
+    expect(input.value).toBe('seeded');
+    act(() => reset(form));
+    expect(input.value).toBe('');
+  });
+
+  it('keeps typing render-free (uncontrolled contract intact)', async () => {
+    const user = userEvent.setup();
+    let renders = 0;
+    function Probe() {
+      renders += 1;
+      return <Field name="name" uncontrolled data-testid="name-input" />;
+    }
+    render(
+      <Form initialValues={{name: ''}}>
+        <Probe />
+      </Form>
+    );
+    const input = screen.getByTestId('name-input');
+    const before = renders;
+    await user.type(input, 'hello world');
+    expect(renders).toBe(before);
+    expect(input.value).toBe('hello world');
   });
 });

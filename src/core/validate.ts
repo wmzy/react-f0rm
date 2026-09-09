@@ -91,6 +91,14 @@ export type ValidatorRegistration = {
   debounce: () => number;
   /** Synchronous pre-validator, run on every kick (never debounced). */
   sync: () => SyncValidator | undefined;
+  /** Whether the debounced validator still runs when the sync gate
+   * failed — TanStack Form's `asyncAlways`: the gate's errors land
+   * immediately (never debounced), then the validator's own result lands
+   * alongside them (per-source semantics) instead of the gate
+   * short-circuiting the whole kick. Optional — absent means false
+   * (gate failure owns the kick's outcome), so pre-existing
+   * framework-free registrations keep working unchanged. */
+  asyncAlways?: () => boolean;
 };
 
 /**
@@ -105,7 +113,9 @@ export type ValidatorRegistration = {
  * user-change gate relies on when it runs the changed path's entry):
  * - the `sync` gate runs immediately on every kick — never debounced —
  *   and while it returns errors, the debounced validator is skipped for
- *   that kick and any pending window or in-flight round is superseded;
+ *   that kick and any pending window or in-flight round is superseded —
+ *   unless `asyncAlways` is set, in which case the validator still runs
+ *   and its result lands alongside the gate's errors (per-source);
  * - a positive `debounce` merges kicks inside the window: only the last
  *   one runs the validator, and while the timer is pending the field
  *   counts as validating so `trigger`/`ensureValidate` wait it out;
@@ -190,6 +200,39 @@ export function registerValidatorByPath(
     return true;
   };
 
+  /** Re-run the sync gate purely for its error list — no store write.
+   * asyncAlways landings merge it with the validator's result so each
+   * source keeps its own errors on display (TanStack's per-source
+   * errorMap shape); the non-asyncAlways path never calls this. */
+  const collectSyncErrors = (): (string | FieldError)[] | null => {
+    const sync = registration.sync();
+    if (!sync) return null;
+    const errors = sync(getValueByPath(form, path), {form, path});
+    if (errors === undefined) return null;
+    const list = Array.isArray(errors) ? errors : [errors];
+    return list.length ? list : null;
+  };
+
+  /** Land a validator result. asyncAlways merges the gate's current
+   * verdict (re-collected — the value may have drifted since the round
+   * started) ahead of the validator's errors, so a still-failing gate
+   * keeps its own errors on screen; the default path stays the
+   * historical "validator owns the whole key" write. */
+  const land = (
+    result: string | FieldError | (string | FieldError)[] | undefined
+  ): void => {
+    if (registration.asyncAlways?.()) {
+      const gate = collectSyncErrors();
+      const own =
+        result === undefined ? [] : Array.isArray(result) ? result : [result];
+      setErrorByPath(form, path, [...(gate ?? []), ...own]);
+      errorSource = hasErrors(result) ? 'validator' : gate ? 'sync' : null;
+    } else {
+      setErrorByPath(form, path, result);
+      errorSource = hasErrors(result) ? 'validator' : null;
+    }
+  };
+
   /** Drop any pending window or in-flight round without landing it: the
    * sync gate now owns the outcome, so the debounced validator must not
    * run for this value. */
@@ -230,8 +273,7 @@ export function registerValidatorByPath(
       throw e;
     }
     if (!isPromise(result)) {
-      setErrorByPath(form, path, result);
-      errorSource = hasErrors(result) ? 'validator' : null;
+      land(result);
       // Error first, then release the mark: 'validating' subscribers
       // (trigger) re-read state on wake and must see the landed error.
       unmark();
@@ -242,8 +284,7 @@ export function registerValidatorByPath(
       .then(
         (error: string | FieldError | (string | FieldError)[] | undefined) => {
           if (lock === round) {
-            setErrorByPath(form, path, error);
-            errorSource = hasErrors(error) ? 'validator' : null;
+            land(error);
           }
         }
       )
@@ -262,10 +303,11 @@ export function registerValidatorByPath(
   /** A debounce window fired: the value may have drifted since the last
    * kick (programmatic writes do not kick validators), so re-run the
    * sync gate before spending the debounced validator on a value the
-   * gate already rejects. */
+   * gate already rejects. Under asyncAlways a failing gate does not own
+   * the outcome — the validator still runs and both verdicts land. */
   const run = () => {
     timer = null;
-    if (runSync()) {
+    if (runSync() && !registration.asyncAlways?.()) {
       supersede();
       unmark();
       return;
@@ -274,7 +316,7 @@ export function registerValidatorByPath(
   };
 
   const kick = () => {
-    if (runSync()) {
+    if (runSync() && !registration.asyncAlways?.()) {
       supersede();
       unmark();
       return;

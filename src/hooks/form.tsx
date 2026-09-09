@@ -8,12 +8,13 @@ import {
 import {on} from '../emitter';
 import type {EventEmitter} from '../emitter';
 import {onKeyEvent, onPathEvent} from '../subscribe';
-import type {SubscribeEvent} from '../subscribe';
+import type {SubscribeEvent, WatchScope} from '../subscribe';
 import createForm, {
   FORM_ERROR,
   getErrorByPath,
   getFieldErrorsByPath,
   getValueByPath,
+  getValues,
   hasTouchedByPath,
   hasErrors,
   isDirty,
@@ -27,7 +28,7 @@ import type {FieldError, Form, FormEvents, Options} from '../form';
 import type {FieldPath, PathValueOf} from '../types';
 import createPath from '../path';
 import type {PathSegments, Path} from '../path';
-import {isEqual, isPromise} from '../util';
+import {get, isEqual, isPromise} from '../util';
 
 /**
  * Create a form instance bound to this component.
@@ -276,34 +277,67 @@ export function useWatch<T>(
   return useWatchCore(subscribeFactory, getter, isEqual);
 }
 
+/** Options for {@link useValue} and {@link useValueByPath}. */
+export type UseValueOptions<
+  T extends Record<string, any> = any,
+  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
+> = {
+  /** Value to return while the field reads undefined — react-hook-form's
+   * `useWatch` `defaultValue`: an untouched, never-seeded field reads
+   * this instead of `undefined`. */
+  defaultValue?: PathValueOf<T, P>;
+  /** Watch descendants too (react-hook-form's `exact: false`): a write
+   * to `a.b` invalidates a `useValue(form, 'a')` read, and the read
+   * resolves the merged subtree (the copy-on-write `getValues` tree) so
+   * descendant edits show up in the result. Defaults to true — the leaf
+   * scope, where only the exact key and its ancestors invalidate (the
+   * long-standing behavior). */
+  exact?: boolean;
+};
+
 /**
  * Get field value state
  */
 export function useValue<
   T extends Record<string, any> = any,
   P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
->(form: Form<T>, name: P): PathValueOf<T, P> {
-  return useValueByPath(form, createPath(name));
+>(form: Form<T>, name: P, options?: UseValueOptions<T, P>): PathValueOf<T, P> {
+  return useValueByPath(form, createPath(name), options);
 }
 
 /**
  * Get field value state by path
  */
-export function useValueByPath(form: Form, path: Path): any {
+export function useValueByPath(
+  form: Form,
+  path: Path,
+  options?: {defaultValue?: any; exact?: boolean}
+): any {
   const {emitter} = form;
   const {key} = path;
+  const scope: WatchScope = options?.exact === false ? 'branch' : 'leaf';
   // 'leaf' scope: a leaf read depends only on its own key and its
   // ancestors' (getValueByPath fallback chain), so writes elsewhere --
   // siblings, descendants, string-prefix lookalikes ('["a","bX"]') -- never
-  // invalidate the snapshot. Payload-less broadcasts (reset,
-  // setInitialValues) still sync everything; removeField matches by path.
+  // invalidate the snapshot. 'branch' (exact: false) additionally wakes on
+  // descendant writes and resolves the merged subtree through `getValues`
+  // (getValueByPath only walks live ancestors, so a descendant edit would
+  // otherwise read back a stale reference). Payload-less broadcasts
+  // (reset, setInitialValues) still sync everything; removeField matches
+  // by path.
   const subscribeFactory = useCallback(
     (invalidate: () => void) =>
-      onPathEvent(emitter, 'change', path, 'leaf', invalidate),
+      onPathEvent(emitter, 'change', path, scope, invalidate),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are `key` on purpose: useValue creates a fresh Path per render, so the object must stay out of the deps while the key string pins the subscription
-    [emitter, key]
+    [emitter, key, scope]
   );
-  return useWatchCore(subscribeFactory, getValueByPath.bind(null, form, path));
+  return useWatchCore(subscribeFactory, () => {
+    if (options?.exact === false) {
+      return get(getValues(form), path.value);
+    }
+    const value = getValueByPath(form, path);
+    return value === undefined ? options?.defaultValue : value;
+  });
 }
 
 /**

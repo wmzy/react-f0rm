@@ -34,6 +34,18 @@ import {isPromise} from '../util';
  * defined for the test environment in vitest.config.ts. */
 declare const __DEV__: boolean;
 
+/** Module-private registry driving uncontrolled fields' DOM sync — one
+ * 'change' listener per form (see the sync effect in {@link
+ * useFieldCore}), the same module-scope registry pattern
+ * `arrayIdsRegistry` uses in fieldArray.ts. Per-form cells map a field's
+ * path key to a reader of its bound element and path; the shared listener
+ * iterates them only on payload-less (bulk) emits. */
+type UncontrolledSyncEntry = {
+  cells: Map<string, () => {el: any; path: Path}>;
+  off: () => void;
+};
+const uncontrolledSyncRegistry = new WeakMap<Form, UncontrolledSyncEntry>();
+
 export type UseFieldOptions<
   TValues extends Record<string, any> = any,
   TPath extends FieldPath<TValues> | PathSegments =
@@ -79,6 +91,18 @@ export type UseFieldOptions<
    */
   validateDebounce?: number;
   /**
+   * Run this field's debounced validator even when its `required` gate
+   * failed — TanStack Form's `asyncAlways`. The gate's errors land
+   * immediately (never debounced) and the validator's own result lands
+   * alongside them, per-source: a passing async round clears only its
+   * own errors while the gate's verdict stays. Falls back to the
+   * form-level `createForm({asyncAlways})` flag when omitted, so a field
+   * opts out with `asyncAlways: false`. The use case: the cheap format
+   * check fails (gate) but the expensive backend check should still run
+   * ("not in the right shape — and the backend says taken, too").
+   */
+  asyncAlways?: boolean;
+  /**
    * Milliseconds to delay showing a newly appearing error in the render
    * layer (`error`/`errorObject`/`errors` stay undefined/empty until the
    * window passes). The form's error state is never delayed — trigger,
@@ -99,10 +123,14 @@ export type UseFieldOptions<
    * (getValues/submit/validation read it), and errors/touched/disabled/
    * validating still re-render the field like react-hook-form's
    * `register`. The result's `value` is the mount-time snapshot (initial
-   * value seed or baseline); reset/setInitialValues do not push into it
-   * or into the DOM — read live values with useValue/getValues instead.
-   * Attach the result with `<input defaultValue={field.value}>`-style
-   * binding (no `value` prop), exactly like <Field uncontrolled /> does.
+   * value seed or baseline); it never refreshes, and bulk operations
+   * (reset/setInitialValues) sync the DOM element directly through the
+   * `focusRef`-held element instead of a render — the register-style
+   * contract, RHF's reset clears the input the same way. Attach the
+   * result with `<input defaultValue={field.value} ref={field.focusRef}>`
+   * -style binding (no `value` prop), exactly like <Field uncontrolled />
+   * does. The DOM sync writes the raw stored value (file inputs are
+   * skipped); read live values with useValue/getValues.
    */
   uncontrolled?: boolean;
   /**
@@ -209,7 +237,9 @@ export type UseFieldResult<
 /** Does `rules` declare any constraint? `messages` alone does not
  * validate anything, and a constraint-free object would otherwise compile
  * into a validator that always passes — which would still open debounce
- * windows and hold the validating mark for nothing. */
+ * windows and hold the validating mark for nothing. `validate` callbacks
+ * count: they are the only constraint a validate-only rules object
+ * carries. */
 function hasRuleConstraints(rules: FieldRules): boolean {
   return (
     rules.required !== undefined ||
@@ -217,7 +247,8 @@ function hasRuleConstraints(rules: FieldRules): boolean {
     rules.max !== undefined ||
     rules.minLength !== undefined ||
     rules.maxLength !== undefined ||
-    rules.pattern !== undefined
+    rules.pattern !== undefined ||
+    rules.validate !== undefined
   );
 }
 
@@ -350,6 +381,7 @@ export function useFieldCore<
     delayError,
     disabled,
     uncontrolled,
+    asyncAlways,
     mode: modeOption
   }: UseFieldOptions<TValues, TPath>,
   Context: Context<Form<any> | null>
@@ -407,6 +439,7 @@ export function useFieldCore<
   useValidate(combineRulesAndValidate(restRules, validate), path, form, {
     debounce: validateDebounce,
     validateOnMount,
+    asyncAlways: asyncAlways ?? form.asyncAlways,
     sync:
       rules && rules.required !== undefined
         ? rulesToValidator({required: rules.required})
@@ -527,6 +560,49 @@ export function useFieldCore<
       ),
     [form, path.key]
   );
+
+  // Uncontrolled DOM sync: a payload-less 'change' means a bulk operation
+  // (reset, setInitialValues) rewrote values without a React render, and
+  // an uncontrolled field deliberately never subscribes to its own value
+  // — so its DOM element would keep stale text. Write the store's value
+  // straight into the element held by the focus channel (register-style:
+  // no re-render — exactly how RHF's reset clears uncontrolled inputs).
+  //
+  // One listener per form, not per field: a per-field subscription would
+  // add O(mounted fields) handler calls to every keystroke — breaking the
+  // O(affected-fields) change contract the uncontrolled parity bench
+  // measures. The shared listener returns on the first check for
+  // payload-carrying emits (typing, setValue), so bulk operations pay one
+  // iteration over the registered cells and keystrokes pay one branch.
+  useEffect(() => {
+    if (!uncontrolled) return;
+    let entry = uncontrolledSyncRegistry.get(form);
+    if (!entry) {
+      const cells = new Map<string, () => {el: any; path: Path}>();
+      const off = on(form.emitter, 'change', (changed?: Path) => {
+        if (changed) return;
+        for (const read of cells.values()) {
+          const {el, path} = read();
+          // File inputs cannot be assigned a value at all.
+          if (!el || el.type === 'file') continue;
+          const next = getValueByPath(form, path);
+          const asString = next == null ? '' : String(next);
+          if (el.value !== asString) el.value = asString;
+        }
+      });
+      entry = {cells, off};
+      uncontrolledSyncRegistry.set(form, entry);
+    }
+    entry.cells.set(path.key, () => ({el: elementRef.current, path}));
+    return () => {
+      entry!.cells.delete(path.key);
+      if (entry!.cells.size === 0) {
+        entry!.off();
+        uncontrolledSyncRegistry.delete(form);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are `path.key` on purpose: usePath returns a stable Path per key, and the closure's `path` changes identity only when the key does
+  }, [form, path.key, uncontrolled]);
 
   // Effective unmount behavior: the field's own option, falling back
   // to the form-level default, then to this library's historical

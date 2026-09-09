@@ -1,5 +1,5 @@
 import * as React from 'react';
-import {handleSubmit} from '../form';
+import {handleSubmit, setDisabled} from '../form';
 // 别名规避 rollup-plugin-dts 对「type import 与本地 default export 同名」
 // 的 Identifier already declared 误报（类型引用语义不变）。
 import type {Form as FormApi} from '../form';
@@ -56,6 +56,20 @@ type FormProps<T extends Record<string, any> = any> = Omit<
    */
   validateOnMount?: boolean;
   /**
+   * Disable every bound field: the form-level flag fields OR with their
+   * own `disabled` option (a field cannot opt out). Seeded at create and
+   * kept in sync while this prop changes (undefined leaves the current
+   * flag untouched — toggle at runtime with `setDisabled`).
+   */
+  disabled?: boolean;
+  /**
+   * Form-level default for field validation's `asyncAlways`: a field
+   * whose `required` gate failed still runs its debounced validator, its
+   * result landing per-source alongside the gate's errors. A field's own
+   * `asyncAlways` prop overrides this flag.
+   */
+  asyncAlways?: boolean;
+  /**
    * Controlled external values. When the `values` reference changes, the
    * new object is synced into the form (via setInitialValues semantics):
    * uncommitted user edits are discarded -- master-detail semantics, where
@@ -107,6 +121,8 @@ export default function Form<T extends Record<string, any> = any>({
   values,
   shouldUnregister,
   validateOnMount,
+  disabled,
+  asyncAlways,
   onSubmit,
   onValidSubmit,
   onInvalidSubmit,
@@ -118,9 +134,19 @@ export default function Form<T extends Record<string, any> = any>({
     initialValues,
     values,
     shouldUnregister,
-    validateOnMount
+    validateOnMount,
+    disabled,
+    asyncAlways
   });
   const form = f1 || f2;
+
+  // The form instance outlives prop changes (useForm creates it once), so
+  // a changing `disabled` prop re-applies through the runtime channel —
+  // the same `setDisabled` consumers toggle imperatively. undefined means
+  // "not controlled here": leave the flag as-is.
+  React.useEffect(() => {
+    if (disabled !== undefined) setDisabled(form, disabled);
+  }, [form, disabled]);
 
   const submit = handleSubmit(form, {
     onSubmit,

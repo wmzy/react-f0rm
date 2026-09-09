@@ -1256,3 +1256,39 @@ describe('useForm async initialValues', () => {
     expect(getValue(result.current, 'email')).toBe('a@b.c');
   });
 });
+
+describe('useValue options', () => {
+  it('returns defaultValue while the field reads undefined', () => {
+    const form = createForm({initialValues: {}});
+    const {result} = renderHook(() =>
+      useValue(form, 'name', {defaultValue: 'unnamed'})
+    );
+    expect(result.current).toBe('unnamed');
+  });
+
+  it('returns the live value once it exists', () => {
+    const form = createForm({initialValues: {}});
+    const {result} = renderHook(() =>
+      useValue(form, 'name', {defaultValue: 'unnamed'})
+    );
+    act(() => setValue(form, 'name', 'wmzy'));
+    expect(result.current).toBe('wmzy');
+  });
+
+  it('exact: false watches descendant writes', () => {
+    const form = createForm({initialValues: {user: {name: 'a'}}});
+    const {result} = renderHook(() => useValue(form, 'user', {exact: false}));
+    expect(result.current).toEqual({name: 'a'});
+    act(() => setValue(form, 'user.name', 'b'));
+    expect(result.current).toEqual({name: 'b'});
+  });
+
+  it('default exact keeps the leaf scope: descendants do not wake it', () => {
+    const form = createForm({initialValues: {user: {name: 'a'}}});
+    const {result} = renderHook(() => useValue(form, 'user'));
+    const first = result.current;
+    act(() => setValue(form, 'user.name', 'b'));
+    // The cached snapshot stays: the descendant write never invalidated it.
+    expect(result.current).toBe(first);
+  });
+});

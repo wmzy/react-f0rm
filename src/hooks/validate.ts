@@ -41,6 +41,15 @@ export type UseValidateOptions = {
    */
   sync?: SyncValidator;
   /**
+   * Run the debounced validator even when the `sync` gate failed —
+   * TanStack Form's `asyncAlways`. The gate's errors land immediately
+   * (never debounced) and the validator's own result lands alongside
+   * them, per-source: a passing async round clears only its own errors,
+   * the gate's verdict stays until the gate itself passes. Defaults to
+   * false (gate failure owns the kick's outcome).
+   */
+  asyncAlways?: boolean;
+  /**
    * Validate on mount: kick the registration once after it lands (Formik's
    * `validateOnMount` / TanStack Form's per-field flag). Falls back to the
    * form-level `createForm({validateOnMount})` when omitted, so a field
@@ -85,12 +94,15 @@ export default function useValidate(
   debounceRef.current = options?.debounce ?? 0;
   const syncRef = useRef(options?.sync);
   syncRef.current = options?.sync;
+  const asyncAlwaysRef = useRef(options?.asyncAlways ?? false);
+  asyncAlwaysRef.current = options?.asyncAlways ?? false;
 
   useEffect(() => {
     const dispose = registerValidatorByPath(form, path, {
       validate: () => validateRef.current,
       debounce: () => debounceRef.current,
-      sync: () => syncRef.current
+      sync: () => syncRef.current,
+      asyncAlways: () => asyncAlwaysRef.current
     });
     // Mount validation: kick the registration once after it lands. The
     // field's own option wins over the form-level flag in either

@@ -185,6 +185,11 @@ export type Form<T extends Record<string, any> = any> = {
    * the form-level `validate` once. A field's own `validateOnMount`
    * option overrides this flag in either direction. */
   validateOnMount: boolean;
+  /** Form-level default for {@link UseValidateOptions.asyncAlways}:
+   * whether a field's debounced validator still runs when its `required`
+   * gate failed. A field's own `asyncAlways` option overrides this flag
+   * in either direction. Seeded from {@link Options.asyncAlways}. */
+  asyncAlways: boolean;
   /**
    * User-owned metadata slot for non-field state — session flags, server
    * backfill that belongs to no field, step indices (Formik's `status`
@@ -269,6 +274,16 @@ export type Options<T extends Record<string, any> = any> = {
    * Defaults to `false`. */
   disabled?: boolean;
   /**
+   * Form-level default for field validation's `asyncAlways`: when true,
+   * a field whose `required` gate failed still runs its debounced
+   * validator (the gate's errors land immediately, the validator's own
+   * result lands alongside them per-source). TanStack Form's
+   * `asyncAlways` counterpart. A field's own
+   * `useField({asyncAlways})` option overrides the form-level flag in
+   * either direction. Defaults to `false`.
+   */
+  asyncAlways?: boolean;
+  /**
    * Validate on mount: `true` makes every mounted field with a validator
    * (declarative `rules` or a `validate` callback) run it once after
    * mount, instead of waiting for the first submit/change — errors show
@@ -312,6 +327,7 @@ export default function create<T extends Record<string, any> = any>(
     reValidateMode: options?.reValidateMode ?? 'onChange',
     disabled: options?.disabled ?? false,
     validateOnMount: options?.validateOnMount ?? false,
+    asyncAlways: options?.asyncAlways ?? false,
     validateDeps: options?.validateDeps
       ? new Set(options.validateDeps.map(dep => createPath(dep).key))
       : undefined,

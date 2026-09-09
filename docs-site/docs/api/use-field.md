@@ -28,11 +28,13 @@ function CustomInput({ name }) {
 | `form` | `Form` | Explicit form instance — wins over the context and makes the hook work outside a `<Form>` provider |
 | `initialValue` | `any` | Override initial value |
 | `validate` | `(value, meta) => string \| FieldError \| (string\|FieldError)[] \| undefined \| Promise<…>` | Validator (strings are normalized to `{type: 'custom', message}`); `meta` is `{form, path, signal}` — `meta.signal` aborts as soon as the round is superseded |
-| `rules` | `FieldRules` | Declarative constraints (`required` / `min` / `max` / `minLength` / `maxLength` / `pattern`) compiled into a validator that runs before `validate` — see [Rules](#rules) |
+| `rules` | `FieldRules` | Declarative constraints (`required` / `min` / `max` / `minLength` / `maxLength` / `pattern` / `validate`) compiled into a validator that runs before `validate` — see [Rules](#rules) |
 | `validateDebounce` | `number` | Milliseconds to debounce this field's validation kicks (default `0` — validate immediately); while the timer is pending the field counts as validating, so `trigger`/submit wait out the window. Only the last kick inside the window runs |
+| `asyncAlways` | `boolean` | Run this field's debounced validator even when its `required` gate failed — the gate's errors land immediately, the validator's own result lands alongside them per-source. Falls back to the form-level `createForm({asyncAlways})` flag; `false` opts a field out of an asyncAlways form — see [asyncAlways](../guides/validation.md#asyncalways) |
 | `validateOnMount` | `boolean` | Validate this field once on mount instead of waiting for the first submit/change — overrides the form-level `createForm({validateOnMount})` flag in either direction. Deferred behind an async `initialValues` source; validator-less fields never kick (a pre-mounted server error survives) |
 | `delayError` | `number` | Milliseconds to hold a **newly appearing** error back from the render — render layer only, the form's error state stays immediate; only the none → some transition waits, an error cleared inside the window never shows — see [Delaying Error Display](../guides/validation.md#delaying-error-display) |
 | `disabled` | `boolean` | Disable this field — OR-ed with the form-level flag (`createForm({disabled})` / `setDisabled`) into the result's `disabled`; a field cannot opt out of a disabled form |
+| `uncontrolled` | `boolean` | Pin the value at mount and skip the value subscription — typing re-renders nothing (the store still carries every write; errors/touched/disabled/validating still re-render). Bind with `defaultValue` + `ref={focusRef}`; bulk operations (reset/setInitialValues) sync the DOM element directly, RHF-`register`-style |
 | `shouldUnregister` | `boolean` | Remove the field on unmount (default: `true`) |
 
 ## Rules
@@ -58,6 +60,9 @@ const {value, onChange, error} = useField({
 | `minLength` | `number` | a string value is shorter — non-strings skip | `` `Must be at least ${n} characters` `` |
 | `maxLength` | `number` | a string value is longer — non-strings skip | `` `Must be at most ${n} characters` `` |
 | `pattern` | `{value: RegExp, message: string}` | `pattern.value.test(value)` is false | the given `message` |
+| `validate` | `fn \| Record<string, fn>` | the callback returns an error (string or `FieldError`) | the returned message |
+
+`validate` is react-hook-form's `register({validate})` shape: one function, or a record of named functions. Each runs after the declarative checks — and only when they passed. A returned error keeps its message; its `type` becomes the record key (`'validate'` for the single-function form).
 
 The optional top-level `messages` record overrides messages per rule type (`min`, `max`, `minLength`, `maxLength`, `pattern`) — useful for centralizing or localizing them.
 
@@ -68,7 +73,7 @@ Semantics:
 - `rules` composes with `validate`: rules run first, then `validate` (awaited when async), merging both sources' errors with rules ahead.
 - Rules ride the exact same pipeline as `validate` — `mode`, `reValidateMode`, `validateDebounce` and `meta.signal` all apply unchanged.
 
-HTML attributes (`required`, `type='email'`, `min`, …) keep running through the browser's `checkValidity` bubble; `rules` is the state-side alternative — failures are queryable (`getErrors`, `error`, `errors`), renderable by any UI, and carry your own messages. Prefer `rules` whenever the error text must be controlled.
+HTML attributes (`required`, `type='email'`, `min`, …) keep running through the browser's `checkValidity` bubble; `rules` is the state-side alternative — failures are queryable (`getErrors`, `error`, `errors`), renderable by any UI, and carry your own messages. Prefer `rules` whenever the error text must be controlled. On bound components (`Field`/`Checkbox`/`Select`) the declarative subset also renders as native constraint attributes for a11y/`:invalid` styling — headless `useField` consumers attach them manually.
 
 ## Returns
 

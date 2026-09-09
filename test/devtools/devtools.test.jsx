@@ -298,12 +298,8 @@ describe('Devtools', () => {
     ).toHaveLength(1);
   });
 
-  it('no-ops outside a DOM environment', () => {
-    vi.stubGlobal('document', undefined);
-    try {
-      expect(() => injectDevtoolsStyles()).not.toThrow();
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
+  // The no-DOM branch (injectDevtoolsStyles' SSR guard) is covered in
+  // test/devtools/ssr.test.js — a real node environment, since jsdom
+  // exposes `document` as a non-configurable global and cannot be
+  // stubbed away.
 });

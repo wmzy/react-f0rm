@@ -39,6 +39,22 @@ For declarative constraints, pass `rules` to `Field` (or any bound component —
 | `minLength` | `number` | a string value is shorter — non-strings skip | `` `Must be at least ${n} characters` `` |
 | `maxLength` | `number` | a string value is longer — non-strings skip | `` `Must be at most ${n} characters` `` |
 | `pattern` | `{value: RegExp, message: string}` | `pattern.value.test(value)` is false | the given `message` |
+| `validate` | `fn \| Record<string, fn>` | the callback returns an error (string or `FieldError`) | the returned message |
+
+`validate` is react-hook-form's `register({validate})` shape: one function, or a record of named functions. Each runs after the declarative checks — and only when they passed (`required` failing short-circuits the rest). A returned error keeps its message; its `type` becomes the record key (`'validate'` for the single-function form), so consumers can switch on `error.type` like with every declarative rule:
+
+```tsx
+<Field
+  name='username'
+  rules={{
+    required: true,
+    validate: {
+      notReserved: v => (v === 'admin' ? 'That name is taken' : undefined),
+      noSpaces: v => (/\s/.test(v) ? 'No spaces allowed' : undefined)
+    }
+  }}
+/>
+```
 
 The optional top-level `messages` record overrides messages per rule type (`min`, `max`, `minLength`, `maxLength`, `pattern`) — useful for centralizing or localizing them.
 
@@ -49,7 +65,9 @@ Semantics:
 - `rules` composes with `validate`: rules run first, then `validate` (awaited when async), merging both sources' errors with rules ahead.
 - Rules ride the exact same pipeline as `validate` — `mode`, `reValidateMode`, `validateDebounce` and `meta.signal` all apply unchanged.
 
-Rules vs native constraints: HTML attributes (`required`, `type='email'`, `min`, …) keep running through the browser's `checkValidity`, whose bubble remains the pre-submit fallback. `rules` is the state-side alternative — failures are queryable (`getErrors`, `error`, `errors`), renderable by any UI, and carry your own messages. Prefer `rules` whenever the error text must be controlled.
+Rules render as **native constraint attributes** too: the declarative subset (`required`, `min`, `max`, `minLength`, `maxLength`, `pattern`) lands on the element for browser and assistive-tech hints — `:invalid`/`:user-invalid` styling, screen-reader announcements, mobile input modes. The store pipeline stays the source of truth for messages: rule failures still land in the form's error state and render through `renderError`/`aria-invalid`, never through a browser bubble you don't control. A user-passed `required`/`pattern`/… prop always wins over the derived attribute. `validate` callbacks have no native counterpart and are skipped.
+
+Native constraints vs `rules`: HTML attributes keep running through the browser's `checkValidity`, whose bubble remains the pre-submit fallback. `rules` is the state-side alternative — failures are queryable (`getErrors`, `error`, `errors`), renderable by any UI, and carry your own messages — with the native attributes layered on top for a11y and styling. Prefer `rules` whenever the error text must be controlled.
 
 ## Form-level Validation
 
@@ -199,6 +217,27 @@ Every validator's second argument carries `{form, path, signal}`. The `AbortSign
 ```
 
 Stale results are dropped independently of the signal — validators that ignore it stay correct — but passing it to `fetch` (or `AbortSignal.timeout`, timers, …) also cancels the network work itself.
+
+### `asyncAlways`
+
+By default a failing `required` gate short-circuits the field's debounced validator — the expensive check never sees a value the cheap gate already rejects. `asyncAlways` (a `useField`/`Field` option, with a form-level `createForm({asyncAlways})` default) keeps the validator running anyway — TanStack Form's `asyncAlways`: the gate's errors land immediately, then the validator's own result lands **alongside** them, per-source. A passing round clears only its own errors; the gate's verdict stays until the gate itself passes:
+
+```tsx
+<Field
+  name='email'
+  rules={{required: true, pattern: {value: /^\S+@\S+$/, message: 'Invalid email'}}}
+  asyncAlways
+  validate={async value => {
+    // Runs even when the email is empty or malformed — the backend's
+    // verdict ("already registered") lands next to the format errors.
+    const res = await fetch(`/api/check-email?email=${encodeURIComponent(value)}`);
+    const {taken} = await res.json();
+    if (taken) return {type: 'taken', message: 'Email already registered'};
+  }}
+/>
+```
+
+The use case: the cheap check fails, and the expensive check should still run — both verdicts belong on screen. Without `asyncAlways` the gate failure owns the kick's outcome.
 
 ## Manual Trigger
 

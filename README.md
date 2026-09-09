@@ -22,7 +22,8 @@ Coming from TanStack Form? [Migrating from TanStack Form](./docs/from-tanstack-f
 - **Multiple errors per field.** Each field stores an ordered `FieldError[]` — `getFieldErrors`/`useFieldErrors` read them all, and schema resolvers forward every issue instead of stopping at the first.
 - **Mount validation.** `createForm({validateOnMount: true})` (or per field) kicks every field's validator once after mount, so errors show on an untouched form; with an async `initialValues` source the kicks wait for the resolved baseline instead of validating the empty shell.
 - **Form-level status channel.** `setStatus`/`useStatus` carry non-field state — server session flags, wizard steps, account-level errors — through the same event core (Formik's `status` role).
-- **Async validation with cancellation.** `validateDebounce` per field — and on the form-level `validate` — plus an `AbortSignal` handed to every validator: a superseded round aborts its in-flight fetch, and pending debounce windows count as validating so submit waits them out.
+- **Async validation with cancellation.** `validateDebounce` per field — and on the form-level `validate` — plus an `AbortSignal` handed to every validator: a superseded round aborts its in-flight fetch, and pending debounce windows count as validating so submit waits them out. `asyncAlways` (field or form level) keeps a field's validator running even when its `required` gate failed, landing both verdicts per-source.
+- **Declarative rules, native and store-side.** `rules` (`required`/`min`/`max`/`minLength`/`maxLength`/`pattern`/`validate` callbacks) compile into the store-based pipeline — queryable errors, your messages, `renderError`/`aria-invalid` — and the declarative subset renders as native constraint attributes (`required`, `minLength`, `pattern`, …) for `:invalid` styling and screen-reader hints. A user-passed attribute always wins over the derived one.
 - **Precise lifecycle control.** `reset(form, values, {keepDirtyValues, …})` covers refetch-without-clobbering-dirty-drafts, `setFocus(form, name)` focuses programmatically, and `trigger(form, name?)` resolves `Promise<boolean>` once validation settles.
 - **Typed, nestable form contexts.** `createFormContext<Values>()` gives each app area an isolated provider whose `useField`/`useFieldArray` take `FieldPath<Values>` names without hand-written generics.
 - **SSR out of the box.** `renderToString` renders initial values and the server snapshot matches the client's first render, so hydration is consistent.
@@ -39,6 +40,8 @@ or
 ```
 yarn add react-f0rm
 ```
+
+Try the components without writing an app first: `npm run storybook` (this repo) serves the Storybook gallery — every bound component, rules, field arrays, devtools, and the uncontrolled mode are live-editable there. The [docs site](https://wmzy.github.io/react-f0rm/) carries the full guides (validation, sub-forms, server actions, UI-kit integration, migration from Formik/RHF/TanStack Form).
 
 ## Benchmarks
 
@@ -79,21 +82,21 @@ react-f0rm vs the established options. react-f0rm figures come from this repo (s
 | Schema adapters | One Standard Schema entry point (`react-f0rm/resolvers/standard-schema`) covers zod, valibot, arktype, …; legacy zod/yup resolvers also shipped | `@hookform/resolvers` — one adapter module per validation library | Built-in `standardSchemaValidators` (Standard Schema v1), plus per-library adapter packages | Yup built in via `validationSchema`; other libraries hand-wired in `validate` |
 | Path type safety | `FieldPath<T>` / `PathValue<T, P>`: every valid path enumerated, value type resolved, typos fail at compile time on the generic APIs (`useField`, `setValue`, `getValue`, …), and the `validate` value argument is path-inferred on `useField`/`Field` (`PathValueOf<T, P>`) | `Path<T>` / `FieldPath` type-level path checking | Deep inference, including validator argument types — the strongest of the four | Top-level `keyof` only; nested paths are untyped strings |
 | Async initial values | `initialValues: T \| Promise<T> \| () => T \| Promise<T>`: async sources start the form empty with `isLoading: true` (`useIsLoading` / `useFormState().isLoading`) and land the resolved values as the baseline | Async `defaultValues` supported (`formState.isLoading`) | `defaultValues: () => Promise<T>` supported | Not built in — resolve before rendering, or re-render after fetch |
-| Async validation | `validateDebounce` per field + `meta.signal` (`AbortSignal`) handed to every validator — superseded rounds cancel their in-flight work; pending debounce counts as validating so submit waits | Async validators supported, but no built-in debounce and no cancellation signal — both are hand-rolled per project | Built in: `asyncDebounceMs` debounces and the validator meta carries an `AbortSignal` | Async `validate` supported; no debounce, no signal |
+| Async validation | `validateDebounce` per field + `meta.signal` (`AbortSignal`) handed to every validator — superseded rounds cancel their in-flight work; pending debounce counts as validating so submit waits; `asyncAlways` keeps the validator running when the `required` gate failed, landing both verdicts per-source | Async validators supported, but no built-in debounce and no cancellation signal — both are hand-rolled per project | Built in: `asyncDebounceMs` debounces, the validator meta carries an `AbortSignal`, `asyncAlways` runs async validation even when sync validation failed | Async `validate` supported; no debounce, no signal |
 | Mount validation | `validateOnMount` form-level (`createForm` / `<Form>`) or per field — fields with a validator kick once after mount; deferred until an async `initialValues` source lands, validator-less fields never kick | — | `validateOnMount` per field | `validateOnMount` form-level |
 | Multiple errors per field | Native: every field holds `FieldError[]`; `getFieldErrors`/`useFieldErrors` read them; resolvers forward every schema issue | `criteriaMode: 'all'` collects all failing rules per field | Errors are arrays of messages per field | — |
 | Non-field metadata | `setStatus` / `useStatus` — one user-owned slot for session flags, step state, non-field errors (Formik's `status` role), event-driven | — | Form/field `meta` API | `status` |
 | SSR / hydration | `renderToString` renders initial values out of the box; server snapshot matches the client's first render (async initialValues render empty + `isLoading` on both sides) | SSR-safe | SSR-safe | SSR-safe |
 | React 19 / Server Actions | Function `action` prop on `<Form>`: after validation passes, the validated values are converted to FormData and dispatched to it (a Server Action or a `useActionState` bridge; `onSubmit`/`onValidSubmit` also receive the values object). The `react-f0rm/server` entry's `validateValues` re-validates payloads server-side. No native no-JS submit — deliberate (see the stance below) | `<Form>` accepts a function `action` prop (native server-action-style submit, works without JS) since v7.84, and ships a `react-server` export | Documented server action integration (`createServerValidate` for server-side validation, Next.js examples) | — |
-| Bundle size | 11.35 KB gzip core (10.34 KB brotli; emitter-external measurement) + one shared dependency (`@for-fun/event-emitter`, ~2.3 KB gzip standalone, ~+0.1 KB gzip when actually bundled, +0 when your app already depends on it) | 14.06 KB gzip (bundlephobia, v7.87.0, 2026-09) | 19.02 KB gzip (v1.33.5 measured locally: minified + gzip, `@tanstack/form-core` and `react-store` bundled, react external — the bundlephobia methodology) | ~12.8 KB gzip |
+| Bundle size | 11.86 KB gzip core (10.81 KB brotli; emitter-external measurement) + one shared dependency (`@for-fun/event-emitter`, ~2.3 KB gzip standalone, ~+0.1 KB gzip when actually bundled, +0 when your app already depends on it) | 14.06 KB gzip (bundlephobia, v7.87.0, 2026-09) | 19.02 KB gzip (v1.33.5 measured locally: minified + gzip, `@tanstack/form-core` and `react-store` bundled, react external — the bundlephobia methodology) | ~12.8 KB gzip |
 | Devtools | `<Devtools />` from `react-f0rm/devtools` — separate entry point, tree-shakeable, never lands in the main bundle | `@hookform/devtools` (separate package) | Built-in devtools panel | None (official) |
 | Ecosystem maturity | New — small audience, few integrations so far | Most mature: massive adoption, resolvers, UI-kit integrations, abundant examples and answers | Backed by the TanStack family, actively growing | Maintenance mode; the author recommends considering RHF or Final Form for new projects |
 
-Bundle-size basis: every column is gzip. react-f0rm is measured on the local build — the shipped, minified `dist/index.mjs` gzips to 11.35 KB emitter-external (10.34 KB brotli; size-limit, which minifies and tree-shakes, reports the same file with the emitter marked external — it is a runtime dependency, not bundled: ~0.1 KB gzip more when a bundler inlines it, +0 when your app already depends on it). The RHF figure is a bundlephobia API observation of v7.87.0 (2026-09); the TanStack figure is a local measurement of v1.33.5 following the bundlephobia methodology (minified + gzip, its two runtime deps bundled, react external). Formik's is the historical bundlephobia ballpark. Ours is the conservative number — measured on the built artifact, not a promise.
+Bundle-size basis: every column is gzip. react-f0rm is measured on the local build — the shipped, minified `dist/index.mjs` gzips to 11.86 KB emitter-external (10.81 KB brotli; size-limit, which minifies and tree-shakes, reports the same file with the emitter marked external — it is a runtime dependency, not bundled: ~0.1 KB gzip more when a bundler inlines it, +0 when your app already depends on it). The RHF figure is a bundlephobia API observation of v7.87.0 (2026-09); the TanStack figure is a local measurement of v1.33.5 following the bundlephobia methodology (minified + gzip, its two runtime deps bundled, react external). Formik's is the historical bundlephobia ballpark. Ours is the conservative number — measured on the built artifact, not a promise.
 
 ### Which one should you use?
 
-**Pick react-f0rm** when you want controlled components with true per-field subscriptions (design systems, editor-like forms), one Standard Schema adapter instead of a package per validator, compile-time-checked paths, and the smallest core of the four (11.35 KB minified gzip emitter-external / 10.34 KB brotli, one shared runtime dependency) — and you are comfortable with a young library.
+**Pick react-f0rm** when you want controlled components with true per-field subscriptions (design systems, editor-like forms), one Standard Schema adapter instead of a package per validator, compile-time-checked paths, and the smallest core of the four (11.86 KB minified gzip emitter-external / 10.81 KB brotli, one shared runtime dependency) — and you are comfortable with a young library.
 
 **Pick React Hook Form** when you want the mature ecosystem — resolvers, UI-library integrations and community answers — today. Its performance edge is gone at the rendering level: raw `register` benches at 11.7µs/change and react-f0rm's `uncontrolled: true` at 12.5µs (parity, see [Benchmarks](#benchmarks)), the controlled model is within noise of `Controller` at 100 fields and ~1.9× ahead at 1000, and TanStack's `form.Field` costs ~2.4× our per-change time. TanStack Form sits in between: choose it when the deepest possible type inference matters more to you than bundle size and per-change cost — react-f0rm's `validate` value argument is now path-inferred on `useField`/`Field` too.
 
@@ -153,7 +156,7 @@ const {value, onChange, focusRef} = useField({name: 'email'});
 <input ref={focusRef} value={value} onChange={e => onChange(e.target.value)} />
 ```
 
-`uncontrolled: true` pins the value at mount and skips the value subscription — typing re-renders nothing (the store still carries every write; errors/touched/disabled/validating still re-render the field), the react-hook-form `register` model at `register` parity (12.6µs vs 11.9µs bench). Bind the element with `defaultValue` instead of `value`, exactly like `<Field uncontrolled />`.
+`uncontrolled: true` pins the value at mount and skips the value subscription — typing re-renders nothing (the store still carries every write; errors/touched/disabled/validating still re-render the field), the react-hook-form `register` model at `register` parity (12.6µs vs 11.9µs bench). Bind the element with `defaultValue` instead of `value` — and attach `focusRef`, which doubles as the DOM-sync channel: bulk operations (`reset`, `setInitialValues`) write the store's value straight into the element (register-style, no render — exactly how RHF's reset clears uncontrolled inputs), while single-path writes (typing) are skipped. File inputs are exempt: their value cannot be assigned. `<Field uncontrolled />` wires all of this internally.
 
 On unmount the field unregisters by default: its live value drops out of reads and `getValues()` (tombstone — no silent revival from `initialValues`). `shouldUnregister: false` keeps the value per field; `createForm({shouldUnregister: false})` or `<Form shouldUnregister={false}>` flips the form-wide default to react-hook-form's keep-the-value semantics, and a field-level option overrides the form-level flag in either direction.
 
@@ -562,6 +565,8 @@ Async validators are first-class. Two knobs keep them cheap and race-free:
 
 **`validateDebounce`** (on `Field`, `useField` or any bound component) delays a field's validation kicks by the given milliseconds; only the last kick inside the window runs the validator. While the timer is pending the field counts as *validating*, so `trigger` and submit wait the window out instead of racing it. The `required` rule is exempt: it runs synchronously on every kick, so a required failure shows immediately — and while it fails, the field's other validation is skipped. The form-level `validate` gets the same contract through `validateDebounce` on `createForm`/`useForm` (see [Form-level validation](#form-level-validation)).
 
+**`asyncAlways`** (on `Field`/`useField`, with a form-level `createForm({asyncAlways})` default; TanStack Form's namesake) overrides that skip: a field whose `required` gate failed still runs its debounced validator, and the validator's result lands **alongside** the gate's errors, per-source — a passing async round clears only its own errors, the gate's verdict stays until the gate itself passes. The use case: the cheap format check fails, and the expensive backend check should still run — both verdicts belong on screen.
+
 **`meta.signal`** — every validator's second argument carries `{form, path, signal}`. The `AbortSignal` fires as soon as the round is superseded (a newer round started, or the field unregistered), so async validators can cancel their underlying work instead of racing a stale result home:
 
 ```jsx
@@ -689,17 +694,35 @@ For declarative constraints, pass `rules` to `Field` (or any bound component —
 | `minLength` | `number` | a string value is shorter — non-strings skip | `` `Must be at least ${n} characters` `` |
 | `maxLength` | `number` | a string value is longer — non-strings skip | `` `Must be at most ${n} characters` `` |
 | `pattern` | `{value: RegExp, message: string}` | `pattern.value.test(value)` is false | the given `message` |
+| `validate` | `fn \| Record<string, fn>` | the callback returns an error (string or `FieldError`) | the returned message |
+
+`validate` is react-hook-form's `register({validate})` shape: one function, or a record of named functions. Each runs after the declarative checks — and only when they passed (`required` failing short-circuits the rest). A returned error keeps its message; its `type` becomes the record key (`'validate'` for the single-function form), so consumers can switch on `error.type` like with every declarative rule:
+
+```jsx
+<Field
+  name="username"
+  rules={{
+    required: true,
+    validate: {
+      notReserved: v => (v === 'admin' ? 'That name is taken' : undefined),
+      noSpaces: v => (/\s/.test(v) ? 'No spaces allowed' : undefined)
+    }
+  }}
+/>
+```
 
 The optional top-level `messages` record overrides messages per rule type (`min`, `max`, `minLength`, `maxLength`, `pattern`) — useful for centralizing or localizing them.
 
 Semantics:
 
-- A failing `required` short-circuits the rest — an empty value reports only its `required` error, not a full panel — and skips `validate` entirely for that kick: the async check never sees an empty value.
+- A failing `required` short-circuits the rest — an empty value reports only its `required` error, not a full panel — and skips `validate` entirely for that kick: the async check never sees an empty value (`asyncAlways` overrides that skip — see [Async validation](#async-validation)).
 - `required` runs synchronously on every kick, even under a positive `validateDebounce`: its error shows on the keystroke and clears as soon as the value is filled.
 - Every other failing rule collects into one ordered `FieldError[]` (see [Multiple errors per field](#multiple-errors-per-field)).
 - The other rules compose with `validate`: they run first, then `validate` (awaited when async), merging both sources' errors with rules ahead. They ride the same pipeline as `validate` — `mode`, `reValidateMode`, `validateDebounce` and `meta.signal` all apply unchanged.
 
-Rules vs native constraints: HTML attributes (`required`, `type="email"`, `min`, …) keep running through the browser's `checkValidity`, whose bubble remains the pre-submit fallback. `rules` is the state-side alternative — failures are queryable (`getErrors`, `error`, `errors`), renderable by any UI, and carry your own messages. Prefer `rules` whenever the error text must be controlled.
+Rules render as **native constraint attributes** too: the declarative subset (`required`, `min`, `max`, `minLength`, `maxLength`, `pattern`) lands on the element for browser and assistive-tech hints — `:invalid`/`:user-invalid` styling, screen-reader announcements, mobile input modes. The store pipeline stays the source of truth for messages: rule failures still land in the form's error state and render through `renderError`/`aria-invalid`, never through a browser bubble you don't control. A user-passed `required`/`pattern`/… prop always wins over the derived attribute; `validate` callbacks have no native counterpart and are skipped.
+
+Native constraints vs `rules`: HTML attributes (`required`, `type="email"`, `min`, …) keep running through the browser's `checkValidity`, whose bubble remains the pre-submit fallback. `rules` is the state-side alternative — failures are queryable (`getErrors`, `error`, `errors`), renderable by any UI, and carry your own messages — with the native attributes layered on top for a11y and styling. Prefer `rules` whenever the error text must be controlled.
 
 ### Form-level validation
 
