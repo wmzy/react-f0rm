@@ -10,7 +10,13 @@ export type {Form as FormInstance} from './form';
 // leaves it in a private chunk and downstream isolatedDeclarations builds
 // fail (TS2742).
 export type {EventEmitter} from './emitter';
-export type {FieldPath, PathValue, PathValueOf} from './types';
+export type {
+  FieldPath,
+  PathValue,
+  PathValueOf,
+  ArrayItemOf,
+  OpaqueTypes
+} from './types';
 // Type-only: the values type a Standard Schema produces — zero runtime
 // bytes in the main entry, resolvers entry re-exports it too.
 export type {InferSchemaValues, StandardSchemaV1} from './standardSchema';

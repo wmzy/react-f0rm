@@ -17,13 +17,15 @@ Coming from TanStack Form? [Migrating from TanStack Form](./docs/from-tanstack-f
 - **One shared runtime dependency.** The event core is `@for-fun/event-emitter` (a base library by the same author, ~2.3 KB gzip standalone) kept **external** in the ESM/CJS builds — an app that already depends on it dedupes the copy, and the emitted `Form.emitter` handle interops with the package's own `on()`/`emit()` types. `useSyncExternalStore` comes from React itself — the peer range is `react >=18`.
 
   Why external instead of inlined? The decision is a tradeoff worth stating plainly. Inlining (the UMD bundle does it — a `<script>` tag has no module graph) adds ~0.1 KB gzip and removes the dependency edge entirely; keeping the facade gains dedupe when the base package is already present and lets `Form.emitter` type-interoperate with its public API. The honest cost: the dependency is single-maintainer and low-adoption — a supply-chain and bus-factor risk. If that outweighs the interop for you, the escape hatch is real and small: the emitter surface is one file, and the event contract is the typed `FormEvents` table below.
-- **Truly type-safe paths.** `FieldPath<T>` enumerates every valid field name for your values shape and `PathValue<T, P>` resolves the value type at that path — typos in field names fail at compile time on the generic APIs (`useField`, `setValue`, `getValue`, `useValue`, …), values are inferred.
+- **Truly type-safe paths.** `FieldPath<T>` enumerates every valid field name for your values shape and `PathValue<T, P>` resolves the value type at that path — typos in field names fail at compile time on the generic APIs (`useField`, `setValue`, `getValue`, `useValue`, …), values are inferred. Date/Dayjs/class-instance leaves stay leaves via an opt-in `OpaqueTypes` registry (`declare module 'react-f0rm' { interface OpaqueTypes { dayjs: Dayjs } }`) instead of recursing into their internals.
 - **One schema adapter for every library.** The Standard Schema resolver covers zod (v3.24+/v4), valibot v1, arktype and any other Standard Schema v1 implementation through a single tree-shakeable entry point.
 - **Headless, with accessibility hooks.** You own the markup. When you opt into error rendering via `renderError`, `aria-invalid` and `aria-describedby` are wired up automatically.
 - **Tombstone unregister.** Unmounted fields drop out of `getValues()` instead of silently reviving their initial values on the next read; `createForm({shouldUnregister: false})` flips the form-wide default to RHF's keep-the-value semantics.
 - **Async initial values.** `initialValues` accepts a Promise or a thunk returning one — the form starts empty with `isLoading: true` (`useIsLoading`, `useFormState().isLoading`) and lands the resolved values as the baseline, react-hook-form's async `defaultValues` shape.
 - **Copy-on-write `getValues()`.** An ownership-tracked merge allocates each container once per read instead of re-copying whole branches for every key. The result shares references across reads, so treat it as read-only — `structuredClone` the tree when you need a mutable copy. In development the snapshot is deep-frozen: mutating it throws at the offending line instead of silently corrupting the shared cache (production builds share baseline references unchanged).
 - **Multiple errors per field.** Each field stores an ordered `FieldError[]` — `getFieldErrors`/`useFieldErrors` read them all, and schema resolvers forward every issue instead of stopping at the first.
+- **Errors record.** `useErrors(form)` / `useFormState().errors` expose every error as one `Record<string, FieldError[]>` keyed by dotted path (`'a.b'`, `'list.0'`) — react-hook-form's `formState.errors` shape for error-summary panels — memoized per form, so consumers re-render only when an error write changed content.
+- **Typed, guarded array movers.** `useFieldArray`'s `remove` takes one index or a list — `remove([0, 2])` drops several rows in a single write, order-insensitive, duplicates ignored — and `useFieldArray<Item>({name})` types `append`/`update`/`replace` against the array's element type. Out-of-range `insert`/`remove`/`swap`/`move`/`update` calls are silent no-ops. The same eight movers also exist headless — `appendValue`/`prependValue`/`insertValue`/`removeValue`/`moveValue`/`swapValues`/`replaceValues`/`updateValue` (each with a `*ByPath` variant, re-exported from `react-f0rm/server` too), so non-React code edits arrays directly.
 - **Mount validation.** `createForm({validateOnMount: true})` (or per field) kicks every field's validator once after mount, so errors show on an untouched form; with an async `initialValues` source the kicks wait for the resolved baseline instead of validating the empty shell.
 - **Form-level status channel.** `setStatus`/`useStatus` carry non-field state — server session flags, wizard steps, account-level errors — through the same event core (Formik's `status` role).
 - **Async validation with cancellation.** `validateDebounce` per field — and on the form-level `validate` — plus an `AbortSignal` handed to every validator: a superseded round aborts its in-flight fetch, and pending debounce windows count as validating so submit waits them out. `asyncAlways` (field or form level) keeps a field's validator running even when its `required` gate failed, landing both verdicts per-source.
@@ -234,7 +236,21 @@ replace(['a', 'b', 'c']); // full swap: every row id is regenerated (length may 
 update(1, 'B');           // overwrite one value, keeping that row's id — no key churn
 ```
 
-`replace(values)` is the refetch shape — a server response replaces the whole list — while `update(index, value)` rewrites a single row in place.
+`replace(values)` is the refetch shape — a server response replaces the whole list — while `update(index, value)` rewrites a single row in place. `remove` accepts a list for bulk deletion — several rows drop in one write, order-insensitive, duplicates and out-of-range entries ignored:
+
+```jsx
+remove([3, 1]); // rows 1 and 3 drop in a single write; row ids stay aligned with values
+```
+
+Declare the row type and every mover checks its value argument:
+
+```jsx
+const {append, update} = useFieldArray<{qty: number}>({name: 'items'});
+append({qty: 1}); // typed
+update(0, {qty: 2}); // typed
+```
+
+The same movers exist headless, without React: `appendValue`/`prependValue`/`insertValue`/`removeValue`/`moveValue`/`swapValues`/`replaceValues`/`updateValue` on the form instance (each with a `*ByPath` variant; `react-f0rm/server` re-exports them too) — `useFieldArray`'s operations are thin wrappers around them that add row-id bookkeeping.
 
 Three more options cover the react-hook-form `useFieldArray` surface:
 

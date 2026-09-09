@@ -12,6 +12,35 @@ type IsAny<T> = 0 extends 1 & T ? true : false;
 
 type Primitive = null | undefined | string | number | boolean | symbol | bigint;
 
+/**
+ * Opt-in registry of value types the path types treat as opaque leaves.
+ * `FieldPath<T>` stops descending into a registered type — a `Date`,
+ * `Dayjs` or class instance in the values shape is a value, not a field
+ * tree — and `PathValue` resolves the field itself to that type. Merge
+ * entries in via declaration merging:
+ *
+ * ```ts
+ * // app.d.ts
+ * declare module 'react-f0rm' {
+ *   interface OpaqueTypes {
+ *     dayjs: Dayjs;
+ *     date: Date;
+ *   }
+ * }
+ * ```
+ *
+ * Empty by default: every object-typed leaf keeps its historical,
+ * navigable behavior (react-hook-form's same-named registry is opt-in
+ * too). `keyof` of an empty interface is `never`, so the registry reads
+ * as a no-op until an entry lands.
+ */
+
+export interface OpaqueTypes {}
+
+/** The union of every leaf type registered in {@link OpaqueTypes} —
+ * `never` until an application merges entries in. */
+type OpaqueLeaf = OpaqueTypes[keyof OpaqueTypes];
+
 /** Depth countdown: Prev[9] = 8 ... Prev[1] = 0, Prev[0] = never stops recursion. */
 type Prev = [never, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
@@ -29,36 +58,48 @@ type Continue<T, D extends number> = [D] extends [never]
   ? never
   : IsAny<T> extends true
     ? string
-    : T extends Primitive | Function
+    : T extends OpaqueLeaf
       ? never
-      : T extends readonly (infer U)[]
-        ? `[${number}]` | `[${number}]${Continue<U, Prev[D]>}`
-        : {
-            [K in Extract<keyof T, string>]:
-              | (K extends `${number}` ? never : `.${K}`)
-              | `[${K}]`
-              | (K extends `${number}`
-                  ? never
-                  : `.${K}${Continue<T[K], Prev[D]>}`)
-              | `[${K}]${Continue<T[K], Prev[D]>}`;
-          }[Extract<keyof T, string>];
+      : T extends Primitive | Function
+        ? never
+        : T extends readonly (infer U)[]
+          ? `[${number}]` | `[${number}]${Continue<U, Prev[D]>}`
+          : {
+              [K in Extract<keyof T, string>]:
+                | (K extends `${number}` ? never : `.${K}`)
+                | `[${K}]`
+                | (K extends `${number}`
+                    ? never
+                    : `.${K}${Continue<T[K], Prev[D]>}`)
+                | `[${K}]${Continue<T[K], Prev[D]>}`;
+            }[Extract<keyof T, string>];
 
 /**
  * Every valid field path string for a values shape `T`.
+ *
+ * Enumeration is capped at 10 segments ({@link MaxDepth}) to keep
+ * instantiation depth bounded: paths below the cap are not part of this
+ * type, so their call sites fall back to `any` through
+ * {@link PathValueOf} instead of erroring. Types registered in
+ * {@link OpaqueTypes} stop recursion entirely — register deep object
+ * leaves (Date, Dayjs, class instances) there instead of relying on the
+ * cap.
  * @example FieldPath<{a: {b: string}}> // 'a' | 'a.b' | 'a[b]'
  */
 export type FieldPath<T> =
   IsAny<T> extends true
     ? string
-    : T extends Primitive | Function
+    : T extends OpaqueLeaf
       ? never
-      : T extends readonly (infer U)[]
-        ? `[${number}]` | `[${number}]${Continue<U, MaxDepth>}`
-        : {
-            [K in Extract<keyof T, string>]: K extends `${number}`
-              ? never
-              : K | `${K}${Continue<T[K], MaxDepth>}`;
-          }[Extract<keyof T, string>];
+      : T extends Primitive | Function
+        ? never
+        : T extends readonly (infer U)[]
+          ? `[${number}]` | `[${number}]${Continue<U, MaxDepth>}`
+          : {
+              [K in Extract<keyof T, string>]: K extends `${number}`
+                ? never
+                : K | `${K}${Continue<T[K], MaxDepth>}`;
+            }[Extract<keyof T, string>];
 
 /** Resolve `T[K]` for one bare segment: array index -> element, object key -> value. */
 type Lookup<T, K extends string> = K extends `${number}`
@@ -105,6 +146,20 @@ export type PathValue<T, P extends FieldPath<T>> = PathOf<T, P & string>;
  */
 export type PathValueOf<T, P> =
   P extends FieldPath<T> ? PathValue<T, Extract<P, FieldPath<T>>> : any;
+
+/**
+ * The element type of the array a path points at inside a values shape:
+ * `ArrayItemOf<{tags: Item[]}, 'tags'>` is `Item`. Non-array leaves
+ * resolve to the leaf type itself; unknown paths (plain `string`,
+ * segment arrays) fall back to `any` — the same wide-name escape hatch
+ * {@link PathValueOf} keeps.
+ */
+export type ArrayItemOf<T, P> =
+  P extends FieldPath<T>
+    ? PathValue<T, Extract<P, FieldPath<T>>> extends readonly (infer U)[]
+      ? U
+      : PathValue<T, Extract<P, FieldPath<T>>>
+    : any;
 
 // ---- compile-time self-checks (enforced by `tsc --noEmit`, zero runtime cost) ----
 type Equal<X, Y> =

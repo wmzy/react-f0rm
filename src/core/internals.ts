@@ -21,6 +21,27 @@ export function bumpValuesVersion(form: Form): void {
   if (cache) cache.version++;
 }
 
+/** Per-form memoization of {@link getErrorsRecord} (src/core/errors.ts),
+ * the same version-bump/read pattern {@link valuesCaches} gives
+ * {@link getValues}: every errors-Map mutation bumps the counter, reads
+ * reset it, so consecutive reads hand back one stable record reference
+ * until the next error write. */
+type ErrorsCache = {version: number; result: Record<string, FieldError[]>};
+
+export const errorsCaches = new WeakMap<Form, ErrorsCache>();
+
+/**
+ * Invalidate `form`'s cached {@link getErrorsRecord} result. Called at
+ * every point that mutates the errors Map — setErrorByPath, clearErrors,
+ * setServerErrors/clearServerErrors, clearFormValidateErrors (the
+ * form-level round's pre-land cleanup), removeFieldByPath and resetField's
+ * error drops. A no-op until the first read installed a cache entry.
+ */
+export function bumpErrorsVersion(form: Form): void {
+  const cache = errorsCaches.get(form);
+  if (cache) cache.version++;
+}
+
 /**
  * Get form values: the values Map layered over parsedValues (when a schema
  * validation produced them) layered over initialValues.

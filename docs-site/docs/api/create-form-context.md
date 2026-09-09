@@ -54,7 +54,7 @@ function Profile({form}: {form: ReturnType<typeof useForm<Values>>}) {
 | `FormProvider` | `ComponentType<{form: Form<TValues>; children: ReactNode}>` | Provider taking the form as a `form` prop (not a raw `value`) |
 | `useFormContext()` | `() => Form<TValues>` | The form from this instance's context; throws `'no form provided'` outside a provider |
 | `useField(options)` | `(options: {name: TPath} & Omit<UseFieldOptions<TValues, TPath>, 'form'>) => UseFieldResult<TValues, TPath>` | Like the global [`useField`](./use-field.md), resolved from this context — no `form` option |
-| `useFieldArray(options)` | `(options: {name: FieldPath<TValues> \| Name}) => UseFieldArrayResult` | Like the global [`useFieldArray`](./use-field-array.md), resolved from this context — no `form` option |
+| `useFieldArray(options)` | `(options: {name: FieldPath<TValues> \| Name}) => UseFieldArrayResult<TItem, K>` | Like the global [`useFieldArray`](./use-field-array.md), resolved from this context — no `form` option; `Ctx.useFieldArray<Item>({name})` types the movers |
 
 Each call creates a **private** React context: providers and hooks from separate `createFormContext()` instances never see each other's forms, so two contexts can coexist in one tree.
 

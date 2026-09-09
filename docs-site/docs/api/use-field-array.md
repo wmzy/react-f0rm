@@ -37,17 +37,36 @@ function TodoList() {
 
 ## Returns
 
+Declare the row type and every mover checks its value argument:
+`useFieldArray<Item>({name})` types `append`/`prepend`/`insert`/`replace`/`update` against the element type (unparameterized calls keep `any`).
+
 | Property | Type | Description |
 |----------|------|-------------|
 | `fields` | `{ id: string; index: number }[]` | Array items with stable IDs |
-| `append` | `(value: any) => void` | Add to end |
-| `prepend` | `(value: any) => void` | Add to start |
-| `insert` | `(index: number, value: any) => void` | Insert at index |
-| `remove` | `(index: number) => void` | Remove item |
+| `append` | `(value: Item) => void` | Add to end |
+| `prepend` | `(value: Item) => void` | Add to start |
+| `insert` | `(index: number, value: Item) => void` | Insert at index |
+| `remove` | `(indices: number \| number[]) => void` | Remove one row or several in a single write — order-insensitive, duplicates and out-of-range indices ignored |
 | `swap` | `(from: number, to: number) => void` | Swap two items |
 | `move` | `(from: number, to: number) => void` | Move item |
-| `replace` | `(values: any[]) => void` | Replace the whole list — every row id is regenerated (length may change) |
-| `update` | `(index: number, value: any) => void` | Overwrite one value, keeping that row's id — no key churn |
+| `replace` | `(values: Item[]) => void` | Replace the whole list — every row id is regenerated (length may change) |
+| `update` | `(index: number, value: Item) => void` | Overwrite one value, keeping that row's id — no key churn |
+
+Out-of-range indices on `insert`/`remove`/`swap`/`move`/`update` are silent no-ops — values, row ids and the render count all stay untouched.
+
+## Headless movers
+
+The same eight operations exist without React as plain form functions — `useFieldArray`'s movers are thin wrappers around them that add only row-id bookkeeping:
+
+```ts
+import {appendValue, removeValue, moveValue} from 'react-f0rm'; // also from 'react-f0rm/server'
+
+appendValue(form, 'todos', {name: 'x'});   // appends, emits 'change' at the array path
+removeValue(form, 'todos', [3, 1]);        // returns the dropped indices, descending: [3, 1]
+moveValue(form, 'todos', 0, 2);            // returns false on out-of-range / no-op moves
+```
+
+Every operation is one whole-array write at the array's own path, so descendant keys never go stale. `*ByPath` variants (`removeValueByPath(form, path, …)`) take a parsed `Path`.
 
 ## `replace` vs `update`
 

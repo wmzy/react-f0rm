@@ -31,6 +31,21 @@ import type {FieldErrorEntry, Options, ValidationOutcome} from './form';
 export {VALIDATION_OUTCOME} from './form';
 export type {ValidationOutcome};
 
+// Framework-free array operations (the headless counterparts of
+// useFieldArray's movers): payload manipulation server-side — splicing a
+// rejected row out of a record before persisting, say — without any React
+// in the module graph.
+export {
+  appendValue,
+  prependValue,
+  insertValue,
+  removeValue,
+  moveValue,
+  swapValues,
+  replaceValues,
+  updateValue
+} from './form';
+
 /** The outcome of {@link validateValues}: the error-free flag, the values
  * once the round has landed (schema-coerced where the validator produced
  * parsed values), and every error the round wrote as flat entries. */

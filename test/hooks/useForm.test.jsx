@@ -4,6 +4,7 @@ import React from 'react';
 import useForm, {
   useValue,
   useError,
+  useErrors,
   useFieldErrors,
   useTouched,
   useIsDirty,
@@ -36,6 +37,7 @@ import createForm, {
   getError,
   getTouchedFields,
   clearErrors,
+  setServerErrors,
   removeField,
   reset,
   handleSubmit,
@@ -1147,6 +1149,7 @@ describe('useFormState', () => {
       touchedFields: [],
       hasErrors: false,
       isValid: true,
+      errors: {},
       isSubmitting: false,
       isSubmitted: false,
       isValidating: false,
@@ -1174,6 +1177,7 @@ describe('useFormState', () => {
     expect(result.current.touchedFields).toEqual(['a']);
     expect(result.current.hasErrors).toBe(true);
     expect(result.current.isValid).toBe(false);
+    expect(result.current.errors.a.map(e => e.message)).toEqual(['oops']);
     expect(result.current.isSubmitting).toBe(true);
     expect(result.current.submitCount).toBe(1);
     expect(result.current.disabled).toBe(true);
@@ -1199,6 +1203,53 @@ describe('useFormState', () => {
     expect(result.current.isSubmitting).toBe(true);
     act(() => setIsSubmitting(form, false));
     expect(result.current.isSubmitting).toBe(false);
+  });
+});
+
+describe('useErrors', () => {
+  it('returns every error keyed by dotted path and stays {} while clean', () => {
+    const form = createForm({initialValues: {a: '', list: []}});
+    const {result} = renderHook(() => useErrors(form));
+    expect(result.current).toEqual({});
+    act(() => {
+      setError(form, 'a', 'first');
+      setError(form, 'list[0]', ['x', 'y']);
+    });
+    expect(Object.keys(result.current)).toEqual(['a', 'list.0']);
+    expect(result.current.a.map(e => e.message)).toEqual(['first']);
+    expect(result.current['list.0'].map(e => e.message)).toEqual(['x', 'y']);
+    act(() => clearErrors(form));
+    expect(result.current).toEqual({});
+  });
+
+  it('hands back one stable reference while no error write changed the content', () => {
+    const form = createForm({initialValues: {a: 'x'}});
+    const {result} = renderHook(() => useErrors(form));
+    const empty = result.current;
+    // Unrelated events recompute the getter without swapping the record.
+    act(() => setValue(form, 'a', 'y'));
+    expect(result.current).toBe(empty);
+    act(() => setError(form, 'a', 'oops'));
+    const withError = result.current;
+    expect(withError).not.toBe(empty);
+    // A later unrelated write keeps the error record's reference.
+    act(() => setValue(form, 'a', 'z'));
+    expect(result.current).toBe(withError);
+    act(() => removeField(form, 'a'));
+    expect(result.current).toEqual({});
+  });
+
+  it('updates through every error write channel', () => {
+    const form = createForm({initialValues: {a: ''}});
+    const {result} = renderHook(() => useErrors(form));
+    act(() => setError(form, 'a', {type: 'server', message: 'srv'}));
+    expect(result.current.a[0].type).toBe('server');
+    act(() => setServerErrors(form, {b: 'from server'}));
+    expect(result.current.a).toBeUndefined();
+    expect(result.current.b[0]).toEqual({
+      type: 'server',
+      message: 'from server'
+    });
   });
 });
 

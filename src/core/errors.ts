@@ -3,7 +3,12 @@ import createPath from '../path';
 import type {Name, Path, PathSegments} from '../path';
 import type {FieldPath} from '../types';
 import type {FieldError, FieldErrorEntry, Form} from '../form';
-import {isFieldError, isSegmentsPath} from './internals';
+import {
+  bumpErrorsVersion,
+  errorsCaches,
+  isFieldError,
+  isSegmentsPath
+} from './internals';
 
 /** Reserved top-level path segment for form-level errors. The Standard
  * Schema form-level adapter lands path-less issues under this key; the
@@ -100,6 +105,34 @@ export function getErrors({errors}: Form): FieldErrorEntry[] {
 }
 
 /**
+ * Get every error as one record keyed by user-facing dotted path
+ * ('a.b', 'list.0') — react-hook-form's `formState.errors` shape. Values
+ * are the stored FieldError[] arrays shared with the form, so treat the
+ * whole result as read-only. Memoized per form with the same
+ * version-bump/read pattern {@link getValues} uses: every error write
+ * bumps {@link bumpErrorsVersion}, consecutive reads hand back one stable
+ * reference, so {@link useErrors} / `useFormState().errors` only re-render
+ * when an error actually changed.
+ *
+ * @param form
+ */
+export function getErrorsRecord(form: Form): Record<string, FieldError[]> {
+  const cached = errorsCaches.get(form);
+  if (cached && cached.version === 0) return cached.result;
+  const result: Record<string, FieldError[]> = {};
+  for (const [key, list] of form.errors) {
+    result[(JSON.parse(key) as PathSegments).join('.')] = list;
+  }
+  if (cached) {
+    cached.result = result;
+    cached.version = 0;
+  } else {
+    errorsCaches.set(form, {version: 0, result});
+  }
+  return result;
+}
+
+/**
  * Get first error message
  * @param form
  * @return first error's message string, or undefined when there are no errors
@@ -167,6 +200,7 @@ export function setErrorByPath(
   // a plain size check and readers can index [0] unguarded.
   if (list) errors.set(path.key, list);
   else errors.delete(path.key);
+  bumpErrorsVersion(form);
   // Path payload lets key-scoped subscribers (onKeyEvent) skip unrelated
   // fields; payload-less listeners ignore it.
   emit(emitter, 'errors', path);
@@ -205,6 +239,7 @@ export function clearErrors(form: Form, name?: Name | Name[]): void {
   const {emitter, errors} = form;
   if (name === undefined) {
     errors.clear();
+    bumpErrorsVersion(form);
     // Payload-less broadcast: every error subscriber re-syncs.
     emit(emitter, 'errors');
     return;
@@ -216,6 +251,7 @@ export function clearErrors(form: Form, name?: Name | Name[]): void {
       ? [createPath(name)]
       : name.map(one => createPath(one));
   for (const {key} of paths) errors.delete(key);
+  bumpErrorsVersion(form);
   // Path-payload emits — the setErrorByPath scoping — wake exactly the
   // affected fields' subscribers.
   for (const path of paths) emit(emitter, 'errors', path);
@@ -283,7 +319,10 @@ export function clearServerErrors(form: Form): void {
       changed = true;
     }
   }
-  if (changed) emit(form.emitter, 'errors');
+  if (changed) {
+    bumpErrorsVersion(form);
+    emit(form.emitter, 'errors');
+  }
 }
 
 /**

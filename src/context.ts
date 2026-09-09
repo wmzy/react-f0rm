@@ -84,13 +84,16 @@ export function createFormContext<TValues extends Record<string, any> = any>() {
     return useFieldCore(options as UseFieldOptions<TValues, TPath>, Context);
   }
 
-  function useFieldArray<K extends string = 'id'>(options: {
+  function useFieldArray<TItem = any, K extends string = 'id'>(options: {
     name: FieldPath<TValues> | Name;
     keyName?: K;
     rules?: FieldRules;
     shouldUnregister?: boolean;
-  }): UseFieldArrayResult<K> {
-    return useFieldArrayCore(options as UseFieldArrayOptions<K>, Context);
+  }): UseFieldArrayResult<TItem, K> {
+    return useFieldArrayCore<TItem, K>(
+      options as UseFieldArrayOptions<K>,
+      Context
+    );
   }
 
   function useFieldArrayItem<TValue = any>(options: {

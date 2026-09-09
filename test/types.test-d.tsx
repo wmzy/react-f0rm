@@ -33,6 +33,16 @@ import {
   useField,
   getValue,
   setValue,
+  appendValue,
+  prependValue,
+  insertValue,
+  removeValue,
+  moveValue,
+  swapValues,
+  replaceValues,
+  updateValue,
+  type FieldPath,
+  type PathValueOf,
   type FieldError,
   type InferSchemaValues
 } from '../src/index';
@@ -431,3 +441,115 @@ function SchemaValidateField() {
   return null;
 }
 void SchemaValidateField;
+
+// ---- goal 12: OpaqueTypes leaf registry ---------------------------------------
+
+// A private brand keeps the test-only registration from matching any other
+// type structurally, so the rest of the program's path checks stay intact.
+declare class OpaqueTest {
+  private brand: void;
+}
+declare module '../src/types' {
+  interface OpaqueTypes {
+    opaqueTest: OpaqueTest;
+  }
+}
+
+function OpaqueGuards() {
+  type Shape = {stamp: OpaqueTest; wrapper: {inner: OpaqueTest}};
+  // The opaque leaf is a valid path resolving to the leaf type itself…
+  const stamp: Expect<Equal<PathValueOf<Shape, 'stamp'>, OpaqueTest>> = true;
+  const stampInList: Expect<'stamp' extends FieldPath<Shape> ? true : false> =
+    true;
+  // …and path enumeration stops there: descending into the leaf is not a
+  // path (the fallback reads as `any`), while the sibling subtree still
+  // enumerates.
+  const deepFallback: Expect<Equal<PathValueOf<Shape, 'stamp.brand'>, any>> =
+    true;
+  const siblingDescends: Expect<
+    'wrapper[inner]' extends FieldPath<Shape> ? true : false
+  > = true;
+  void [stamp, stampInList, deepFallback, siblingDescends];
+  return null;
+}
+
+// ---- goal 13: typed array movers -------------------------------------------------
+
+type Item = {qty: number; label?: string};
+declare const itemsForm: FormInstance<LoginValues & {items: Item[]}>;
+void itemsForm;
+
+// useFieldArray<Item> types every mover's value argument.
+function TypedArrayMovers() {
+  const {append, prepend, insert, replace, update} = useFieldArray<Item>({
+    name: 'items',
+    form: itemsForm
+  });
+  const appendType: Expect<Equal<Parameters<typeof append>[0], Item>> = true;
+  const prependType: Expect<Equal<Parameters<typeof prepend>[0], Item>> = true;
+  const insertType: Expect<Equal<Parameters<typeof insert>[1], Item>> = true;
+  const replaceType: Expect<Equal<Parameters<typeof replace>[0], Item[]>> =
+    true;
+  const updateType: Expect<Equal<Parameters<typeof update>[1], Item>> = true;
+  append({qty: 1});
+  // @ts-expect-error append takes an Item, not a string
+  append('nope');
+  // @ts-expect-error update takes an Item, not a string
+  update(0, 'nope');
+  // Unparameterized calls stay `any` (back-compat with untyped call sites).
+  const loose = useFieldArray({name: dynamicName, form: itemsForm});
+  const looseAppend: Expect<Equal<Parameters<typeof loose.append>[0], any>> =
+    true;
+  void [
+    appendType,
+    prependType,
+    insertType,
+    replaceType,
+    updateType,
+    looseAppend
+  ];
+  return null;
+}
+
+// createFormContext bundles accept the item generic the same way.
+const ItemForm = createFormContext<LoginValues & {items: Item[]}>();
+function CtxTypedArrayMovers() {
+  const {append} = ItemForm.useFieldArray<Item>({name: 'items'});
+  const appendType: Expect<Equal<Parameters<typeof append>[0], Item>> = true;
+  // @ts-expect-error append takes an Item, not a number
+  append(1);
+  void appendType;
+  return null;
+}
+
+// Headless array ops type the value from the path: LoginValues.tags is
+// string[], so a non-string value is rejected.
+function HeadlessArrayOps(form: FormInstance<LoginValues>) {
+  appendValue(form, 'tags', 'x');
+  prependValue(form, 'tags', 'x');
+  insertValue(form, 'tags', 0, 'x');
+  replaceValues(form, 'tags', ['x']);
+  updateValue(form, 'tags', 0, 'x');
+  // @ts-expect-error tags holds strings, not numbers
+  appendValue(form, 'tags', 42);
+  // @ts-expect-error tags holds strings, not objects
+  updateValue(form, 'tags', 0, {bad: true});
+  // Segment arrays stay the wide escape hatch: value reads as any.
+  appendValue(form, ['tags'], 42);
+  // Plain `string` variables fail the path constraint like setValue's.
+  // @ts-expect-error dynamic string names must be cast or narrowed
+  appendValue(form, dynamicName, 'x');
+  // removeValue accepts one index or a list.
+  removeValue(form, 'tags', 0);
+  removeValue(form, 'tags', [0, 1]);
+  // @ts-expect-error remove indices are numbers
+  removeValue(form, 'tags', '0');
+  moveValue(form, 'tags', 0, 1);
+  swapValues(form, 'tags', 0, 1);
+  return null;
+}
+
+declare const opaqueForm: FormInstance<{stamp: OpaqueTest}>;
+// @ts-expect-error descending into an opaque leaf is not a path
+getValue(opaqueForm, 'stamp.brand');
+void opaqueForm;

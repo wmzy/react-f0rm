@@ -3,6 +3,16 @@ import type {Context} from 'react';
 import {FormContext} from '../context';
 import {getValueByPath, setValueByPath} from '../form';
 import type {FieldError, Form, Name} from '../form';
+import {
+  appendValueByPath,
+  insertValueByPath,
+  moveValueByPath,
+  prependValueByPath,
+  removeValueByPath,
+  replaceValuesByPath,
+  swapValuesByPath,
+  updateValueByPath
+} from '../core/array';
 import {removeFieldForUnmount, restoreRemovedField} from '../core/unmount';
 import type {RemovedFieldSnapshot} from '../core/unmount';
 import {rulesToValidator} from '../rules';
@@ -84,27 +94,35 @@ export type UseFieldArrayOptions<K extends string = 'id'> = {
   shouldUnregister?: boolean;
 };
 
-export type UseFieldArrayResult<K extends string = 'id'> = {
+export type UseFieldArrayResult<TItem = any, K extends string = 'id'> = {
   fields: FieldArrayItem<K>[];
-  append: (value: any) => void;
-  prepend: (value: any) => void;
-  insert: (index: number, value: any) => void;
-  remove: (index: number) => void;
+  /** Append one row. With the item type declared —
+   * `useFieldArray<Item>({name: 'items'})` — the value is checked
+   * against the array's element type. */
+  append: (value: TItem) => void;
+  prepend: (value: TItem) => void;
+  insert: (index: number, value: TItem) => void;
+  /** Remove one row, or several in a single write (`remove([0, 2])` —
+   * order-insensitive, duplicates ignored, out-of-range indices are
+   * silent no-ops). */
+  remove: (indices: number | number[]) => void;
   swap: (from: number, to: number) => void;
   move: (from: number, to: number) => void;
-  replace: (values: any[]) => void;
-  update: (index: number, value: any) => void;
+  replace: (values: TItem[]) => void;
+  update: (index: number, value: TItem) => void;
 };
 
 /**
  * Shared core of {@link useFieldArray} and the per-instance hook returned by
  * `createFormContext()`: identical behavior, but the form is resolved from
  * whichever Context instance is passed in instead of the module-level one.
+ * The `TItem` generic types the movers' value arguments; it defaults to
+ * `any` so untyped call sites compile unchanged.
  */
-export function useFieldArrayCore<K extends string = 'id'>(
+export function useFieldArrayCore<TItem = any, K extends string = 'id'>(
   options: UseFieldArrayOptions<K>,
   Context: Context<Form<any> | null>
-): UseFieldArrayResult<K> {
+): UseFieldArrayResult<TItem, K> {
   // Read the context unconditionally (hook call order must be stable), then
   // let an explicitly passed form win — works without a <FormProvider>.
   const contextForm = useContext(Context);
@@ -117,13 +135,6 @@ export function useFieldArrayCore<K extends string = 'id'>(
 
   const getArray = useCallback(
     (): any[] => getValueByPath(form, path) || [],
-    [form, path]
-  );
-
-  const setArray = useCallback(
-    (arr: any[]) => {
-      setValueByPath(form, path, arr);
-    },
     [form, path]
   );
 
@@ -216,78 +227,69 @@ export function useFieldArrayCore<K extends string = 'id'>(
     }
   );
 
-  const append = useStageFn((value: any) => {
-    const arr = getArray();
+  // Every mover delegates to the framework-free core op (src/core/array.ts)
+  // and mirrors its outcome onto the row-id table. The core op reports what
+  // actually happened — the dropped indices for removals, a boolean for the
+  // guarded movers — so the ids stay in exact lockstep with the values with
+  // no duplicated range-check logic: a guarded no-op touches neither the
+  // values nor the ids.
+  const append = useStageFn((value: TItem) => {
     idsRef.current.push(generateId(form));
-    setArray([...arr, value]);
+    appendValueByPath(form, path, value);
   });
 
-  const prepend = useStageFn((value: any) => {
-    const arr = getArray();
+  const prepend = useStageFn((value: TItem) => {
     idsRef.current.unshift(generateId(form));
-    setArray([value, ...arr]);
+    prependValueByPath(form, path, value);
   });
 
-  const insert = useStageFn((index: number, value: any) => {
-    const arr = getArray();
+  const insert = useStageFn((index: number, value: TItem) => {
+    if (!insertValueByPath(form, path, index, value)) return;
     idsRef.current.splice(index, 0, generateId(form));
-    const newArr = [...arr.slice(0, index), value, ...arr.slice(index)];
-    setArray(newArr);
   });
 
-  const remove = useStageFn((index: number) => {
-    const arr = getArray();
-    idsRef.current.splice(index, 1);
-    const newArr = arr.filter((_: any, i: number) => i !== index);
-    setArray(newArr);
+  const remove = useStageFn((indices: number | number[]) => {
+    // Dropped indices come back descending — splice them in that order and
+    // the remaining positions never shift mid-loop.
+    const dropped = removeValueByPath(form, path, indices);
+    for (const index of dropped) idsRef.current.splice(index, 1);
   });
 
   const swap = useStageFn((from: number, to: number) => {
-    const arr = getArray();
+    if (!swapValuesByPath(form, path, from, to)) return;
     [idsRef.current[from], idsRef.current[to]] = [
       idsRef.current[to],
       idsRef.current[from]
     ];
-    const newArr = [...arr];
-    [newArr[from], newArr[to]] = [newArr[to], newArr[from]];
-    setArray(newArr);
   });
 
   const move = useStageFn((from: number, to: number) => {
-    const arr = getArray();
+    if (!moveValueByPath(form, path, from, to)) return;
     const [id] = idsRef.current.splice(from, 1);
     idsRef.current.splice(to, 0, id);
-    const newArr = [...arr];
-    const [item] = newArr.splice(from, 1);
-    newArr.splice(to, 0, item);
-    setArray(newArr);
   });
 
   // replace is a full swap (length may change), so every row is conceptually
   // a new row: regenerate all ids to remount them, mirroring how reset works.
-  const replace = useStageFn((values: any[]) => {
+  const replace = useStageFn((values: TItem[]) => {
     idsRef.current = values.map(() => generateId(form));
-    setArray([...values]);
+    replaceValuesByPath(form, path, values);
   });
 
   // update only overwrites one value, so the id at that index is kept and the
   // row does not remount. Out-of-bounds indices are a silent no-op — plain
   // assignment would instead punch sparse-array holes into the form state.
-  const update = useStageFn((index: number, value: any) => {
-    const arr = getArray();
-    if (index < 0 || index >= arr.length) return;
-    const newArr = [...arr];
-    newArr[index] = value;
-    setArray(newArr);
+  const update = useStageFn((index: number, value: TItem) => {
+    updateValueByPath(form, path, index, value);
   });
 
   return {fields, append, prepend, insert, remove, swap, move, replace, update};
 }
 
-export default function useFieldArray<K extends string = 'id'>(
+export default function useFieldArray<TItem = any, K extends string = 'id'>(
   options: UseFieldArrayOptions<K>
-): UseFieldArrayResult<K> {
-  return useFieldArrayCore(options, FormContext);
+): UseFieldArrayResult<TItem, K> {
+  return useFieldArrayCore<TItem, K>(options, FormContext);
 }
 
 /**

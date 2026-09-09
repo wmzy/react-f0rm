@@ -9,6 +9,7 @@ import {isFieldDirtyByPath} from './dirty';
 import {setTouchedByPath} from './touched';
 import {
   bumpDirtyVersion,
+  bumpErrorsVersion,
   bumpValuesVersion,
   clearDirtyBaselines,
   getDirtyBaseline,
@@ -362,7 +363,7 @@ export function removeFieldByPath(
     if (!hasLiveBranch(values, segments)) deleted.add(key);
   }
   if (!options?.keepTouched) touched.delete(key);
-  if (!options?.keepError) errors.delete(key);
+  if (!options?.keepError && errors.delete(key)) bumpErrorsVersion(form);
   validating.delete(key);
   bumpDirtyVersion(form);
   bumpValuesVersion(form);
@@ -664,6 +665,7 @@ export function resetField<
     emit(emitter, 'touched', path);
   }
   if (!options?.keepErrors && errors.delete(path.key)) {
+    bumpErrorsVersion(form);
     emit(emitter, 'errors', path);
   }
   bumpDirtyVersion(form);

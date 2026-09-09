@@ -12,6 +12,7 @@ import type {SubscribeEvent, WatchScope} from '../subscribe';
 import createForm, {
   FORM_ERROR,
   getErrorByPath,
+  getErrorsRecord,
   getFieldErrorsByPath,
   getValueByPath,
   getValues,
@@ -518,6 +519,11 @@ export type FormState = {
    * In-flight validation is NOT factored in ({@link isValidating} is the
    * separate signal; async rounds temporarily pass this flag like RHF's). */
   isValid: boolean;
+  /** Every error as one record keyed by user-facing dotted path
+   * ('a.b', 'list.0') — react-hook-form's `formState.errors` shape.
+   * Memoized (see {@link getErrorsRecord}): the reference is stable
+   * between error writes, so the snapshot comparator can bail on it. */
+  errors: Record<string, FieldError[]>;
   isSubmitting: boolean;
   /**
    * Whether a submit has been attempted on this form — set on the first
@@ -560,6 +566,7 @@ function getFormState(form: Form): FormState {
     touchedFields: getTouchedFields(form),
     hasErrors: hasErrors(form),
     isValid: !hasErrors(form),
+    errors: getErrorsRecord(form),
     isSubmitting: form.isSubmitting,
     isSubmitted: form.isSubmitted,
     isValidating: form.validating.size > 0,
@@ -584,6 +591,7 @@ function isSameFormState(a: FormState, b: FormState): boolean {
     sameTouched &&
     a.hasErrors === b.hasErrors &&
     a.isValid === b.isValid &&
+    a.errors === b.errors &&
     a.isSubmitting === b.isSubmitting &&
     a.isSubmitted === b.isSubmitted &&
     a.isValidating === b.isValidating &&
@@ -612,6 +620,19 @@ export function useFormState(form: Form): FormState {
 
 export function useHasErrors(form: Form): boolean {
   return useWatch(form, 'errors', hasErrors.bind(null, form));
+}
+
+/**
+ * Get every error as one record keyed by user-facing dotted path
+ * ('a.b', 'list.0') — react-hook-form's `formState.errors` shape, for
+ * error-summary panels and a11y announcements. Values are the stored
+ * FieldError[] arrays shared with the form (treat as read-only). The
+ * record is memoized per form (see {@link getErrorsRecord}): the hook
+ * re-renders only when an error write actually changed the record's
+ * content.
+ */
+export function useErrors(form: Form): Record<string, FieldError[]> {
+  return useWatch(form, 'errors', getErrorsRecord.bind(null, form));
 }
 
 /**

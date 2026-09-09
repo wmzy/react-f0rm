@@ -595,4 +595,52 @@ describe('useFieldArray', () => {
       expect(getValues(form)).toEqual({items: ['a']});
     });
   });
+
+  describe('bulk remove and guarded movers', () => {
+    it('remove([...]) drops several rows in one write, ids staying aligned with values', () => {
+      const form = createForm({initialValues: {items: ['a', 'b', 'c', 'd']}});
+      const {result} = renderHook(() => useFieldArray({name: 'items', form}));
+      const idsBefore = result.current.fields.map(f => f.id);
+      act(() => result.current.remove([3, 1]));
+      expect(getValues(form).items).toEqual(['a', 'c']);
+      // The surviving rows keep their original ids — the [0, 2] rows.
+      expect(result.current.fields.map(f => f.id)).toEqual([
+        idsBefore[0],
+        idsBefore[2]
+      ]);
+      // And the ids table stayed aligned: appending assigns a fresh id
+      // from the per-form counter (4 seeds + 1 append = _5), never
+      // recycling a removed row's id.
+      act(() => result.current.append('e'));
+      expect(getValues(form).items).toEqual(['a', 'c', 'e']);
+      expect(result.current.fields[2].id).toBe('_5');
+    });
+
+    it('remove tolerates duplicates and out-of-range indices', () => {
+      const form = createForm({initialValues: {items: ['a', 'b', 'c']}});
+      const {result} = renderHook(() => useFieldArray({name: 'items', form}));
+      act(() => result.current.remove([1, 1, 9, -1]));
+      expect(getValues(form).items).toEqual(['a', 'c']);
+      expect(result.current.fields).toHaveLength(2);
+    });
+
+    it('guarded movers no-op out of range: values and ids untouched, no re-render', () => {
+      const form = createForm({initialValues: {items: ['a', 'b']}});
+      const {result} = renderHook(() => useFieldArray({name: 'items', form}));
+      const idsBefore = result.current.fields.map(f => f.id);
+      const fieldsBefore = result.current.fields;
+      act(() => {
+        result.current.insert(-1, 'x');
+        result.current.insert(9, 'x');
+        result.current.swap(0, 5);
+        result.current.swap(0, 0);
+        result.current.move(0, 9);
+        result.current.move(1, 1);
+        result.current.remove(9);
+      });
+      expect(getValues(form).items).toEqual(['a', 'b']);
+      expect(result.current.fields).toBe(fieldsBefore);
+      expect(result.current.fields.map(f => f.id)).toEqual(idsBefore);
+    });
+  });
 });

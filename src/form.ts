@@ -17,7 +17,13 @@ import type {VALIDATION_OUTCOME} from './core/errors';
 // every public function — the single import surface the rest of the
 // package (hooks, components, server, persist, resolvers) consumes.
 export type {Name};
-export type {FieldPath, PathValue} from './types';
+export type {
+  FieldPath,
+  PathValue,
+  PathValueOf,
+  ArrayItemOf,
+  OpaqueTypes
+} from './types';
 
 /** Dev-only flag, replaced at build time (rollup.config.js `replace`);
  * defined for the test environment in vitest.config.ts. */
@@ -403,6 +409,7 @@ export default function create<T extends Record<string, any> = any>(
 }
 
 export * from './core/values';
+export * from './core/array';
 export * from './core/errors';
 export * from './core/touched';
 export * from './core/dirty';

@@ -119,7 +119,7 @@ The `register` rule subset maps onto the `rules` prop:
 | `formState.isValid` / `isValidating` | `useIsValid` / `useIsValidating` |
 | `formState.isSubmitted` / `isSubmitSuccessful` | `useFormState(form).isSubmitted` / `useIsSubmitSuccessful` |
 | `formState.isLoading` | `useIsLoading(form)` (async `initialValues`) |
-| `formState.errors.name.message` | `useError(form, 'name')`; nested paths work too — `useError(form, 'items[0].name')` |
+| `formState.errors.name.message` | `useError(form, 'name')`; nested paths work too — `useError(form, 'items[0].name')`; the whole record: `useErrors(form)` / `useFormState(form).errors` (same `Record<string, FieldError[]>` shape, memoized) |
 | `formState.errors.root` | `useFormError(form)` / `useFormErrors(form)` (the `FORM_ERROR` key) |
 | Everything at once | `useFormState(form)` — one subscription, field-wise comparator |
 
@@ -183,7 +183,7 @@ The form-level adapter also preserves the schema's parsed output — coerced/tra
 + const {fields, append, remove} = useFieldArray({name: 'tags'});
 ```
 
-`fields[i].id` is the stable row key (`keyName: 'key'` exposes it as `field.key`), and `remove`, `swap`, `move`, `insert`, `prepend`, `append` map 1:1. Two additions: `replace(values)` (refetch shape — regenerates ids) and `update(index, value)` (in-place, id kept). Array-level `rules` (`required`, `minLength`, `maxLength` against the array) work like RHF's.
+`fields[i].id` is the stable row key (`keyName: 'key'` exposes it as `field.key`), and `remove`, `swap`, `move`, `insert`, `prepend`, `append` map 1:1 — `remove` also accepts a list (`remove([0, 2])`, one write). Two additions: `replace(values)` (refetch shape — regenerates ids) and `update(index, value)` (in-place, id kept). Array-level `rules` (`required`, `minLength`, `maxLength` against the array) work like RHF's, and `useFieldArray<Item>({name})` types every mover's value argument.
 
 ## Pitfalls
 

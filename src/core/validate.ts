@@ -20,7 +20,12 @@ import {
 } from './errors';
 import {hasTouchedByPath, setTouchedByPath} from './touched';
 import {getValueByPath, getValues} from './values';
-import {isFieldError, isSegmentsPath, setParsedValues} from './internals';
+import {
+  bumpErrorsVersion,
+  isFieldError,
+  isSegmentsPath,
+  setParsedValues
+} from './internals';
 
 export function unsetValidatingByPath(
   {emitter, validating}: Form,
@@ -616,6 +621,7 @@ function clearFormValidateErrors(
     const stored = form.errors.get(key);
     if (stored !== written) continue;
     form.errors.delete(key);
+    bumpErrorsVersion(form);
     emit(form.emitter, 'errors', createPath(JSON.parse(key)));
   }
 }
