@@ -1,8 +1,9 @@
-import {useCallback} from 'react';
+import {useCallback, useEffect, useRef} from 'react';
 import {getValueByPath, userChangeByPath} from '../form';
 import type {Form} from '../form';
 import type {PathSegments} from '../path';
 import type {FieldPath, PathValueOf} from '../types';
+import {isPromise} from '../util';
 import {onPathEvent} from '../subscribe';
 import {useWatchCore} from './form';
 import usePath from './path';
@@ -25,12 +26,28 @@ export type UseTransformOptions<
   /**
    * Map a display value back to the raw value written into the form —
    * the write direction. Omitted: the display value is written as-is
-   * (identity). The round trip should be an identity
+   * (identity). May return a Promise: the resolved raw value commits
+   * when it settles (async transforms, e.g. server-side formatting),
+   * with stale resolutions dropped — only the latest write commits.
+   * The round trip should be an identity
    * (`toDisplay(fromDisplay(x)) === x`); a store value the transform
    * cannot invert (e.g. `undefined` for a not-yet-edited field) must be
    * handled by `toDisplay`, since it runs first.
    */
-  fromDisplay?: (display: TDisplay) => PathValueOf<TValues, TPath>;
+  fromDisplay?: (
+    display: TDisplay
+  ) => PathValueOf<TValues, TPath> | Promise<PathValueOf<TValues, TPath>>;
+  /**
+   * Debounce the display→raw commit: a write inside the window supersedes
+   * the pending one, and only the last write commits when the window
+   * elapses — the async-transforms counterpart of the field validator's
+   * `validateDebounce` (TanStack Form's `asyncDebounceMs`). `0`/omitted
+   * commits immediately (an async `fromDisplay` still resolves before
+   * the commit lands). The store value stays unchanged until the commit:
+   * `value` keeps deriving from it, and validation fires at commit time
+   * through the user-change pipeline.
+   */
+  asyncDebounceMs?: number;
 };
 
 /**
@@ -79,7 +96,7 @@ export default function useTransform<
   options: UseTransformOptions<TValues, TPath, TDisplay> = {}
 ): {value: TDisplay; onChange: (display: TDisplay) => void} {
   const path = usePath(name);
-  const {toDisplay, fromDisplay} = options;
+  const {toDisplay, fromDisplay, asyncDebounceMs} = options;
 
   const subscribeFactory = useCallback(
     (invalidate: () => void) =>
@@ -90,15 +107,56 @@ export default function useTransform<
   const raw = useWatchCore(subscribeFactory, () => getValueByPath(form, path));
   const value = toDisplay ? toDisplay(raw) : (raw as TDisplay);
 
+  // Async commit machinery: `asyncDebounceMs` debounces the display→raw
+  // write (a newer write supersedes the pending one), and a sequence token
+  // drops stale resolutions — only the latest write commits. Live refs keep
+  // the latest transform/debounce visible to a stable onChange without
+  // re-subscribing (the same pattern useValidate uses for its options).
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const seqRef = useRef(0);
+  const fromDisplayRef = useRef(fromDisplay);
+  fromDisplayRef.current = fromDisplay;
+  const debounceRef = useRef(asyncDebounceMs ?? 0);
+  debounceRef.current = asyncDebounceMs ?? 0;
+  useEffect(
+    () => () => {
+      if (timerRef.current !== null) clearTimeout(timerRef.current);
+    },
+    []
+  );
+
   const onChange = useCallback(
     (display: TDisplay) => {
-      userChangeByPath(
-        form,
-        path,
-        fromDisplay ? fromDisplay(display) : display
-      );
+      const run = () => {
+        const seq = ++seqRef.current;
+        const transform = fromDisplayRef.current;
+        const commit = (next: PathValueOf<TValues, TPath>) =>
+          userChangeByPath(form, path, next);
+        if (!transform) {
+          commit(display as unknown as PathValueOf<TValues, TPath>);
+          return;
+        }
+        const result = transform(display);
+        if (isPromise(result)) {
+          result.then(next => {
+            // Stale resolution: a newer write took over — drop it. (An
+            // in-flight commit after unmount still lands: the form is
+            // caller-owned, and losing a resolved write would be worse.)
+            if (seqRef.current === seq) commit(next);
+          });
+        } else if (seqRef.current === seq) {
+          commit(result);
+        }
+      };
+      if (timerRef.current !== null) clearTimeout(timerRef.current);
+      timerRef.current = null;
+      if (debounceRef.current > 0) {
+        timerRef.current = setTimeout(run, debounceRef.current);
+      } else {
+        run();
+      }
     },
-    [form, path, fromDisplay]
+    [form, path]
   );
 
   return {value, onChange};

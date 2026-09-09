@@ -182,3 +182,110 @@ export function subscribe(form: Form, options: SubscribeOptions): () => void {
     ? unsubscribes[0]
     : () => unsubscribes.forEach(unsubscribe => unsubscribe());
 }
+
+/** The handle {@link watch} returns: a subscribe/getSnapshot pair any
+ * reactive runtime can bind to — React's `useSyncExternalStore(subscribe,
+ * getSnapshot)`, a Solid signal, a Vue ref, a Svelte store. The handle
+ * keeps one internal listener alive from creation, so `getSnapshot()` is
+ * always fresh (a read never returns a pre-write value even with no
+ * consumer subscribed); `subscribe` adds a consumer callback and returns
+ * its own unsubscribe. Call {@link WatchHandle.dispose} when the handle's
+ * lifetime ends (adapter teardown, effect cleanup). */
+export type WatchHandle<T> = {
+  /** Read the current snapshot. Recomputed on every heard event (and on
+   * first read), cached in between — repeated reads share one reference
+   * until the watched state actually changes. */
+  getSnapshot: () => T;
+  /** Register a change listener; returns the unsubscribe function. The
+   * listener fires only when the projection observably changed: with an
+   * `isEqual` comparator the getter is re-run per event and an equal
+   * verdict skips the callback entirely (TanStack's `useSelector`
+   * contract); without one, every heard event wakes the listener. */
+  subscribe: (invalidate: () => void) => () => void;
+  /** Remove the internal listener and every consumer callback. The handle
+   * is dead afterwards — reads return the last cached value and no
+   * callback ever fires again. */
+  dispose: () => void;
+};
+
+/**
+ * Watch a projection of form state without React — the framework-free
+ * counterpart of {@link useWatch} (same signature, same `isEqual`
+ * bailout), exported as a named top-level function so it is tree-shaken
+ * when unused. Headless adapters (Solid/Vue/Svelte bridges, imperative
+ * autosave/analytics code) consume the returned
+ * {@link WatchHandle}: read the current snapshot through `getSnapshot()`
+ * and re-read (or re-render) whenever `subscribe`'s listener fires.
+ *
+ * The handle subscribes eagerly at creation, so `getSnapshot()` never
+ * returns a stale value — including reads with no consumer subscribed.
+ * `getter` and `isEqual` are captured when `watch` is called: call it at
+ * setup time, like a subscription, and {@link WatchHandle.dispose} it at
+ * teardown. Every emission of `event` wakes the listener (payload-less
+ * broadcasts included) — the wide surface `useWatch` uses; path-scoped
+ * variants are the `useValue`-family hooks on the React side and
+ * {@link subscribe} with a `name` on this side.
+ *
+ * ```js
+ * const handle = watch(form, 'change', () => getValue(form, 'email'));
+ * // imperative consumer:
+ * const off = handle.subscribe(() => save(handle.getSnapshot()));
+ * // React adapter (useWatch is this composition):
+ * useSyncExternalStore(handle.subscribe, handle.getSnapshot, handle.getSnapshot);
+ * handle.dispose(); // teardown
+ * ```
+ *
+ * @param form the form to watch
+ * @param event the event whose emissions invalidate the snapshot
+ * @param getter the projection — read fresh state through the `get*`
+ *        readers inside it
+ * @param isEqual optional equality check; an equal verdict after an event
+ *        skips the listeners entirely (wide getters returning fresh
+ *        references per call stop churning subscribers)
+ */
+export function watch<T>(
+  form: Form,
+  event: SubscribeEvent,
+  getter: () => T,
+  isEqual?: (prev: T, next: T) => boolean
+): WatchHandle<T> {
+  const cache: {hasValue: boolean; value?: T} = {hasValue: false};
+  const consumers = new Set<() => void>();
+  const wake = () => {
+    if (isEqual && cache.hasValue) {
+      // Custom comparator: decide before waking consumers. Equal means
+      // observably unchanged — keep the cached reference and skip. Unequal
+      // stores the fresh snapshot so the next read needs no recompute.
+      const next = getter();
+      if (isEqual(cache.value as T, next)) return;
+      cache.value = next;
+    } else {
+      cache.value = getter();
+      cache.hasValue = true;
+    }
+    consumers.forEach(invalidate => invalidate());
+  };
+  // Eager: the cache tracks the form from creation, so reads are fresh
+  // even before any consumer subscribes (and events emitted between
+  // watch() and subscribe() are never missed).
+  const off = on(form.emitter, event, wake);
+  return {
+    getSnapshot: () => {
+      if (!cache.hasValue) {
+        cache.value = getter();
+        cache.hasValue = true;
+      }
+      return cache.value as T;
+    },
+    subscribe: (invalidate: () => void) => {
+      consumers.add(invalidate);
+      return () => {
+        consumers.delete(invalidate);
+      };
+    },
+    dispose: () => {
+      off();
+      consumers.clear();
+    }
+  };
+}

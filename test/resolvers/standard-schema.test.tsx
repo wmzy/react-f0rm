@@ -6,10 +6,15 @@
 // merge the resolver cases into test/resolvers/zod.test.ts (zod implements
 // the same interface) and keep the form-validator cases in test/form.test.js.
 import {describe, it, expect} from 'vitest';
+import {render, screen, fireEvent} from '@testing-library/react';
+import * as React from 'react';
 import {
   standardSchemaResolver,
-  standardSchemaFormValidator
+  standardSchemaFormValidator,
+  hasStandardProps
 } from '../../src/resolvers/standard-schema';
+import Form from '../../src/components/Form';
+import {Field} from '../../src/components/Field';
 import createForm, {
   ensureValidate,
   FORM_ERROR,
@@ -296,5 +301,95 @@ describe('standardSchemaFormValidator', () => {
     expect(outcome.errors).toEqual({
       [FORM_ERROR]: [{type: 'standard', message: 'Validation failed'}]
     });
+  });
+});
+
+describe('direct schema support (createForm/useField validate: schema)', () => {
+  it('createForm({validate: schema}) lands per-path issues and pathless issues on _form', async () => {
+    const form = createForm({
+      initialValues: {a: {b: ''}, c: 1},
+      validate: mockSchema([
+        {message: 'required', path: ['a', 'b']},
+        {message: 'form broken'}
+      ])
+    });
+    await expect(ensureValidate(form)).rejects.toThrow('required');
+    expect(getError(form, 'a.b')).toEqual({
+      type: 'standard',
+      message: 'required'
+    });
+    expect(getError(form, FORM_ERROR)).toEqual({
+      type: 'standard',
+      message: 'form broken'
+    });
+  });
+
+  it('createForm({validate: schema}) lands the coerced output as values', async () => {
+    // z.object({age: z.coerce.number()}) against '25' -> {age: 25}.
+    const schema = mockSchema([], {age: 25});
+    const form = createForm({
+      initialValues: {age: '25'},
+      validate: schema
+    });
+    await expect(ensureValidate(form)).resolves.toBeUndefined();
+    const {age} = getValues(form);
+    expect(typeof age).toBe('number');
+    expect(age).toBe(25);
+  });
+
+  it('createForm({validate: fn}) keeps the function path unchanged', async () => {
+    const form = createForm({
+      initialValues: {a: ''},
+      validate: values => (values.a ? {} : {a: 'required'})
+    });
+    await expect(ensureValidate(form)).rejects.toThrow('required');
+  });
+
+  it('hasStandardProps detects the spec contract', () => {
+    expect(hasStandardProps(mockSchema([]))).toBe(true);
+    expect(hasStandardProps(() => undefined)).toBe(false);
+    expect(hasStandardProps({})).toBe(false);
+    expect(hasStandardProps(null)).toBe(false);
+  });
+
+  it('Field validate: schema reports issues and keeps the raw value', async () => {
+    const schema = mockSchema([{message: 'expected a number'}]);
+    const form = createForm({initialValues: {age: ''}, mode: 'onChange'});
+    render(
+      <Form form={form}>
+        <Field name="age" validate={schema} renderError={e => e} />
+      </Form>
+    );
+    const input = screen.getByRole('textbox');
+    expect(input.getAttribute('aria-invalid')).toBeNull();
+    fireEvent.change(input, {target: {value: 'abc'}});
+    await screen.findByText('expected a number');
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    // Field-level schemas validate only: the store keeps the raw value.
+    expect(getValues(form)).toEqual({age: 'abc'});
+  });
+
+  it('a failing required gate short-circuits the schema validator', async () => {
+    const schema = mockSchema([]);
+    const form = createForm({initialValues: {email: ''}, mode: 'onChange'});
+    render(
+      <Form form={form}>
+        <Field
+          name="email"
+          rules={{required: 'email required'}}
+          validate={schema}
+          renderError={e => e}
+        />
+      </Form>
+    );
+    const input = screen.getByRole('textbox');
+    // A write that passes the gate runs the schema (no issues here); the
+    // following clear fails the gate, and the gate's error must land
+    // without the schema ever seeing the empty value.
+    fireEvent.change(input, {target: {value: 'x'}});
+    await screen.findByDisplayValue('x');
+    fireEvent.change(input, {target: {value: ''}});
+    await screen.findByText('email required');
+    expect(schema.calls).toEqual(['x']);
   });
 });

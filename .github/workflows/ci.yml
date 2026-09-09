@@ -22,8 +22,69 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: npm run lint
       - run: npm run build
-      - run: npm test
+      # Coverage run doubles as the test run: vitest.config.ts enforces
+      # the thresholds (95/90/95/95), so a coverage regression fails CI.
+      - run: npm run coverage
       - run: npx tsc --noEmit
+
+  # The peer range is react >=18 but the devDeps pin React 19 — this job
+  # makes the React 18 half of that claim continuously verified instead
+  # of aspirational. `pnpm add` mutates package.json in the ephemeral
+  # runner only; nothing is committed.
+  test-react18:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm add -D react@^18.3.1 react-dom@^18.3.1 @types/react@^18.3.0 @types/react-dom@^18.3.0
+      - run: npx vitest run
+
+  # Perf is this library's moat: the bench suite runs in CI with
+  # regression bounds (BENCH_ASSERT=1 activates the inline thresholds,
+  # generous vs the local 2026-09 numbers so shared runners don't flake).
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: npx vitest bench --run test/bench/
+        env:
+          BENCH_ASSERT: "1"
+
+  # React Compiler smoke: eslint-plugin-react-compiler over src/.
+  # Non-blocking (continue-on-error) — the job surfaces compiler
+  # violations without gating merges until the codebase is clean.
+  compiler-smoke:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: npx eslint -c eslint.config.compiler.mjs src/
 
   size:
     runs-on: ubuntu-latest

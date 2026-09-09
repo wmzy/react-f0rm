@@ -1,4 +1,6 @@
 import {create as createEmitter, emit, setMaxListeners} from './emitter';
+import {hasStandardProps, schemaToFormValidator} from './standardSchema';
+import type {StandardSchemaV1} from './standardSchema';
 import type {EventEmitter} from './emitter';
 import createPath from './path';
 import type {Name, Path} from './path';
@@ -231,8 +233,15 @@ export type Options<T extends Record<string, any> = any> = {
    * {@link ValidationOutcome}: `errors` flattens the same way, `values`
    * (the schema's parsed output) becomes the form's parsedValues baseline
    * that {@link getValues} layers over initialValues.
+   *
+   * Alternatively pass a Standard Schema v1 object directly (zod
+   * v3.24+/v4, valibot v1, arktype, …) — it is wrapped into a form-level
+   * validator automatically, no resolver import needed, and `TValues`
+   * infers from the schema's output type:
+   * `createForm({validate: schema})` → `Form<InferSchemaValues<typeof
+   * schema>>`.
    */
-  validate?: FormValidateFn<T>;
+  validate?: FormValidateFn<T> | StandardSchemaV1<unknown, T>;
   /**
    * Milliseconds to debounce the form-level `validate`: kicks from
    * `trigger`/`ensureValidate`/submit inside the window merge into one
@@ -320,9 +329,21 @@ export default function create<T extends Record<string, any> = any>(
   // cycle below instead of seeding.
   let source: any = options?.initialValues ?? {};
   if (typeof source === 'function') source = (source as () => unknown)();
+  const validateOption = options?.validate;
+  // A Standard Schema passed straight to `validate` is wrapped into a
+  // form-level validator (issues land per-path, parsed output becomes
+  // the parsedValues baseline) — no resolver import needed. The casts
+  // split the union the guard can't narrow (see hasStandardProps).
+  const wrappedValidate: FormValidateFn<T> | undefined =
+    validateOption && hasStandardProps(validateOption)
+      ? (schemaToFormValidator(
+          validateOption as StandardSchemaV1<unknown, T>
+        ) as FormValidateFn<T>)
+      : (validateOption as FormValidateFn<T> | undefined);
   const form: Form<T> = {
     emitter,
     ...options,
+    validate: wrappedValidate,
     mode: options?.mode ?? 'onSubmit',
     reValidateMode: options?.reValidateMode ?? 'onChange',
     disabled: options?.disabled ?? false,

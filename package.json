@@ -64,6 +64,7 @@
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "size": "size-limit",
+    "bench:report": "vitest bench --run --reporter=json --outputFile=bench-results.json test/bench/ && node scripts/bench-report.mjs",
     "docs:build": "cd docs-site && npm run build",
     "docs:deploy": "cd docs-site && npm run deploy"
   },
@@ -149,6 +150,7 @@
     "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-prettier": "^5.5.6",
     "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-compiler": "19.1.0-rc.2",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-storybook": "^10.6.0",
     "globals": "^17.12.0",
@@ -176,7 +178,7 @@
     },
     {
       "path": "dist/index.mjs",
-      "limit": "12.5 KB",
+      "limit": "13 KB",
       "gzip": true,
       "ignore": ["@for-fun/event-emitter"]
     },

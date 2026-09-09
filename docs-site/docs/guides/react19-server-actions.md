@@ -29,7 +29,55 @@ import {createUser} from './actions'; // 'use server', accepts FormData
 </Form>
 ```
 
-The four failure modes above do not apply: the payload comes from the values store (not DOM name attributes), the validation gate runs first (invalid submits fire `onInvalidSubmit` and never reach the action), and `isSubmitting` covers the flight. What it does not give you is progressive enhancement — the browser cannot submit before JavaScript loads — which is the native attribute's one advantage.
+The four failure modes above do not apply: the payload comes from the values store (not DOM name attributes), the validation gate runs first (invalid submits fire `onInvalidSubmit` and never reach the action), and `isSubmitting` covers the flight. What it does not give you by itself is progressive enhancement — the browser cannot submit before JavaScript loads — which the string-`action` form below restores.
+
+**Server rejection lands on the fields.** The action may return `{errors: {...}}` — a field-path → message(s) record: it lands as per-field `type: 'server'` errors (replacing the previous round trip's verdict), the submit counts as unsuccessful, and `renderError`/`aria-invalid`/`useError` all pick it up — Conform's server-error hydration, folded into the action contract:
+
+```tsx
+<Form initialValues={{email: ''}} action={createUser}>
+  <Field name="email" renderError={(e) => e} />
+  <button type="submit">Create</button>
+</Form>
+```
+
+```tsx
+// actions.ts
+'use server';
+
+export async function createUser(formData: FormData) {
+  const email = String(formData.get('email'));
+  if (await isTaken(email)) {
+    return {errors: {email: 'already registered'}};
+  }
+  // ...create the user
+  // undefined = success
+}
+```
+
+Any other return value (including `undefined`) counts as success; a thrown action marks the submit unsuccessful. The headless `handleSubmit({onAction})` has the same `ActionErrorResult` contract. A retry after a rejection is judged fresh: the next submit attempt clears the previous round's server errors before validating (client errors still gate), so a fixed payload never fights a stale verdict.
+
+## Progressive enhancement: `action` as a URL
+
+Pass a URL string to `action` and it renders as the form's native `action` attribute instead of a callback: without JavaScript the browser posts the raw FormData to it (the native constraint attributes derived from declarative `rules` still gate invalid submits), and with JavaScript `handleSubmit` runs the validated pipeline and preventDefaults the native post — perform the network call in `onValidSubmit`:
+
+```tsx
+import {Form, Field} from 'react-f0rm';
+import {formDataFromValues} from 'react-f0rm/server';
+
+<Form
+  initialValues={{email: ''}}
+  action="/api/register"
+  method="post"
+  onValidSubmit={(values) =>
+    fetch('/api/register', {method: 'POST', body: formDataFromValues(values)})
+  }
+>
+  <Field name="email" rules={{required: true}} />
+  <button type="submit">Create</button>
+</Form>
+```
+
+`formDataFromValues` (from `react-f0rm/server`) builds the same payload for the JS path that the browser would post natively — arrays as repeated entries, files passthrough, dates as ISO strings.
 
 ## Pattern: `useActionState` + `onValidSubmit`
 
@@ -163,5 +211,5 @@ The `state` returned by `useActionState` is your action's return value; react-f0
 - **Component boundaries**: the form component must be a client component (`'use client'`) — `useForm` and friends are hooks. The action lives in a `'use server'` module; importing it from the client component is fine (Next.js compiles it to an RPC reference). Only Server Actions may cross the server→client boundary — never the form instance or its values.
 - **SSR & hydration**: react-f0rm subscribes through `useSyncExternalStore` with a server snapshot that matches the first client render, so the server-rendered markup hydrates cleanly.
 - **`useFormStatus` won't see your submits**: that hook only tracks actions dispatched through `<form action>` props. With this bridge, use `useIsSubmitting(form)` or the action's own `isPending` instead.
-- **Progressive enhancement caveat**: because submission flows through `onSubmit` rather than the `action` prop, the form cannot submit before JavaScript loads. That is inherent to client-side validation gating, not specific to react-f0rm.
+- **Progressive enhancement caveat**: when submission flows through `onSubmit`/`onValidSubmit` rather than a URL, the form cannot submit before JavaScript loads — inherent to client-side validation gating, not specific to react-f0rm. For no-JS submits, pass the endpoint as a URL string to `action` (see [Progressive enhancement](#progressive-enhancement-action-as-a-url)): the browser posts natively without JS, the validated pipeline takes over with it.
 - **Always re-validate on the server** — the client-side gate is UX, not security.

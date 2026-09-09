@@ -1,7 +1,8 @@
 import * as React from 'react';
 import {handleSubmit, setDisabled} from '../form';
 // 别名规避 rollup-plugin-dts 对「type import 与本地 default export 同名」
-// 的 Identifier already declared 误报（类型引用语义不变）。
+// 的 Identifier already declared 报错。
+import type {ActionErrorResult} from '../core/submit';
 import type {Form as FormApi} from '../form';
 import {formDataFromValues} from '../server';
 import {FormContext} from '../context';
@@ -91,8 +92,23 @@ type FormProps<T extends Record<string, any> = any> = Omit<
    * `action={createUser}` for a server action or
    * `action={formData => startTransition(() => dispatch(formData))}` in a
    * useActionState bridge. `isSubmitting` covers the whole flight.
+   *
+   * The callback may return an {@link ActionErrorResult}: its `errors`
+   * record lands on the form as per-field `type: 'server'` errors and the
+   * submit counts as unsuccessful — a server action rejecting the payload
+   * (422-style) hydrates the fields exactly like failed client
+   * validation. Return anything else to report success.
+   *
+   * Alternatively pass a URL string: it renders as the form's native
+   * `action` attribute, giving progressive enhancement — without
+   * JavaScript the browser posts the raw FormData to it (native
+   * constraint attributes from declarative `rules` still gate invalid
+   * submits), and with JavaScript the validated pipeline runs instead
+   * (pair the URL with `method="post"` and perform the network call in
+   * `onValidSubmit`; `handleSubmit` preventDefaults the native post).
    */
-  action?: (formData: FormData) => void | Promise<void>;
+  action?:
+    string | ((formData: FormData) => void | Promise<void | ActionErrorResult>);
   /**
    * Called when validation fails.
    * @param errors array of {path, type, message} entries in insertion
@@ -153,16 +169,25 @@ export default function Form<T extends Record<string, any> = any>({
     onValidSubmit,
     onInvalidSubmit,
     shouldFocusError,
-    onAction: action ? values => action(formDataFromValues(values)) : undefined
+    onAction:
+      typeof action === 'function'
+        ? values => action(formDataFromValues(values))
+        : undefined
   });
 
   // Route the form into the caller's isolated context (createFormContext)
   // or the module-level default, whichever Provider we ended up with.
   const {Provider} = context ?? FormContext;
 
+  // A string `action` is the progressive-enhancement URL: rendered as the
+  // native attribute so a no-JS submit posts raw FormData to it, while
+  // the JS path (handleSubmit) preventDefaults and runs the validated
+  // pipeline instead.
+  const nativeAction = typeof action === 'string' ? action : undefined;
+
   return (
     <Provider value={form}>
-      <form {...props} noValidate onSubmit={submit} />
+      <form {...props} action={nativeAction} noValidate onSubmit={submit} />
     </Provider>
   );
 }

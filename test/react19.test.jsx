@@ -290,3 +290,66 @@ describe('why a bare <form action={serverAction}> does not fit controlled fields
     });
   });
 });
+
+describe('ActionErrorResult landing from <Form action>', () => {
+  it('hydrates the server action errors onto the fields and fails the submit', async () => {
+    const action = vi.fn(async () => ({
+      errors: {email: 'already registered'}
+    }));
+    const user = userEvent.setup();
+
+    function App() {
+      return (
+        <Form initialValues={{email: ''}} action={action}>
+          <Field name="email" renderError={e => e} />
+          <button type="submit">Save</button>
+        </Form>
+      );
+    }
+
+    render(<App />);
+    await user.type(screen.getByRole('textbox'), 'x@y.z');
+    await user.click(screen.getByRole('button', {name: 'Save'}));
+
+    await screen.findByText('already registered');
+    expect(screen.getByRole('textbox').getAttribute('aria-invalid')).toBe(
+      'true'
+    );
+    // The action received the validated values as FormData.
+    expect(action).toHaveBeenCalledTimes(1);
+    const [formData] = action.mock.calls[0];
+    expect(formData.get('email')).toBe('x@y.z');
+  });
+});
+
+describe('progressive enhancement via a string action', () => {
+  it('renders the URL as the native action attribute', async () => {
+    const user = userEvent.setup();
+    const submitted = vi.fn();
+
+    function App() {
+      return (
+        <Form
+          initialValues={{email: ''}}
+          action="/api/submit"
+          method="post"
+          onValidSubmit={submitted}
+        >
+          <Field name="email" />
+          <button type="submit">Save</button>
+        </Form>
+      );
+    }
+
+    const {container} = render(<App />);
+    const formEl = container.querySelector('form');
+    expect(formEl.getAttribute('action')).toBe('/api/submit');
+    expect(formEl.getAttribute('method')).toBe('post');
+    // With JavaScript the submit still runs the validated pipeline
+    // (handleSubmit preventDefaults the native post) — no string is ever
+    // invoked as a callback.
+    await user.click(screen.getByRole('button', {name: 'Save'}));
+    await vi.waitFor(() => expect(submitted).toHaveBeenCalledTimes(1));
+    expect(submitted.mock.calls[0][0]).toEqual({email: ''});
+  });
+});

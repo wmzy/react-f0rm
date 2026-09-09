@@ -248,6 +248,12 @@ export function useWatchCore<T>(
  * shape every hook shares; the raw emitter form remains accepted for
  * back-compat and for subscription sources that are not a full form.
  *
+ * Framework-free counterpart: {@link watch} — the same event/getter/
+ * `isEqual` contract exposed as a named export returning a
+ * subscribe/getSnapshot handle any reactive runtime can bind to
+ * (useWatch is its React binding; the ref-based cache here keeps inline
+ * getters from re-subscribing per render).
+ *
  * By default the re-render surface is the event's own scope: every emit
  * the subscription hears drops the snapshot cache and wakes React, which
  * then bails out when the recomputed snapshot is reference-identical

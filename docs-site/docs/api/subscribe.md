@@ -44,3 +44,29 @@ A number-bearing array (`['tags', 0]`) is one segments path, not a name list —
 ## `subscribe` vs `useWatch`
 
 `useWatch` (and the `useValue` / `useError` / … readers built on it) feeds rendering — it returns a snapshot and re-renders the component when it changes. `subscribe` runs imperative code and renders nothing. Use `subscribe` for linkages and effects; reach for a hook only when the watched value itself must appear on screen.
+
+## `watch`: a snapshot handle for non-React consumers
+
+`watch(form, event, getter, isEqual?)` is the framework-free counterpart of `useWatch` — a named export (tree-shaken when unused) returning a subscribe/getSnapshot pair any reactive runtime can bind to:
+
+```ts
+import {createForm, watch, getValue} from 'react-f0rm';
+
+const form = createForm({initialValues: {email: ''}});
+const handle = watch(form, 'change', () => getValue(form, 'email'));
+
+// Imperative consumer: read + react.
+const unsubscribe = handle.subscribe(() => autosave(handle.getSnapshot()));
+
+// React adapter — useWatch is exactly this composition:
+// useSyncExternalStore(handle.subscribe, handle.getSnapshot, handle.getSnapshot);
+
+handle.dispose(); // teardown: drops the internal listener and consumers
+```
+
+Contract:
+
+- `getSnapshot()` is always fresh — the handle keeps an internal listener from creation, so reads never return a pre-write value, subscribed or not.
+- `subscribe(cb)` fires only when the projection observably changed: with an `isEqual` comparator the getter re-runs per event and an equal verdict skips the callback entirely (TanStack's `useSelector` contract); without one, every heard event wakes the listener.
+- `getter` and `isEqual` are captured at `watch()` call time — call it at setup, `dispose()` it at teardown.
+- Bare `watch` hears every emission of `event` (payload-less broadcasts included). Path scoping on this side is `subscribe({name})`'s job.

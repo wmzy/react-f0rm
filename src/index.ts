@@ -11,6 +11,9 @@ export type {Form as FormInstance} from './form';
 // fail (TS2742).
 export type {EventEmitter} from './emitter';
 export type {FieldPath, PathValue, PathValueOf} from './types';
+// Type-only: the values type a Standard Schema produces — zero runtime
+// bytes in the main entry, resolvers entry re-exports it too.
+export type {InferSchemaValues, StandardSchemaV1} from './standardSchema';
 // 入口 d.ts 引用了 Path/PathSegments（UseFieldOptions 的验证相关类型经
 // hooks/form 暴露，core 模块的泛型约束直接引用 PathSegments），
 // 不公共导出的话 rollup-plugin-dts 会把它们留在私有 chunk 里，下游
@@ -28,8 +31,13 @@ export {default as useTransform} from './hooks/transform';
 export type {UseTransformOptions} from './hooks/transform';
 export type {FieldRules} from './rules';
 
-export {subscribe} from './subscribe';
-export type {SubscribeOptions, SubscribeEvent, WatchScope} from './subscribe';
+export {subscribe, watch} from './subscribe';
+export type {
+  SubscribeOptions,
+  SubscribeEvent,
+  WatchScope,
+  WatchHandle
+} from './subscribe';
 
 export {default as Form} from './components/Form';
 export {default as FormField} from './components/FormField';

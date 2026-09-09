@@ -14,7 +14,7 @@
  * register through the test-context fixture and run inside a regular
  * `test()` (`await bench(name, fn).run()`).
  */
-import {test} from 'vitest';
+import {test, expect} from 'vitest';
 import createForm, {getValues, isDirty} from '../../src/form';
 import type {Form} from '../../src/form';
 import {bumpValuesVersion} from '../../src/core/internals';
@@ -57,6 +57,16 @@ function makeForm(fields: number, sections: number): Form {
 
 const form100x3 = makeForm(100, 10);
 
+/** CI regression bound, activated by BENCH_ASSERT=1 (ci.yml bench job).
+ * Bounds carry ~7-8x headroom over the local 2026-09 means so shared
+ * GitHub runners don't flake — they catch order-of-magnitude regressions,
+ * not noise. Mean is in ms. */
+const assertBound = (result: {latency: {mean: number}}, maxMs: number) => {
+  if (process.env.BENCH_ASSERT) {
+    expect(result.latency.mean).toBeLessThan(maxMs);
+  }
+};
+
 test('getValues - 100 fields, depth 3', async ({bench}) => {
   // Local aliases: the module runner instruments imported bindings with
   // getters, and hot-loop access through them distorts timings. Both
@@ -81,14 +91,18 @@ test('getValues - 100 fields, depth 3', async ({bench}) => {
     legacy(form100x3);
   }).run();
 
-  await bench('setOwned: copy-on-write merge', () => {
+  const result = await bench('setOwned: copy-on-write merge', () => {
     merge(form100x3);
   }).run();
+  // Local mean 0.0556ms (2026-09); bound ~7x headroom for shared runners.
+  assertBound(result, 0.4);
 });
 
 test('isDirty scan - same form', async ({bench}) => {
   const scan = isDirty;
-  await bench('isDirty full scan', () => {
+  const result = await bench('isDirty full scan', () => {
     scan(form100x3);
   }).run();
+  // Local mean 0.0391ms (2026-09); bound ~7.7x headroom for shared runners.
+  assertBound(result, 0.3);
 });

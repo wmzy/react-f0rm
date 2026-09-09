@@ -28,7 +28,7 @@
  *   over the whole form -- the kick-all + settle-until-empty pipeline
  *   submit rides on.
  */
-import {test} from 'vitest';
+import {test, expect} from 'vitest';
 import {cleanup, fireEvent, render, screen} from '@testing-library/react';
 import * as React from 'react';
 import {Controller, useForm as useRhfForm} from 'react-hook-form';
@@ -40,6 +40,16 @@ import {waitUntil} from '../../src/util';
 
 /** Longer time/warmup than the tinybench defaults to keep rme < 5%. */
 const RUN_OPTIONS = {time: 2000, warmupTime: 1000};
+
+/** CI regression bound, activated by BENCH_ASSERT=1 (ci.yml bench job).
+ * Bounds carry ~5-8x headroom over the local 2026-09 means so shared
+ * GitHub runners don't flake — they catch order-of-magnitude regressions,
+ * not noise. Mean is in ms. */
+const assertBound = (result: {latency: {mean: number}}, maxMs: number) => {
+  if (process.env.BENCH_ASSERT) {
+    expect(result.latency.mean).toBeLessThan(maxMs);
+  }
+};
 
 const h = React.createElement;
 
@@ -214,7 +224,7 @@ test('1000-field controlled form - single field change', async ({bench}) => {
   // the subscription snapshot and skip the re-render being measured.
   let flip = 0;
 
-  await bench('f0rm Field: change re-renders 1 of 1000', () => {
+  const result = await bench('f0rm Field: change re-renders 1 of 1000', () => {
     const input = f0rmInput();
     const before = fieldRenders;
     flip = (flip + 1) % 4;
@@ -225,6 +235,8 @@ test('1000-field controlled form - single field change', async ({bench}) => {
         `field-level subscription broken at scale: ${rerenders} of ${COUNT_A} fields re-rendered`
       );
   }).run(RUN_OPTIONS);
+  // Local mean 0.892ms (2026-09); bound ~5.6x headroom for shared runners.
+  assertBound(result, 5.0);
 
   await bench('react-hook-form Controller: change 1 of 1000', () => {
     const input = rhfControllerInput();
@@ -239,7 +251,7 @@ test('async validation storm - 50 debounced async validators', async ({
   const stormInputs = mountStormOnce();
   let flip = 0;
 
-  await bench(
+  const result = await bench(
     'burst: 3 changes x 50 fields, settle via trigger (1 run per field)',
     async () => {
       const inputs = stormInputs();
@@ -267,12 +279,14 @@ test('async validation storm - 50 debounced async validators', async ({
         );
     }
   ).run(RUN_OPTIONS);
+  // Local mean ~21ms (2026-09); bound ~7x headroom for shared runners.
+  assertBound(result, 150);
 });
 
 test('full trigger wait - 100 mixed validators', async ({bench}) => {
   const mixedInput = mountMixedOnce();
 
-  await bench(
+  const result = await bench(
     'await trigger(form): 50 sync + 50 async validators settle',
     async () => {
       // Touch the tree so the lazy mount happens before timing (warmup
@@ -282,4 +296,6 @@ test('full trigger wait - 100 mixed validators', async ({bench}) => {
       if (!ok) throw new Error('expected the all-valid form to pass trigger');
     }
   ).run(RUN_OPTIONS);
+  // Local mean 5.92ms (2026-09); bound ~7x headroom for shared runners.
+  assertBound(result, 40);
 });

@@ -44,6 +44,55 @@ import {
 <Field name="email" validate={standardSchemaResolver(z.string().email())} />
 ```
 
+### Direct schema support — no adapter needed
+
+The core accepts a Standard Schema object directly where a validator is
+expected, wrapping it automatically:
+
+```tsx
+import {createForm} from 'react-f0rm';
+import {z} from 'zod';
+
+const schema = z.object({
+  name: z.string().min(1, 'Required'),
+  email: z.string().email('Invalid email')
+});
+
+// Form level: createForm({validate: schema}) — and TValues infers from
+// the schema's output type (the TanStack useForm({validators}) shape).
+const form = createForm({initialValues: {name: '', email: ''}, validate: schema});
+
+// Field level: useField/Field validate: schema (issues land per-field;
+// field-level schemas validate only — they never rewrite the value).
+<Field name="email" validate={z.string().email()} />
+```
+
+Field-level schemas are validation-only: the store keeps the raw value.
+Form-level schemas land their parsed output as the parsed baseline
+(coercions included) — same semantics as
+[`standardSchemaFormValidator`](#form-level-validation).
+
+### `InferSchemaValues<S>`
+
+Resolves the values type a schema produces — `Output` of its
+`~standard.types`, structurally, without importing the schema library:
+
+```tsx
+import type {InferSchemaValues} from 'react-f0rm'; // or 'react-f0rm/resolvers/standard-schema'
+import {z} from 'zod';
+
+const schema = z.object({age: z.coerce.number()});
+type Values = InferSchemaValues<typeof schema>; // {age: number} — coerced side
+
+const form = createForm<Values>({validate: schema});
+// setValue(form, 'age', 42)     ✓
+// setValue(form, 'agr', 42)     ✗ typo fails at compile time
+```
+
+A schema without `types` infers `never` — pass an explicit `TValues`
+then. Schemas passed straight to `validate` infer the generic anyway, so
+`InferSchemaValues` is for separate declarations and shared type exports.
+
 ### Form-level validation
 
 `standardSchemaFormValidator` drives whole-form validation from a single

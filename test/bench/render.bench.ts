@@ -25,7 +25,7 @@
  * Scenario d) submit path: getValues + validate with 100 sync validators
  *   (one invalid field, so every run exercises the error path).
  */
-import {test} from 'vitest';
+import {test, expect} from 'vitest';
 import {cleanup, fireEvent, render, screen} from '@testing-library/react';
 import * as React from 'react';
 import {Controller, useForm as useRhfForm} from 'react-hook-form';
@@ -129,6 +129,16 @@ function mountOnce(tree: React.ReactElement) {
 /** Longer time/warmup than the tinybench defaults to keep rme < 5%. */
 const RUN_OPTIONS = {time: 2000, warmupTime: 1000};
 
+/** CI regression bound, activated by BENCH_ASSERT=1 (ci.yml bench job).
+ * Bounds carry ~5-8x headroom over the local 2026-09 means so shared
+ * GitHub runners don't flake — they catch order-of-magnitude regressions,
+ * not noise. Mean is in ms. */
+const assertBound = (result: {latency: {mean: number}}, maxMs: number) => {
+  if (process.env.BENCH_ASSERT) {
+    expect(result.latency.mean).toBeLessThan(maxMs);
+  }
+};
+
 test('single field change - 100 controlled inputs mounted', async ({bench}) => {
   const f0rmInput = mountOnce(h(F0rmHundredFields));
   const rhfControllerInput = mountOnce(h(RhfHundredControllers));
@@ -139,11 +149,13 @@ test('single field change - 100 controlled inputs mounted', async ({bench}) => {
   // subscription snapshot and skip the re-render we are here to measure.
   let flip = 0;
 
-  await bench('f0rm Field: change re-renders 1 of 100', () => {
+  const result = await bench('f0rm Field: change re-renders 1 of 100', () => {
     const input = f0rmInput();
     flip = (flip + 1) % 4;
     fireEvent.change(input, {target: {value: `w${flip}`}});
   }).run(RUN_OPTIONS);
+  // Local mean 0.167ms (2026-09); bound ~6x headroom for shared runners.
+  assertBound(result, 1.0);
 
   await bench('react-hook-form Controller: change 1 of 100', () => {
     const input = rhfControllerInput();
@@ -157,11 +169,16 @@ test('single field change - 100 controlled inputs mounted', async ({bench}) => {
     fireEvent.change(input, {target: {value: `w${flip}`}});
   }).run(RUN_OPTIONS);
 
-  await bench('f0rm Field uncontrolled: change 1 of 100', () => {
-    const input = f0rmUncontrolledInput();
-    flip = (flip + 1) % 4;
-    fireEvent.change(input, {target: {value: `w${flip}`}});
-  }).run(RUN_OPTIONS);
+  const uncontrolledResult = await bench(
+    'f0rm Field uncontrolled: change 1 of 100',
+    () => {
+      const input = f0rmUncontrolledInput();
+      flip = (flip + 1) % 4;
+      fireEvent.change(input, {target: {value: `w${flip}`}});
+    }
+  ).run(RUN_OPTIONS);
+  // Local mean 0.0135ms (2026-09); bound ~7x headroom for shared runners.
+  assertBound(uncontrolledResult, 0.1);
 
   await bench(
     'react-hook-form register (uncontrolled): change 1 of 100',
@@ -187,8 +204,11 @@ test('submit path - 100 sync validators', async ({bench}) => {
   // (validator -> setError -> throw -> catch).
   setValue(form, `f${TARGET}`, 'x');
 
-  await bench('getValues + validate', async () => {
+  const result = await bench('getValues + validate', async () => {
     getValues(form);
     await validate(form);
   }).run(RUN_OPTIONS);
+  // Local mean 0.0083ms (2026-09); bound with an order of magnitude to
+  // spare — the row exists to catch pipeline regressions, not noise.
+  assertBound(result, 0.1);
 });

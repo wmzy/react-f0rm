@@ -1,6 +1,6 @@
 import {emit} from '../emitter';
 import type {FieldErrorEntry, Form} from '../form';
-import {getErrors} from './errors';
+import {getErrors, setServerErrors, clearServerErrors} from './errors';
 import {getValues} from './values';
 import {validate} from './validate';
 
@@ -125,8 +125,16 @@ export type HandleSubmitOptions<T extends Record<string, any> = any> = {
    * final (schema-coerced) values — the slot <Form>'s `action` prop uses
    * to dispatch React 19 server actions with FormData. Runs inside the
    * same isSubmitting window and is awaited like onSubmit/onValidSubmit.
+   *
+   * The callback may return an {@link ActionErrorResult}: its `errors`
+   * record (field path → message or messages) lands on the form through
+   * {@link setServerErrors} (`type: 'server'`, cleared existing server
+   * errors replaced), and the submit counts as unsuccessful — a rejected
+   * server round trip is an invalid submit, exactly like failed client
+   * validation. Any other return value (including `undefined`) means the
+   * submit succeeded.
    */
-  onAction?: (values: T, e?: any) => void | Promise<void>;
+  onAction?: (values: T, e?: any) => void | Promise<void | ActionErrorResult>;
   /**
    * Focus the first error field after a failed submit. Defaults to true —
    * only an explicit `false` disables it. When custom validation fails,
@@ -136,6 +144,14 @@ export type HandleSubmitOptions<T extends Record<string, any> = any> = {
    * form's first ':invalid' control is focused directly.
    */
   shouldFocusError?: boolean;
+};
+
+/** What a server action / onAction callback returns when the server
+ * rejected the payload: a field-path → message(s) record, landed on the
+ * form as `type: 'server'` errors. Undefined (or anything else) means
+ * success. */
+export type ActionErrorResult = {
+  errors?: Record<string, string | string[]>;
 };
 
 /**
@@ -173,6 +189,11 @@ export function handleSubmit<T extends Record<string, any> = any>(
       e.preventDefault();
     }
     const formEl = e?.currentTarget;
+    // A fresh attempt supersedes the previous round trip's verdict:
+    // server errors from the last submit must not veto this one (the
+    // server is being asked again). Client errors stay — they describe
+    // the current form state, not a stale response.
+    clearServerErrors(form);
     // Land the submitted flag before the isSubmitting flip: the single
     // 'submitting' emit setIsSubmitting fires carries both state changes
     // to FormState subscribers.
@@ -224,7 +245,23 @@ export function handleSubmit<T extends Record<string, any> = any>(
       const submitted = getValues(form);
       if (onSubmit) await onSubmit(submitted, e);
       if (onValidSubmit) await onValidSubmit(submitted, e);
-      if (onAction) await onAction(submitted, e);
+      if (onAction) {
+        const result = await onAction(submitted, e);
+        // A server round trip that returns errors is an invalid submit:
+        // land them as per-field 'server' errors and mark the attempt
+        // unsuccessful (Conform's server-error hydration, RHF's
+        // setError-after-submit pattern — both folded into one contract).
+        if (
+          result &&
+          typeof result === 'object' &&
+          result.errors !== undefined &&
+          typeof result.errors === 'object'
+        ) {
+          setServerErrors(form, result.errors);
+          setSubmitSuccessful(form, false);
+          return;
+        }
+      }
       setSubmitSuccessful(form, true);
     } catch {
       setSubmitSuccessful(form, false);

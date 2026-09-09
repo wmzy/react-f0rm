@@ -5,6 +5,9 @@ import createForm, {
   incrementSubmitCount,
   setSubmitSuccessful,
   setDisabled,
+  setServerErrors,
+  setError,
+  getError,
   handleSubmit
 } from '../../src/form';
 
@@ -167,5 +170,80 @@ describe('handleSubmit', () => {
     expect(onValidSubmit).not.toHaveBeenCalled();
     expect(form.isSubmitSuccessful).toBe(false);
     expect(form.isSubmitting).toBe(false);
+  });
+});
+
+describe('action error landing', () => {
+  it('lands ActionErrorResult.errors as per-field server errors and fails the submit', async () => {
+    const form = createForm({initialValues: {email: ''}});
+    const submit = handleSubmit(form, {
+      onAction: async () => ({errors: {email: 'already taken'}})
+    });
+    await submit();
+    expect(getError(form, 'email')).toEqual({
+      type: 'server',
+      message: 'already taken'
+    });
+    expect(form.isSubmitSuccessful).toBe(false);
+    expect(form.isSubmitting).toBe(false);
+    expect(form.submitCount).toBe(1);
+  });
+
+  it('treats an undefined action return as a successful submit', async () => {
+    const form = createForm({initialValues: {email: ''}});
+    const submit = handleSubmit(form, {
+      onAction: async () => undefined
+    });
+    await submit();
+    expect(form.isSubmitSuccessful).toBe(true);
+    expect(form.errors.size).toBe(0);
+  });
+
+  it('replaces the previous round-trip server errors on the next attempt', async () => {
+    const form = createForm({initialValues: {email: '', name: ''}});
+    let round = 0;
+    const submit = handleSubmit(form, {
+      onAction: async () =>
+        ++round === 1 ? {errors: {email: 'taken'}} : {errors: {name: 'fresh'}}
+    });
+    await submit();
+    expect(getError(form, 'email')).toEqual({type: 'server', message: 'taken'});
+    expect(form.isSubmitSuccessful).toBe(false);
+    // The retry is judged on the fresh attempt: the old verdict cleared
+    // and the new response's errors took its place.
+    await submit();
+    expect(getError(form, 'email')).toBeUndefined();
+    expect(getError(form, 'name')).toEqual({type: 'server', message: 'fresh'});
+    expect(form.isSubmitSuccessful).toBe(false);
+  });
+
+  it('a retry with a clean response succeeds and clears the server errors', async () => {
+    const form = createForm({initialValues: {email: ''}});
+    let round = 0;
+    const submit = handleSubmit(form, {
+      onAction: async () =>
+        ++round === 1 ? {errors: {email: 'taken'}} : undefined
+    });
+    await submit();
+    expect(getError(form, 'email')).toEqual({type: 'server', message: 'taken'});
+    await submit();
+    expect(getError(form, 'email')).toBeUndefined();
+    expect(form.isSubmitSuccessful).toBe(true);
+  });
+
+  it('server errors never veto a retry, client errors still do', async () => {
+    const form = createForm({initialValues: {email: ''}});
+    setServerErrors(form, {email: 'taken'});
+    setError(form, 'name', 'client says no');
+    const submit = handleSubmit(form, {onAction: async () => undefined});
+    await submit();
+    // Blocked by the client error: the action never ran, the server
+    // error is cleared (fresh attempt), the client error survives.
+    expect(getError(form, 'email')).toBeUndefined();
+    expect(getError(form, 'name')).toEqual({
+      type: 'custom',
+      message: 'client says no'
+    });
+    expect(form.isSubmitSuccessful).toBe(false);
   });
 });

@@ -33,7 +33,8 @@ import {
   useField,
   getValue,
   setValue,
-  type FieldError
+  type FieldError,
+  type InferSchemaValues
 } from '../src/index';
 
 interface LoginValues {
@@ -365,3 +366,68 @@ function PermissiveUseFieldValidate() {
 }
 
 void PermissiveUseFieldValidate;
+
+// ---- goal 8: Standard Schema → TValues inference ------------------------------
+
+interface MockSchema<In, Out> {
+  readonly '~standard': {
+    readonly version: 1;
+    readonly vendor: 'mock';
+    readonly validate: (
+      v: In
+    ) => {readonly value: Out} | {readonly issues: readonly never[]};
+    readonly types: {readonly input: In; readonly output: Out};
+  };
+}
+declare const userSchema: MockSchema<unknown, {email: string; age: number}>;
+
+// InferSchemaValues resolves the schema's output type (the coerced side of
+// the input/output split).
+type SchemaUserValues = InferSchemaValues<typeof userSchema>;
+const schemaUserValues: [
+  Expect<Equal<SchemaUserValues, {email: string; age: number}>>,
+  Expect<Equal<keyof SchemaUserValues, 'email' | 'age'>>
+] = [true, true];
+void schemaUserValues;
+
+// A schema without a types entry infers never — pass an explicit generic.
+type NoTypesSchema = InferSchemaValues<{
+  readonly '~standard': {
+    readonly version: 1;
+    readonly vendor: 'x';
+    readonly validate: (v: any) => any;
+  };
+}>;
+const noTypesSchema: Expect<Equal<NoTypesSchema, never>> = true;
+void noTypesSchema;
+
+// createForm({validate: schema}) infers Form<schema output> — no generic.
+const schemaForm = createForm({validate: userSchema});
+const schemaFormChecks: [
+  Expect<Equal<typeof schemaForm, FormInstance<SchemaUserValues>>>
+] = [true];
+void schemaFormChecks;
+setValue(schemaForm, 'email', 'a@b.c');
+setValue(schemaForm, 'age', 42);
+// @ts-expect-error typo paths fail on the inferred shape
+setValue(schemaForm, 'emial', 'x');
+// @ts-expect-error the value type resolves from the inferred path
+setValue(schemaForm, 'age', 'not-a-number');
+
+// Function validators keep inferring from the values parameter.
+const fnForm = createForm({
+  validate: (v: {a: number}) => (v.a > 0 ? undefined : {a: 'must be positive'})
+});
+setValue(fnForm, 'a', 1);
+// @ts-expect-error typo paths still fail on the inferred shape
+setValue(fnForm, 'b', 1);
+void fnForm;
+
+// Field-level schema: the validate option accepts a Standard Schema whose
+// output matches the path's value type.
+declare const emailSchema: MockSchema<unknown, string>;
+function SchemaValidateField() {
+  useField({name: 'email', validate: emailSchema});
+  return null;
+}
+void SchemaValidateField;

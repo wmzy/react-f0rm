@@ -6,6 +6,8 @@ import {rulesToConstraintAttrs} from '../rules';
 import type {FieldRules} from '../rules';
 import type {Name, Path, PathSegments} from '../path';
 import createPath from '../path';
+import type {StandardSchemaV1} from '../standardSchema';
+import {hasStandardProps, schemaToFieldValidator} from '../standardSchema';
 import type {FieldPath, PathValueOf} from '../types';
 
 /** Dev-only flag, replaced at build time (rollup.config.js `replace`);
@@ -37,10 +39,12 @@ type UseFieldOptions<
    * second argument carries the validation context (`meta.signal` aborts
    * when the round is superseded).
    */
-  validate?: (
-    value: PathValueOf<TValues, TPath>,
-    meta: {form: Form; path: Path; signal: AbortSignal}
-  ) => ReturnType<Validator>;
+  validate?:
+    | ((
+        value: PathValueOf<TValues, TPath>,
+        meta: {form: Form; path: Path; signal: AbortSignal}
+      ) => ReturnType<Validator>)
+    | StandardSchemaV1<PathValueOf<TValues, TPath>>;
   /**
    * Declarative rules (required/min/max/minLength/maxLength/pattern,
    * plus custom `validate` callbacks), compiled into a validator that
@@ -251,6 +255,14 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
   ) => {
     const innerRef = React.useRef<HTMLInputElement | null>(null);
     const [nativeInvalidCount, setNativeInvalidCount] = React.useState(0);
+    // A Standard Schema passed straight to `validate` becomes a validator
+    // here: the checkValidity gate below calls it as a function, which a
+    // schema object is not (useField applies the same wrap further down).
+    const validateOption = validate;
+    const validateWrapped =
+      validateOption && hasStandardProps(validateOption)
+        ? schemaToFieldValidator(validateOption as StandardSchemaV1<any, any>)
+        : (validateOption as ((value: any, meta: any) => any) | undefined);
     // Only declared options go into the hook; DOM props stay in `props` and
     // are spread onto the element below — useField no longer echoes unknown
     // options back, so `as`/`valueToProps`/DOM props are destructured here
@@ -287,7 +299,10 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
             return undefined;
           }
         }
-        if (validate) return validate(...params);
+        // The gate below calls the validator as a function — a Standard
+        // Schema object must become a validator first (useField wraps it
+        // too; this wrapper sits outside that pipeline).
+        if (validateWrapped) return validateWrapped(...params);
       }
     });
     // One merged ref, three duties: the private innerRef (validate's

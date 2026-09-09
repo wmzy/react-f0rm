@@ -4,6 +4,8 @@ import {FormContext} from '../context';
 import {registerValidatorByPath} from '../form';
 import type {Form, SyncValidator, Validator} from '../form';
 import type {Path} from '../path';
+import {hasStandardProps, schemaToFieldValidator} from '../standardSchema';
+import type {StandardSchemaV1} from '../standardSchema';
 import {useStageFn} from './stage';
 
 // The validator contract itself is framework-free and lives in the core
@@ -74,7 +76,7 @@ export type UseValidateOptions = {
  * validators directly through `registerValidatorByPath`.
  */
 export default function useValidate(
-  validate: Validator | undefined,
+  validate: Validator | StandardSchemaV1 | undefined,
   path: Path,
   formProp?: Form,
   options?: UseValidateOptions
@@ -87,9 +89,15 @@ export default function useValidate(
   // Live accessors: the registration must always see the latest
   // validator/debounce/sync-gate, so swapping them per render (inline
   // validators, recompiled rules) never re-subscribes the registration
-  // mid-flight.
-  const validateRef = useRef(validate);
-  validateRef.current = validate;
+  // mid-flight. A Standard Schema passed straight to `validate` is
+  // wrapped into a validator here — same treatment the core gives
+  // `createForm({validate: schema})`.
+  const validateOption = validate;
+  const validateRef = useRef<Validator | undefined>(undefined);
+  validateRef.current =
+    validateOption && hasStandardProps(validateOption)
+      ? schemaToFieldValidator(validateOption as StandardSchemaV1<any, any>)
+      : (validateOption as Validator | undefined);
   const debounceRef = useRef(options?.debounce ?? 0);
   debounceRef.current = options?.debounce ?? 0;
   const syncRef = useRef(options?.sync);

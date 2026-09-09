@@ -95,3 +95,149 @@ describe('useTransform', () => {
     expect(form.validators.has('["age"]')).toBe(false);
   });
 });
+
+describe('useTransform async transforms', () => {
+  it('commits an async fromDisplay when it resolves', async () => {
+    let resolveTransform;
+    const fromDisplay = vi.fn(
+      display =>
+        new Promise(res => {
+          resolveTransform = () => res(Number(display));
+        })
+    );
+    const form = createForm({initialValues: {age: 7}});
+    const {result} = renderHook(() =>
+      useTransform(form, 'age', {
+        toDisplay: raw => String(raw),
+        fromDisplay
+      })
+    );
+    act(() => result.current.onChange('42'));
+    // Uncommitted: the store keeps the old raw value and the display
+    // keeps deriving from it.
+    expect(getValues(form).age).toBe(7);
+    expect(result.current.value).toBe('7');
+    await act(async () => resolveTransform());
+    expect(getValues(form).age).toBe(42);
+    expect(result.current.value).toBe('42');
+  });
+
+  it('asyncDebounceMs coalesces a burst into one commit of the last display value', async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveTransform;
+      const fromDisplay = vi.fn(
+        display =>
+          new Promise(res => {
+            resolveTransform = () => res(Number(display));
+          })
+      );
+      const form = createForm({initialValues: {age: 7}});
+      const {result} = renderHook(() =>
+        useTransform(form, 'age', {
+          toDisplay: raw => String(raw),
+          fromDisplay,
+          asyncDebounceMs: 200
+        })
+      );
+      act(() => {
+        result.current.onChange('1');
+        vi.advanceTimersByTime(100);
+        result.current.onChange('2');
+        vi.advanceTimersByTime(100);
+        result.current.onChange('3');
+      });
+      expect(fromDisplay).toHaveBeenCalledTimes(0);
+      act(() => vi.advanceTimersByTime(200));
+      expect(fromDisplay).toHaveBeenCalledTimes(1);
+      expect(fromDisplay.mock.calls[0][0]).toBe('3');
+      await act(async () => resolveTransform());
+      expect(getValues(form).age).toBe(3);
+      expect(result.current.value).toBe('3');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('drops stale async resolutions — only the latest write commits', async () => {
+    vi.useFakeTimers();
+    try {
+      const resolvers = [];
+      const fromDisplay = vi.fn(
+        display =>
+          new Promise(res => {
+            resolvers.push(() => res(Number(display)));
+          })
+      );
+      const form = createForm({initialValues: {age: 7}});
+      const {result} = renderHook(() =>
+        useTransform(form, 'age', {
+          toDisplay: raw => String(raw),
+          fromDisplay,
+          asyncDebounceMs: 50
+        })
+      );
+      act(() => {
+        result.current.onChange('1');
+        vi.advanceTimersByTime(50);
+        result.current.onChange('2');
+        vi.advanceTimersByTime(50);
+      });
+      expect(resolvers).toHaveLength(2);
+      // Resolve the stale transform first: it must not commit.
+      await act(async () => resolvers[0]());
+      expect(getValues(form).age).toBe(7);
+      await act(async () => resolvers[1]());
+      expect(getValues(form).age).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('debounces a sync fromDisplay too when asyncDebounceMs is set', () => {
+    vi.useFakeTimers();
+    try {
+      const fromDisplay = vi.fn(d => Number(d));
+      const form = createForm({initialValues: {age: 7}});
+      const {result} = renderHook(() =>
+        useTransform(form, 'age', {
+          toDisplay: raw => String(raw),
+          fromDisplay,
+          asyncDebounceMs: 100
+        })
+      );
+      act(() => {
+        result.current.onChange('1');
+        vi.advanceTimersByTime(50);
+        result.current.onChange('2');
+        vi.advanceTimersByTime(100);
+      });
+      expect(fromDisplay).toHaveBeenCalledTimes(1);
+      expect(getValues(form).age).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('unmounting clears a pending debounce without committing', () => {
+    vi.useFakeTimers();
+    try {
+      const fromDisplay = vi.fn(d => Number(d));
+      const form = createForm({initialValues: {age: 7}});
+      const {result, unmount} = renderHook(() =>
+        useTransform(form, 'age', {
+          toDisplay: raw => String(raw),
+          fromDisplay,
+          asyncDebounceMs: 100
+        })
+      );
+      act(() => result.current.onChange('9'));
+      unmount();
+      act(() => vi.advanceTimersByTime(100));
+      expect(fromDisplay).toHaveBeenCalledTimes(0);
+      expect(getValues(form).age).toBe(7);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

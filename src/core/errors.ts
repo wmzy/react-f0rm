@@ -264,6 +264,29 @@ export function setServerErrors(
 }
 
 /**
+ * Drop every `type: 'server'` error from the form — the round-trip state
+ * a previous submit landed. {@link handleSubmit} runs this before its
+ * validation round so a retry is judged on the fresh attempt, not on the
+ * server's verdict for the last payload (client errors are untouched:
+ * they describe the current form state). Emits payload-less 'errors' when
+ * anything changed.
+ */
+export function clearServerErrors(form: Form): void {
+  let changed = false;
+  for (const [key, errors] of form.errors) {
+    const kept = errors.filter(error => error.type !== 'server');
+    if (kept.length === 0) {
+      form.errors.delete(key);
+      changed = true;
+    } else if (kept.length !== errors.length) {
+      form.errors.set(key, kept);
+      changed = true;
+    }
+  }
+  if (changed) emit(form.emitter, 'errors');
+}
+
+/**
  * Set field touched state
  * @param form
  * @param name

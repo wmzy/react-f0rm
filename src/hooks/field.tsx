@@ -17,6 +17,8 @@ import {
 import type {FieldError, Form, ValidationMode} from '../form';
 import createPath from '../path';
 import type {Path, PathSegments} from '../path';
+import type {StandardSchemaV1} from '../standardSchema';
+import {hasStandardProps, schemaToFieldValidator} from '../standardSchema';
 import type {FieldPath, PathValueOf} from '../types';
 import {rulesToValidator} from '../rules';
 import type {FieldRules} from '../rules';
@@ -66,10 +68,12 @@ export type UseFieldOptions<
    * second argument carries the validation context (`meta.signal` aborts
    * when the round is superseded).
    */
-  validate?: (
-    value: PathValueOf<TValues, TPath>,
-    meta: {form: Form<TValues>; path: Path; signal: AbortSignal}
-  ) => ReturnType<Validator>;
+  validate?:
+    | ((
+        value: PathValueOf<TValues, TPath>,
+        meta: {form: Form<TValues>; path: Path; signal: AbortSignal}
+      ) => ReturnType<Validator>)
+    | StandardSchemaV1<PathValueOf<TValues, TPath>>;
   /**
    * Declarative rules (required/min/max/minLength/maxLength/pattern),
    * compiled into a synchronous validator. `required` is special: it runs
@@ -436,7 +440,15 @@ export function useFieldCore<
   const restRules: FieldRules | undefined = rules
     ? {...rules, required: undefined}
     : undefined;
-  useValidate(combineRulesAndValidate(restRules, validate), path, form, {
+  // A Standard Schema passed straight to `validate` becomes a validator
+  // before composing with the rules (combineRulesAndValidate calls the
+  // validator as a function, which a schema object is not).
+  const validateOption = validate;
+  const validateWrapped: Validator | undefined =
+    validateOption && hasStandardProps(validateOption)
+      ? schemaToFieldValidator(validateOption as StandardSchemaV1<any, any>)
+      : (validateOption as Validator | undefined);
+  useValidate(combineRulesAndValidate(restRules, validateWrapped), path, form, {
     debounce: validateDebounce,
     validateOnMount,
     asyncAlways: asyncAlways ?? form.asyncAlways,
