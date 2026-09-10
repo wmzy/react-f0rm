@@ -1,7 +1,9 @@
-// Doc-example verification: the exact compositions documented in README.md
-// ("createFormContext", "Async validation" / "Multiple errors per field") and
-// docs-site/docs (api/create-form-context.md, guides/validation.md) — proving
-// the snippets behave as written. Origin: Wave 4 "DocsUpdate" task.
+// Doc-example verification: the exact compositions documented across
+// docs-site/docs (guides/hooks-reference.md, guides/validation.md,
+// guides/submission.md, guides/headless-react-native.md,
+// guides/react19-server-actions.md, api/create-form-context.md) — proving the
+// snippets behave as written. These recipes moved out of README.md when it
+// was slimmed into a hub; the tests keep pinning the behavior.
 import {describe, it, expect, vi} from 'vitest';
 import {render, screen, fireEvent, act} from '@testing-library/react';
 import React from 'react';
@@ -21,7 +23,7 @@ import {Field, fieldErrorId} from '../src/components/Field';
 import {useError} from '../src/hooks/form';
 import {FormProvider} from '../src/context';
 
-// ---- README "createFormContext" snippet -------------------------------------
+// ---- guides/hooks-reference.md + api/create-form-context.md snippet -------------------------------------
 
 interface ValuesDoc {
   name: string;
@@ -79,7 +81,7 @@ describe('doc example: createFormContext', () => {
   });
 });
 
-// ---- README "Async validation" snippet --------------------------------------
+// ---- guides/validation.md "Async validation" snippet --------------------------------------
 
 function makeFakeFetch() {
   const signals = [];
@@ -213,7 +215,7 @@ describe('doc example: async validation (debounce + signal)', () => {
   });
 });
 
-// ---- README "server-side errors" recipe -------------------------------------
+// ---- guides/validation.md "Server-side Errors" recipe -------------------------------------
 
 describe('doc example: server-side error mapping (RealWorld 422)', () => {
   // The recipe shape: an API client that keeps the structured errors
@@ -276,7 +278,7 @@ describe('doc example: server-side error mapping (RealWorld 422)', () => {
   });
 });
 
-// ---- README "Submit button state" snippet -----------------------------------
+// ---- guides/submission.md "Submission State" snippet -----------------------------------
 
 describe('doc example: useCanSubmit drives the submit button', () => {
   function Profile({onSave}) {
@@ -373,10 +375,10 @@ describe('doc example: useCanSubmit drives the submit button', () => {
   });
 });
 
-// ---- README "Server-side validation" snippet ---------------------------------
+// ---- guides/react19-server-actions.md "validateValues" snippet ---------------------------------
 
 describe('doc example: validateValues (react-f0rm/server)', () => {
-  // The README example's shape: a Server Action (or any payload handler)
+  // The guide example.s shape: a Server Action (or any payload handler)
   // that bounces invalid payloads back as {errors} and persists valid ones.
   async function saveProfile(values, save) {
     const {
@@ -425,10 +427,10 @@ describe('doc example: validateValues (react-f0rm/server)', () => {
   });
 });
 
-// ---- README "focusRef" snippet ------------------------------------------------
+// ---- guides/headless-react-native.md "focusRef" snippet ------------------------------------------------
 
 describe('doc example: headless useField focusRef', () => {
-  // The README recipe: a headless useField consumer wires its input via
+  // The guide recipe: a headless useField consumer wires its input via
   // focusRef; a failed submit's first-error auto-focus then reaches the
   // element. withoutRef exercises the documented no-op contrast.
   function HeadlessEmail({form, withoutRef = false}) {

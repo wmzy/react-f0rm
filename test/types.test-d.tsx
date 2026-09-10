@@ -41,9 +41,15 @@ import {
   swapValues,
   replaceValues,
   updateValue,
+  useErrors,
+  useFormState,
+  useStore,
+  getErrorsRecord,
   type FieldPath,
   type PathValueOf,
   type FieldError,
+  type FieldErrors,
+  type FormState,
   type InferSchemaValues
 } from '../src/index';
 
@@ -553,3 +559,56 @@ declare const opaqueForm: FormInstance<{stamp: OpaqueTest}>;
 // @ts-expect-error descending into an opaque leaf is not a path
 getValue(opaqueForm, 'stamp.brand');
 void opaqueForm;
+
+// ---- goal 14: typed errors record (FieldErrors<T>) ------------------------------
+
+declare const errsForm: FormInstance<LoginValues>;
+void errsForm;
+
+// The record is keyed by the runtime (dot-joined) path form and each key
+// resolves to FieldError[] | undefined, react-hook-form FieldErrors parity.
+type Errs = FieldErrors<LoginValues>;
+const errsChecks: [
+  Expect<Equal<Errs['email'], FieldError[] | undefined>>,
+  Expect<Equal<Errs['profile.bio'], FieldError[] | undefined>>,
+  // Array indices use the runtime dotted form ('tags.0'), not brackets.
+  Expect<Equal<Errs['tags.0'], FieldError[] | undefined>>,
+  // The reserved form-level slot is typed too.
+  Expect<Equal<Errs['_form'], FieldError[] | undefined>>
+] = [true, true, true, true];
+void errsChecks;
+
+// @ts-expect-error typo'd keys fail on the typed record
+declare const badErrsKey: Errs['emial'];
+void badErrsKey;
+
+// @ts-expect-error bracket spelling is a path form, not a record key
+// (the runtime record joins segments with dots: 'tags.0')
+declare const bracketErrsKey: Errs['tags[0]'];
+void bracketErrsKey;
+
+// The readers hand the typed record back: getErrorsRecord, useErrors,
+// useFormState().errors.
+const errsRecord: Expect<
+  Equal<
+    ReturnType<typeof getErrorsRecord<LoginValues>>,
+    FieldErrors<LoginValues>
+  >
+> = true;
+const errsHook: Expect<
+  Equal<ReturnType<typeof useErrors<LoginValues>>, FieldErrors<LoginValues>>
+> = true;
+const formStateErrs: Expect<
+  Equal<FormState<LoginValues>['errors'], FieldErrors<LoginValues>>
+> = true;
+const formStateRet: Expect<
+  Equal<ReturnType<typeof useFormState<LoginValues>>, FormState<LoginValues>>
+> = true;
+void [errsRecord, errsHook, formStateErrs, formStateRet];
+
+// ---- goal 15: useStore selector primitive ---------------------------------------
+
+// The selector's projection is the hook's value; the form stays generic.
+type StoreSel = ReturnType<typeof useStore<string>>;
+const storeSel: Expect<Equal<StoreSel, string>> = true;
+void storeSel;

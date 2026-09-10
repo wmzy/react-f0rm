@@ -25,7 +25,7 @@ import createForm, {
   setInitialValues,
   runFormValidate
 } from '../form';
-import type {FieldError, Form, FormEvents, Options} from '../form';
+import type {FieldError, FieldErrors, Form, FormEvents, Options} from '../form';
 import type {FieldPath, PathValueOf} from '../types';
 import createPath from '../path';
 import type {PathSegments, Path} from '../path';
@@ -504,7 +504,7 @@ export function useTouchedFields(form: Form): string[] {
  * {@link useIsDirty}. Cheaper than calling the granular hooks one by one
  * (one subscription and one snapshot instead of one per flag).
  */
-export type FormState = {
+export type FormState<T extends Record<string, any> = any> = {
   /** Any live value differs from its baseline (see {@link isDirty}). */
   isDirty: boolean;
   /** Dirty fields keyed by user-facing dotted path ('a.b', 'a.0.c'). */
@@ -520,10 +520,11 @@ export type FormState = {
    * separate signal; async rounds temporarily pass this flag like RHF's). */
   isValid: boolean;
   /** Every error as one record keyed by user-facing dotted path
-   * ('a.b', 'list.0') — react-hook-form's `formState.errors` shape.
-   * Memoized (see {@link getErrorsRecord}): the reference is stable
-   * between error writes, so the snapshot comparator can bail on it. */
-  errors: Record<string, FieldError[]>;
+   * ('a.b', 'list.0') — react-hook-form's `formState.errors` shape,
+   * typed as {@link FieldErrors} (per-key values optional). Memoized
+   * (see {@link getErrorsRecord}): the reference is stable between error
+   * writes, so the snapshot comparator can bail on it. */
+  errors: FieldErrors<T>;
   isSubmitting: boolean;
   /**
    * Whether a submit has been attempted on this form — set on the first
@@ -558,7 +559,9 @@ const FORM_STATE_EVENTS: readonly SubscribeEvent[] = [
   'loading'
 ];
 
-function getFormState(form: Form): FormState {
+function getFormState<T extends Record<string, any>>(
+  form: Form<T>
+): FormState<T> {
   return {
     isDirty: isDirty(form),
     dirtyFields: getDirtyFields(form),
@@ -580,7 +583,10 @@ function getFormState(form: Form): FormState {
 /** Field-wise equality: reference checks where the getter already memoizes
  * (dirtyFields), element-wise for the fresh array getTouchedFields builds,
  * value checks for the flags. */
-function isSameFormState(a: FormState, b: FormState): boolean {
+function isSameFormState<T extends Record<string, any>>(
+  a: FormState<T>,
+  b: FormState<T>
+): boolean {
   const sameTouched =
     a.touchedFields.length === b.touchedFields.length &&
     a.touchedFields.every((path, i) => path === b.touchedFields[i]);
@@ -602,7 +608,9 @@ function isSameFormState(a: FormState, b: FormState): boolean {
   );
 }
 
-export function useFormState(form: Form): FormState {
+export function useFormState<T extends Record<string, any> = any>(
+  form: Form<T>
+): FormState<T> {
   const getter = useCallback(() => getFormState(form), [form]);
   const subscribeFactory = useCallback(
     (invalidate: () => void) => {
@@ -618,6 +626,46 @@ export function useFormState(form: Form): FormState {
   return useWatchCore(subscribeFactory, getter, isSameFormState);
 }
 
+/**
+ * The official selector primitive — TanStack Form's
+ * `useStore(store, selector)` counterpart. Subscribes to every
+ * state-bearing form event and keeps `selector()`'s result as the
+ * snapshot; the selector itself is a plain closure (read the form through
+ * any getter — `getValue`, `getValues`, `form.errors.size`, …).
+ *
+ * Without `isEqual` the subscription is object-identity based: each event
+ * recomputes the selector and React bails out when the result is
+ * reference-identical (the contract every `useWatch` reader relies on).
+ * The optional `isEqual(prev, next)` comparator is for wide-scope
+ * selectors that return a fresh reference per call (a whole-values
+ * projection, say): an equal verdict skips notifying React altogether —
+ * no render, not even a bailed-out one (TanStack `useSelector` compare
+ * contract).
+ *
+ * `useFormState` is the built-in aggregate selector; {@link useWatch} is
+ * the single-event version. Reach for `useStore` when the projection is
+ * yours and spans state events — e.g. `form.validating.size > 0 &&
+ * form.isSubmitting` as one flag.
+ */
+export function useStore<T>(
+  form: Form,
+  selector: () => T,
+  isEqual?: (prev: T, next: T) => boolean
+): T {
+  const subscribeFactory = useCallback(
+    (invalidate: () => void) => {
+      const offs = FORM_STATE_EVENTS.map(event =>
+        on(form.emitter, event, invalidate)
+      );
+      return () => {
+        for (const off of offs) off();
+      };
+    },
+    [form.emitter]
+  );
+  return useWatchCore(subscribeFactory, selector, isEqual);
+}
+
 export function useHasErrors(form: Form): boolean {
   return useWatch(form, 'errors', hasErrors.bind(null, form));
 }
@@ -631,8 +679,10 @@ export function useHasErrors(form: Form): boolean {
  * re-renders only when an error write actually changed the record's
  * content.
  */
-export function useErrors(form: Form): Record<string, FieldError[]> {
-  return useWatch(form, 'errors', getErrorsRecord.bind(null, form));
+export function useErrors<T extends Record<string, any> = any>(
+  form: Form<T>
+): FieldErrors<T> {
+  return useWatch(form, 'errors', () => getErrorsRecord(form));
 }
 
 /**

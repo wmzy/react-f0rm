@@ -144,6 +144,15 @@ export type HandleSubmitOptions<T extends Record<string, any> = any> = {
    * form's first ':invalid' control is focused directly.
    */
   shouldFocusError?: boolean;
+  /**
+   * Whether native constraint validation (the submitted element's
+   * checkValidity) gates this attempt. Defaults to the form's
+   * {@link Form.shouldUseNativeValidation} flag — pass `false` to skip
+   * the native gate for one submit (a save-draft button, say) while
+   * custom validators still run; pass `true` to reinstate it on a form
+   * that disabled it. Targets without checkValidity never gate.
+   */
+  shouldUseNativeValidation?: boolean;
 };
 
 /** What a server action / onAction callback returns when the server
@@ -182,7 +191,8 @@ export function handleSubmit<T extends Record<string, any> = any>(
     onValidSubmit,
     onInvalidSubmit,
     onAction,
-    shouldFocusError = true
+    shouldFocusError = true,
+    shouldUseNativeValidation = form.shouldUseNativeValidation
   } = options ?? {};
   return async e => {
     if (e && typeof e.preventDefault === 'function') {
@@ -203,6 +213,7 @@ export function handleSubmit<T extends Record<string, any> = any>(
     const values = getValues(form);
 
     if (
+      shouldUseNativeValidation &&
       formEl &&
       typeof formEl.checkValidity === 'function' &&
       formEl.checkValidity() === false

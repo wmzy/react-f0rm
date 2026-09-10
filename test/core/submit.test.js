@@ -135,6 +135,60 @@ describe('handleSubmit', () => {
     expect(form.isSubmitSuccessful).toBe(true);
   });
 
+  it('skips the native gate per submit with shouldUseNativeValidation: false', async () => {
+    const form = createForm({initialValues: {email: 'a@b.c'}});
+    const onValidSubmit = vi.fn();
+    const checkValidity = vi.fn(() => false);
+    const reportValidity = vi.fn();
+    const currentTarget = {checkValidity, reportValidity, elements: []};
+
+    const submit = handleSubmit(form, {
+      onValidSubmit,
+      shouldUseNativeValidation: false
+    });
+    await submit({currentTarget});
+
+    // The gate never consulted the DOM: custom validation ran and the
+    // submit succeeded despite the element reporting invalid.
+    expect(checkValidity).not.toHaveBeenCalled();
+    expect(reportValidity).not.toHaveBeenCalled();
+    expect(onValidSubmit).toHaveBeenCalledWith(
+      {email: 'a@b.c'},
+      expect.anything()
+    );
+    expect(form.isSubmitSuccessful).toBe(true);
+  });
+
+  it('form-level shouldUseNativeValidation: false skips the gate; a per-submit true reinstates it', async () => {
+    const form = createForm({
+      initialValues: {email: ''},
+      shouldUseNativeValidation: false
+    });
+    const onValidSubmit = vi.fn();
+    const onInvalidSubmit = vi.fn();
+    const checkValidity = vi.fn(() => false);
+    const currentTarget = {
+      checkValidity,
+      reportValidity: () => {},
+      elements: []
+    };
+
+    // Form flag false: the gate is skipped and custom validation runs.
+    await handleSubmit(form, {onValidSubmit})({currentTarget});
+    expect(checkValidity).not.toHaveBeenCalled();
+    expect(onValidSubmit).toHaveBeenCalledTimes(1);
+
+    // Per-submit override reinstates the gate for this attempt only.
+    await handleSubmit(form, {
+      onValidSubmit,
+      onInvalidSubmit,
+      shouldUseNativeValidation: true
+    })({currentTarget});
+    expect(checkValidity).toHaveBeenCalledTimes(1);
+    expect(onInvalidSubmit).toHaveBeenCalledTimes(1);
+    expect(form.isSubmitSuccessful).toBe(false);
+  });
+
   it('passes custom validate errors to onInvalidSubmit', async () => {
     const form = createForm({
       initialValues: {name: ''},

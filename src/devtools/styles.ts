@@ -269,6 +269,25 @@ const CSS = `
   display: none;
 }
 .rf0-dt-badge--has-errors .rf0-dt-dot { display: block; }
+
+/* ---- submit traces -------------------------------------------------- */
+.rf0-dt-submit { border-bottom: 1px solid #1f2735; }
+.rf0-dt-submit:last-child { border-bottom: none; }
+.rf0-dt-submit-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  cursor: pointer;
+  list-style: none;
+  color: #8b96a5;
+}
+.rf0-dt-submit-summary::-webkit-details-marker { display: none; }
+.rf0-dt-submit-summary:hover { color: #dce3ec; }
+.rf0-dt-submit-n { color: #dce3ec; font-weight: 700; }
+.rf0-dt-submit-time { margin-left: auto; color: #56616f; }
+.rf0-dt-submit[open] .rf0-dt-submit-summary { border-bottom: 1px dashed #1f2735; }
+.rf0-dt-submit-errors { padding: 2px 6px; }
 `;
 
 const STYLE_ID = 'react-f0rm-devtools-style';

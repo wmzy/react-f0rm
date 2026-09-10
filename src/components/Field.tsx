@@ -1,5 +1,6 @@
 import * as React from 'react';
 import useField from '../hooks/field';
+import {FormContext} from '../context';
 import type {Validator} from '../hooks/validate';
 import type {Form, ValidationMode} from '../form';
 import {rulesToConstraintAttrs} from '../rules';
@@ -255,6 +256,12 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
   ) => {
     const innerRef = React.useRef<HTMLInputElement | null>(null);
     const [nativeInvalidCount, setNativeInvalidCount] = React.useState(0);
+    // The native gate below reads the form's shouldUseNativeValidation
+    // flag; raw useContext (not useFormContext) so a form-prop-only call
+    // site — no provider mounted — still works. Null only while useField
+    // is about to throw anyway.
+    const contextForm = React.useContext(FormContext);
+    const resolvedForm = formProp ?? contextForm;
     // A Standard Schema passed straight to `validate` becomes a validator
     // here: the checkValidity gate below calls it as a function, which a
     // schema object is not (useField applies the same wrap further down).
@@ -291,12 +298,18 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
       // uncontrolled path so no `value` prop ever reaches the element.
       uncontrolled: uncontrolled || props.type === 'file',
       validate: (...params: [any, any]) => {
-        const el = innerRef.current;
-        if (el && typeof el.checkValidity === 'function') {
-          el.setCustomValidity('');
-          if (el.checkValidity() === false) {
-            setNativeInvalidCount(count => count + 1);
-            return undefined;
+        // The per-kick native gate: a control failing its own constraints
+        // skips the custom validator for this kick (RHF first-error
+        // semantics). `createForm({shouldUseNativeValidation: false})`
+        // disables it — custom validators become the only verdict.
+        if (resolvedForm?.shouldUseNativeValidation !== false) {
+          const el = innerRef.current;
+          if (el && typeof el.checkValidity === 'function') {
+            el.setCustomValidity('');
+            if (el.checkValidity() === false) {
+              setNativeInvalidCount(count => count + 1);
+              return undefined;
+            }
           }
         }
         // The gate below calls the validator as a function — a Standard

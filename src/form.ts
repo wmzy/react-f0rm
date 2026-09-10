@@ -199,6 +199,16 @@ export type Form<T extends Record<string, any> = any> = {
    * in either direction. Seeded from {@link Options.asyncAlways}. */
   asyncAlways: boolean;
   /**
+   * Whether native constraint validation gates submission (the submitted
+   * element's checkValidity, skipped for targets without it — React
+   * Native, toolbar buttons) and skips a bound `<Field>`'s custom
+   * validators on a native-failing kick. Seeded from
+   * {@link Options.shouldUseNativeValidation} — default `true`; a submit
+   * may override per attempt via
+   * {@link HandleSubmitOptions.shouldUseNativeValidation}.
+   */
+  shouldUseNativeValidation: boolean;
+  /**
    * User-owned metadata slot for non-field state — session flags, server
    * backfill that belongs to no field, step indices (Formik's `status`
    * role). Written with {@link setStatus}, which emits the payload-less
@@ -299,6 +309,19 @@ export type Options<T extends Record<string, any> = any> = {
    */
   asyncAlways?: boolean;
   /**
+   * Whether native constraint validation gates submission and skips a
+   * bound `<Field>`'s custom validators when its native constraints fail
+   * that kick (react-hook-form's `shouldUseNativeValidation`): pass
+   * `false` for forms where custom validators are the only source of
+   * truth — the browser's checkValidity/reportValidity gate (and the
+   * per-kick native gate in `<Field>`) stop running, while declarative
+   * `rules` keep producing store-side errors and native constraint
+   * attributes keep rendering for a11y. Defaults to `true`. Fixed at
+   * create time; a single submit may override it through
+   * {@link HandleSubmitOptions.shouldUseNativeValidation}.
+   */
+  shouldUseNativeValidation?: boolean;
+  /**
    * Validate on mount: `true` makes every mounted field with a validator
    * (declarative `rules` or a `validate` callback) run it once after
    * mount, instead of waiting for the first submit/change — errors show
@@ -355,6 +378,7 @@ export default function create<T extends Record<string, any> = any>(
     disabled: options?.disabled ?? false,
     validateOnMount: options?.validateOnMount ?? false,
     asyncAlways: options?.asyncAlways ?? false,
+    shouldUseNativeValidation: options?.shouldUseNativeValidation ?? true,
     validateDeps: options?.validateDeps
       ? new Set(options.validateDeps.map(dep => createPath(dep).key))
       : undefined,

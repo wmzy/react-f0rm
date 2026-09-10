@@ -18,6 +18,10 @@ import useForm from '../hooks/form';
  * reportValidity() surfaces the offending constraints as native bubbles and
  * submission stops (onInvalidSubmit fires). onSubmit/onValidSubmit only run
  * once every native constraint (required, type=email, minLength, ...) passes.
+ * Pass `shouldUseNativeValidation={false}` (or `createForm({shouldUseNativeValidation:
+ * false})`) to skip the native gate entirely for custom-validator-only
+ * forms — targets without checkValidity (React Native, toolbar buttons)
+ * are always exempt.
  *
  * The submit flow itself lives in the headless `handleSubmit` (see form.ts);
  * this component is a thin wrapper that binds it to the rendered <form>.
@@ -128,6 +132,15 @@ type FormProps<T extends Record<string, any> = any> = Omit<
    * false to disable.
    */
   shouldFocusError?: boolean;
+  /**
+   * Whether native constraint validation gates submission — pass false
+   * for custom-validator-only forms (react-hook-form's
+   * `shouldUseNativeValidation`). Seeds the internally created form's
+   * flag (`useForm` create-time option) and overrides it for this form's
+   * submit wiring; with an external `form` prop only the submit wiring is
+   * affected. Defaults to the form's flag (`true`).
+   */
+  shouldUseNativeValidation?: boolean;
 };
 
 export default function Form<T extends Record<string, any> = any>({
@@ -144,6 +157,7 @@ export default function Form<T extends Record<string, any> = any>({
   onInvalidSubmit,
   action,
   shouldFocusError,
+  shouldUseNativeValidation,
   ...props
 }: FormProps<T>) {
   const f2 = useForm<T>({
@@ -152,7 +166,8 @@ export default function Form<T extends Record<string, any> = any>({
     shouldUnregister,
     validateOnMount,
     disabled,
-    asyncAlways
+    asyncAlways,
+    shouldUseNativeValidation
   });
   const form = f1 || f2;
 
@@ -169,6 +184,7 @@ export default function Form<T extends Record<string, any> = any>({
     onValidSubmit,
     onInvalidSubmit,
     shouldFocusError,
+    shouldUseNativeValidation,
     onAction:
       typeof action === 'function'
         ? values => action(formDataFromValues(values))

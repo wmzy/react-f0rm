@@ -119,7 +119,7 @@ The `register` rule subset maps onto the `rules` prop:
 | `formState.isValid` / `isValidating` | `useIsValid` / `useIsValidating` |
 | `formState.isSubmitted` / `isSubmitSuccessful` | `useFormState(form).isSubmitted` / `useIsSubmitSuccessful` |
 | `formState.isLoading` | `useIsLoading(form)` (async `initialValues`) |
-| `formState.errors.name.message` | `useError(form, 'name')`; nested paths work too — `useError(form, 'items[0].name')`; the whole record: `useErrors(form)` / `useFormState(form).errors` (same `Record<string, FieldError[]>` shape, memoized) |
+| `formState.errors.name.message` | `useError(form, 'name')`; nested paths work too — `useError(form, 'items[0].name')`; the whole record: `useErrors(form)` / `useFormState(form).errors` (typed `FieldErrors<T>`: per-key `FieldError[] \| undefined`, dotted runtime keys — `'list.0'`, not `'list[0]'` — memoized) |
 | `formState.errors.root` | `useFormError(form)` / `useFormErrors(form)` (the `FORM_ERROR` key) |
 | Everything at once | `useFormState(form)` — one subscription, field-wise comparator |
 
@@ -152,6 +152,7 @@ Headless equivalent:
 | `resetField('a', {defaultValue, keepError, …})` | `resetField(form, 'a', {value, keepError, keepTouched, keepDirty})` (`value` plays `defaultValue`'s role) |
 | `unregister('a', {keepValue, keepError, …})` | `removeField(form, 'a', {keepValue, keepDirty, keepTouched, keepError})` |
 | `setFocus('a', {shouldSelect})` | `setFocus(form, 'a', {shouldSelect})` — rides the `'focusError'` channel, so bound fields focus through their `focusRef` |
+| `useForm({shouldUseNativeValidation})` | `createForm({shouldUseNativeValidation})` — identical option name, per-submit override via `handleSubmit(form, {shouldUseNativeValidation})` |
 | `getFieldState('a')` | `getFieldState(form, 'a')` → `{value, error, errors, isDirty, isTouched, isValidating}` |
 
 ### 9. Resolver swap

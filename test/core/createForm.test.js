@@ -13,6 +13,7 @@ describe('createForm', () => {
     expect(form.mode).toBe('onSubmit');
     expect(form.reValidateMode).toBe('onChange');
     expect(form.disabled).toBe(false);
+    expect(form.shouldUseNativeValidation).toBe(true);
   });
 
   it('merges options', () => {
@@ -20,12 +21,14 @@ describe('createForm', () => {
       initialValues: {name: 'test'},
       mode: 'onTouched',
       reValidateMode: 'onBlur',
-      disabled: true
+      disabled: true,
+      shouldUseNativeValidation: false
     });
     expect(form.initialValues).toEqual({name: 'test'});
     expect(form.mode).toBe('onTouched');
     expect(form.reValidateMode).toBe('onBlur');
     expect(form.disabled).toBe(true);
+    expect(form.shouldUseNativeValidation).toBe(false);
   });
 });
 

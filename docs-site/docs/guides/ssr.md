@@ -37,4 +37,5 @@ This exact flow (initial values rendered server-side, hydration without mismatch
 ## Notes
 
 - Controlled `values` on `useForm` are seeded synchronously during the first render, so SSR reflects them too.
+- Async `initialValues` (Promise or thunk) render the form **empty with `isLoading: true` on both sides**, so hydration matches; the values land client-side after the fetch. Pass the server-resolved record instead to hydrate eagerly.
 - The structural-equivalence sync guard (see [useForm](../api/use-form.md)) also applies after hydration: a re-render passing an inline literal with equal content never re-syncs, so user edits survive.

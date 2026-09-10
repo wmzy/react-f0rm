@@ -173,12 +173,12 @@
   "size-limit": [
     {
       "path": "dist/index.mjs",
-      "limit": "12 KB",
+      "limit": "12.5 KB",
       "ignore": ["@for-fun/event-emitter"]
     },
     {
       "path": "dist/index.mjs",
-      "limit": "13 KB",
+      "limit": "13.5 KB",
       "gzip": true,
       "ignore": ["@for-fun/event-emitter"]
     },

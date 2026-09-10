@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - 'docs-site/**'
+      - 'src/**'
+      - 'stories/**'
+      - '.storybook/**'
   workflow_dispatch:
 
 permissions:
@@ -37,6 +40,14 @@ jobs:
 
       - name: Build docs
         run: npm run docs:build
+
+      - name: Build Storybook
+        run: npm run build-storybook
+
+      - name: Publish Storybook under the docs site
+        run: |
+          mkdir -p docs-site/build
+          cp -r storybook-static docs-site/build/storybook
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v4

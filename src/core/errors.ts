@@ -105,6 +105,32 @@ export function getErrors({errors}: Form): FieldErrorEntry[] {
 }
 
 /**
+ * Convert a {@link FieldPath} string to the key form error records use at
+ * runtime: paths spell array access with brackets ('items[0].name') while
+ * {@link getErrorsRecord} keys are dot-joined segments ('items.0.name').
+ * The declared keys follow the runtime, so typed reads
+ * (`errors['items.0.name']`) match what the record actually holds. Quoted
+ * segments ('items["0"]') drop their quotes like the parser does.
+ */
+type DottedPath<P extends string> = P extends `${infer H}[${infer N}]${infer R}`
+  ? `${H extends '' ? '' : `${H}.`}${N extends `"${infer K}"` | `'${infer K}'` ? K : N}${DottedPath<R>}`
+  : P;
+
+/**
+ * Every error as one record keyed by user-facing dotted path, typed
+ * against the values shape — react-hook-form's `FieldErrors<T>` shape
+ * (per-key values are optional there too). Keys follow the runtime form:
+ * dotted paths ('a.b', 'list.0'), plus the {@link FORM_ERROR} slot for
+ * form-level errors. Values are the stored FieldError[] arrays shared
+ * with the form, so treat the whole result as read-only.
+ */
+export type FieldErrors<T extends Record<string, any> = any> = Partial<
+  Record<DottedPath<Extract<FieldPath<T>, string>>, FieldError[]>
+> & {
+  [FORM_ERROR]?: FieldError[];
+};
+
+/**
  * Get every error as one record keyed by user-facing dotted path
  * ('a.b', 'list.0') — react-hook-form's `formState.errors` shape. Values
  * are the stored FieldError[] arrays shared with the form, so treat the
@@ -116,7 +142,9 @@ export function getErrors({errors}: Form): FieldErrorEntry[] {
  *
  * @param form
  */
-export function getErrorsRecord(form: Form): Record<string, FieldError[]> {
+export function getErrorsRecord<T extends Record<string, any> = any>(
+  form: Form<T>
+): FieldErrors<T> {
   const cached = errorsCaches.get(form);
   if (cached && cached.version === 0) return cached.result;
   const result: Record<string, FieldError[]> = {};

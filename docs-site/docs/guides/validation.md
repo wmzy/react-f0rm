@@ -347,3 +347,86 @@ async function onSubmit(values) {
 - The message renders through the normal machinery (`renderError`, `useError`, `aria-invalid`/`aria-describedby` — see [Field API](../api/field.md#error-rendering--accessibility)), so client and server errors are indistinguishable downstream except by `type`.
 
 The requirement on the API layer is just to keep the structured errors around instead of joining them into one sentence — map the non-2xx body (`{errors: {...}}`) to an error object carrying it (`e.data.errors` above).
+
+## Programmatic Writes (`setValue` options)
+
+The fourth argument to `setValue` opts into side effects. `shouldValidate`/`shouldTouch` default to `false`:
+
+```tsx
+setValue(form, 'email', 'a@b.com', {
+  shouldValidate: true, // run the field's registered validator after the value lands
+  shouldTouch: true,    // mark the field as touched
+  shouldDirty: false    // commit: the value becomes the field's dirty baseline
+});
+```
+
+Dirty state is derived, not marked — a field is dirty while its live value differs from `initialValues`. `shouldDirty: false` declares the write a **commit instead of an edit**: `getDirtyFields`/`isDirty`/`getFieldState().isDirty` read the field as clean immediately, and a later write dirties it only by differing from the new baseline. Use it for programmatic writes that are not user input — normalized values, autofill, defaults applied after mount. Committed baselines follow the lifecycle: `reset`, `setInitialValues`, `resetField`/`removeField` drop them, and a wholesale ancestor write (a `useFieldArray` rewrite) drops baselines beneath it.
+
+The value may also be an updater receiving the current value (TanStack `setFieldValue` contract): `setValue(form, 'count', c => c + 1)`. The tradeoff: a function can never itself be stored as a value through `setValue`.
+
+## Writing as a User Change (`changeValue`)
+
+`setValue`'s `shouldValidate` kicks the validator unconditionally, ignoring any mode. `changeValue` is the user-change channel: the write rides the same pipeline typing fires (`userChangeByPath` + the field-mode registry), so exactly the validation a user would trigger runs — the field's effective `mode` (per-field override included) and the form's `reValidateMode`:
+
+```tsx
+changeValue(form, 'email', 'a@b.com'); // quiet on an 'onSubmit' form, re-validates
+                                       // once errored (default reValidateMode)
+```
+
+This is the channel component libraries need for a controlled bridge over `useField`'s value (a `Control` component): mode gating lives in the core's pipeline, so the write must route through it rather than a raw `setValue`. It takes the same options object; with a mounted field `shouldDirty: false` still commits, `shouldValidate`/`shouldTouch` have no meaning there (forcing them would defeat the gating). With no mounted field it degrades to a plain `setValue` and forwards the options wholesale.
+
+## The Form-level Error Slot (`FORM_ERROR`)
+
+Errors that belong to no single field land under the reserved `_form` key — a form-level `validate` may return a `_form` entry, and the Standard Schema adapter drops every path-less issue there. The magic string is exported:
+
+```tsx
+import {FORM_ERROR, useFormError, useFormErrors} from 'react-f0rm';
+
+function FormErrorBanner({form}: {form: Form}) {
+  const error = useFormError(form); // first form-level error's message
+  return error ? <p role='alert'>{error}</p> : null;
+}
+```
+
+`useFormError(form)` reads the slot's first message; `useFormErrors(form)` reads every error stored under the key. The imperative twins are `getError(form, FORM_ERROR)` / `getFieldErrors(form, FORM_ERROR)`, writes go through the same `setError(form, FORM_ERROR, …)` every field uses, and `FieldErrors<T>` types the slot on `useErrors`/`useFormState().errors`.
+
+## Field-to-field Linkage (`validateDeps` on `useField`)
+
+The form-level `validateDeps` shape exists per field: list the **other** fields whose user changes re-run **this field's validator** — for cross-field rules you want as field errors (queryable via `getError`, renderable by `renderError`) without a form-level validate:
+
+```tsx
+const form = useForm({
+  initialValues: {password: '', passwordConfirm: ''}
+});
+
+function PasswordConfirmField() {
+  const {value, onChange, error} = useField({
+    form,
+    name: 'passwordConfirm',
+    validate: v => (v === getValue(form, 'password') ? undefined : 'Passwords do not match'),
+    validateDeps: ['password']
+  });
+  // ...
+}
+```
+
+The re-run semantics mirror the form-level option (same channel, same mode matrix — see the table above): user changes only (`setValue` never fires it), a passing re-run clears the error (a field validator owns its whole key), `validateDebounce` applies, and listing the field's own path is a no-op.
+
+## `trigger` and Touched Marking
+
+The third argument opts into touched marking: `trigger(form, name, {shouldTouch: true})` marks every path in the triggered scope — the given names, or all registered fields when `name` is omitted — as touched once the round settles, whether validation passed or failed (react-hook-form's `trigger` semantics). Omitted, `trigger` stays validate-only.
+
+## Schema Defaults
+
+Standard Schema v1 carries no default-value metadata — whether a field declares a default, and how to read it, is vendor territory (zod's `getDefault()`, valibot's `getDefault` util), and react-f0rm reads schemas only through `~standard.validate`. So `initialValues` derived from a schema is deliberately not a library feature: pass `initialValues` explicitly.
+
+What you get for free: defaults flow through `validate`. After the first successful validation the `parsedValues` baseline already serves them — `getValues()` reads `z.string().default('anon')` fields as `'anon'` without seeding. The gap is only the render before the first validation round; a vendor-neutral one-shot recipe closes it:
+
+```tsx
+// One parse of an empty object materializes every declared default.
+const result = schema['~standard'].validate({});
+const initialValues = result.issues ? {} : result.value;
+
+const form = useForm({initialValues, validate: standardSchemaFormValidator(schema)});
+```
+

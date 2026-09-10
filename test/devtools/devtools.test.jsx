@@ -212,13 +212,13 @@ describe('Devtools', () => {
 
     // ArrowLeft from the first tab wraps around to the last one.
     await user.keyboard('{ArrowLeft}');
-    const dirtyTab = screen.getByRole('tab', {name: /dirty/i});
-    expect(dirtyTab.getAttribute('aria-selected')).toBe('true');
-    expect(document.activeElement).toBe(dirtyTab);
+    const submitsTab = screen.getByRole('tab', {name: /submits/i});
+    expect(submitsTab.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(submitsTab);
 
     // Non-arrow keys leave the selection alone.
     await user.keyboard('x');
-    expect(dirtyTab.getAttribute('aria-selected')).toBe('true');
+    expect(submitsTab.getAttribute('aria-selected')).toBe('true');
   });
 
   it('shows empty-state placeholders on the errors, touched and dirty tabs', async () => {
@@ -296,6 +296,44 @@ describe('Devtools', () => {
     expect(
       document.querySelectorAll('#react-f0rm-devtools-style')
     ).toHaveLength(1);
+  });
+
+  it('traces a failed submit attempt with outcome, errors and values', async () => {
+    const user = userEvent.setup();
+    const form = createForm({initialValues: {name: ''}});
+    form.validators.set('["name"]', () => setError(form, 'name', 'required'));
+    renderDevtools(form);
+
+    await act(async () => {
+      await handleSubmit(form, {})();
+    });
+
+    const submitsTab = screen.getByRole('tab', {name: /submits/i});
+    expect(submitsTab.textContent).toMatch(/1/);
+    await user.click(submitsTab);
+    expect(screen.getByText('#1')).toBeTruthy();
+    expect(screen.getByText('failed')).toBeTruthy();
+    // The trace entry opens to the attempt's errors and final values.
+    await user.click(screen.getByText('#1'));
+    expect(screen.getByText('required')).toBeTruthy();
+  });
+
+  it('records a successful attempt as ok', async () => {
+    const user = userEvent.setup();
+    const form = createForm({initialValues: {name: 'x'}});
+    renderDevtools(form);
+
+    await act(async () => {
+      await handleSubmit(form, {})();
+    });
+
+    await user.click(screen.getByRole('tab', {name: /submits/i}));
+    // The status strip also carries an 'ok' label — scope the assertion
+    // to the trace entry's summary.
+    expect(screen.getByText('#1')).toBeTruthy();
+    const entry = screen.getByText('#1').parentElement;
+    expect(entry.textContent).toMatch(/ok/);
+    expect(entry.textContent).not.toMatch(/failed/);
   });
 
   // The no-DOM branch (injectDevtoolsStyles' SSR guard) is covered in

@@ -160,3 +160,36 @@ const MyInput = React.forwardRef(function MyInput({ value, onChange, ...props },
 const ref = useRef();
 <Field name='email' as={MyInput} ref={ref} />
 ```
+
+## The Built-in `Select`
+
+`Select` is a controlled `<select>` with the options as children. A single select stores the selected option's value as a string; `multiple` stores the selected options' values as a string array:
+
+```tsx
+import {Select} from 'react-f0rm';
+
+<Select name='country'>
+  <option value='cn'>China</option>
+  <option value='jp'>Japan</option>
+</Select>
+
+<Select name='tags' multiple>
+  <option value='a'>Tag A</option>
+  <option value='b'>Tag B</option>
+</Select>
+```
+
+## File Inputs
+
+The DOM keeps `<input type='file'>`'s `value` read-only — it holds a fake path string and throws if you assign to it, so the control cannot be driven like other inputs. The controlled model adapts by storing the selection itself: leave the input uncontrolled and commit the chosen `File` on change:
+
+```tsx
+function AvatarPicker() {
+  const {onChange} = useField({name: 'avatar'});
+  return <input type='file' accept='image/*' onChange={e => onChange(e.target.files?.[0])} />;
+}
+// getValues(form).avatar is now the File itself — ready for the request
+// body (FormData/multipart), no DOM read needed. `<Field type='file'>`
+// wires the same behavior internally (no `value` prop ever).
+```
+

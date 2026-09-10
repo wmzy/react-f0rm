@@ -9,7 +9,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Guides',
-      items: ['guides/validation', 'guides/field-arrays', 'guides/submission', 'guides/sub-forms', 'guides/react19-server-actions', 'guides/ssr', 'guides/typescript', 'guides/custom-components', 'guides/ui-integration', 'guides/testing'],
+      items: ['guides/validation', 'guides/field-arrays', 'guides/submission', 'guides/sub-forms', 'guides/react19-server-actions', 'guides/ssr', 'guides/typescript', 'guides/custom-components', 'guides/ui-integration', 'guides/testing', 'guides/hooks-reference', 'guides/headless-react-native'],
     },
     {
       type: 'category',
@@ -19,12 +19,12 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Examples',
-      items: ['examples/basic', 'examples/dynamic'],
+      items: ['examples/basic', 'examples/dynamic', 'examples/real-world-form'],
     },
     {
       type: 'category',
       label: 'Migration',
-      items: ['migration/from-formik', 'migration/from-react-hook-form', 'migration/from-tanstack-form'],
+      items: ['migration/from-formik', 'migration/from-react-hook-form', 'migration/from-tanstack-form', 'migration/breaking-changes'],
     },
   ],
 };

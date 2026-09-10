@@ -1,6 +1,7 @@
 import * as React from 'react';
-import {useContext, useId, useState} from 'react';
+import {useContext, useEffect, useId, useState} from 'react';
 import type {KeyboardEvent} from 'react';
+import {on} from '../emitter';
 import {FormContext} from '../context';
 import {getErrors, getValues, reset, trigger} from '../form';
 import type {FieldErrorEntry, Form} from '../form';
@@ -29,9 +30,20 @@ export type DevtoolsProps<T extends Record<string, any> = any> = {
   position?: DevtoolsPosition;
 };
 
-type TabId = 'values' | 'errors' | 'touched' | 'dirty';
+type TabId = 'values' | 'errors' | 'touched' | 'dirty' | 'submits';
 
-const TABS: TabId[] = ['values', 'errors', 'touched', 'dirty'];
+const TABS: TabId[] = ['values', 'errors', 'touched', 'dirty', 'submits'];
+
+/** One completed submit attempt, snapshotted when `isSubmitting` flips
+ * back to false — the outcome, final (schema-coerced) values and errors
+ * are all settled by then (submit.ts lands them before the flip). */
+type SubmitTrace = {
+  n: number;
+  ok: boolean | undefined;
+  at: number;
+  values: unknown;
+  errors: FieldErrorEntry[];
+};
 
 /** Status chip class for the submit-successful indicator. */
 function submitStatusClass(
@@ -54,8 +66,9 @@ function countLeaves(value: unknown): number {
 /**
  * Live form inspector — a floating instrument panel for development.
  *
- * Renders four tabs (values / errors / touched / dirty), a submit status
- * strip (isSubmitting, submitCount, isSubmitSuccessful) and two actions:
+ * Renders five tabs (values / errors / touched / dirty / submits — the
+ * last a per-attempt trace of outcome, final values and errors), a submit
+ * status strip (isSubmitting, submitCount, isSubmitSuccessful) and two actions:
  * Reset and Validate (full `trigger`). All state is read through the
  * library's own watch hooks, so the panel updates in real time without
  * participating in validation or submit flows. Docked at a corner,
@@ -102,6 +115,35 @@ export default function Devtools<T extends Record<string, any> = any>({
     () => f.isSubmitSuccessful
   );
 
+  // Submit traces: each completed attempt (the 'submitting' emit carrying
+  // isSubmitting=false) is snapshotted once — outcome, values and errors,
+  // kept capped at the 10 most recent attempts, newest first. The push is
+  // deferred one microtask because the failed path flips isSubmitting
+  // before isSubmitSuccessful; by microtask time the attempt's state is
+  // final. setState from an event-driven callback, never from the effect
+  // body or during render.
+  const [submits, setSubmits] = useState<SubmitTrace[]>([]);
+  useEffect(() => {
+    return on(f.emitter, 'submitting', () => {
+      if (f.isSubmitting) return;
+      queueMicrotask(() => {
+        if (f.isSubmitting || f.submitCount === 0) return;
+        setSubmits(prev =>
+          [
+            {
+              n: f.submitCount,
+              ok: f.isSubmitSuccessful,
+              at: Date.now(),
+              values: getValues(f),
+              errors: getErrors(f)
+            },
+            ...prev
+          ].slice(0, 10)
+        );
+      });
+    });
+  }, [f]);
+
   if (!open) {
     return (
       <button
@@ -123,7 +165,8 @@ export default function Devtools<T extends Record<string, any> = any>({
     values: countLeaves(values),
     errors: errors.length,
     touched: touched.length,
-    dirty: Object.keys(dirty).length
+    dirty: Object.keys(dirty).length,
+    submits: submits.length
   };
 
   /** Arrow-key tab navigation (buttons stay click/Enter/Space operable). */
@@ -226,6 +269,40 @@ export default function Devtools<T extends Record<string, any> = any>({
                   changed
                 </span>
               </div>
+            ))
+          ))}
+        {tab === 'submits' &&
+          (submits.length === 0 ? (
+            <p className="rf0-dt-empty">no submits yet</p>
+          ) : (
+            submits.map(trace => (
+              <details key={`${trace.n}-${trace.at}`} className="rf0-dt-submit">
+                <summary className="rf0-dt-submit-summary">
+                  <span className="rf0-dt-submit-n">#{trace.n}</span>
+                  <span className={submitStatusClass(trace.ok)}>
+                    {trace.ok === true
+                      ? 'ok'
+                      : trace.ok === false
+                        ? 'failed'
+                        : '–'}
+                  </span>
+                  <span className="rf0-dt-submit-time">
+                    {new Date(trace.at).toLocaleTimeString()}
+                  </span>
+                </summary>
+                {trace.errors.length > 0 && (
+                  <div className="rf0-dt-submit-errors">
+                    {trace.errors.map(({path, type, message}, index) => (
+                      <div key={`${path}:${index}`} className="rf0-dt-item">
+                        <span className="rf0-dt-item-path">{path}</span>
+                        <span className="rf0-dt-item-msg">{message}</span>
+                        <span className="rf0-dt-item-tag">{type}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <JsonTree value={trace.values} />
+              </details>
             ))
           ))}
       </div>

@@ -22,7 +22,8 @@ import useForm, {
   useFormState,
   useIsValid,
   useIsLoading,
-  useWatch
+  useWatch,
+  useStore
 } from '../../src/hooks/form';
 import createForm, {
   FORM_ERROR,
@@ -1203,6 +1204,51 @@ describe('useFormState', () => {
     expect(result.current.isSubmitting).toBe(true);
     act(() => setIsSubmitting(form, false));
     expect(result.current.isSubmitting).toBe(false);
+  });
+});
+
+describe('useStore', () => {
+  it('keeps the projection live across every state event', () => {
+    const form = createForm({initialValues: {a: 'x'}});
+    const {result} = renderHook(() =>
+      useStore(form, () => ({a: getValue(form, 'a')}))
+    );
+    expect(result.current).toEqual({a: 'x'});
+    act(() => setValue(form, 'a', 'y'));
+    expect(result.current).toEqual({a: 'y'});
+  });
+
+  it('recomputes on every event without a comparator (fresh references)', () => {
+    const form = createForm({initialValues: {a: 'x'}});
+    const {result} = renderHook(() =>
+      useStore(form, () => ({a: getValue(form, 'a')}))
+    );
+    const first = result.current;
+    // Same-value write still emits: the Object.is bailout cannot hold a
+    // fresh reference, so the snapshot swaps (re-render happens).
+    act(() => setValue(form, 'a', 'x'));
+    expect(result.current).not.toBe(first);
+    expect(result.current).toEqual({a: 'x'});
+  });
+
+  it('skips the render entirely while the projection is equal under isEqual', () => {
+    const form = createForm({initialValues: {a: 'x', b: 'y'}});
+    const selector = () => ({a: getValue(form, 'a')});
+    let renders = 0;
+    const {result} = renderHook(() => {
+      renders += 1;
+      return useStore(form, selector, (prev, next) => prev.a === next.a);
+    });
+    expect(result.current).toEqual({a: 'x'});
+    const before = renders;
+    // Unrelated write: the projection is observably equal — no render at
+    // all, not even a bailed-out one (TanStack useSelector contract).
+    act(() => setValue(form, 'b', 'z'));
+    expect(renders).toBe(before);
+    expect(result.current).toEqual({a: 'x'});
+    act(() => setValue(form, 'a', 'x2'));
+    expect(renders).toBeGreaterThan(before);
+    expect(result.current).toEqual({a: 'x2'});
   });
 });
 

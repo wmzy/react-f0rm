@@ -3,6 +3,7 @@ import {render, screen, act, fireEvent} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import Form from '../../src/components/Form';
+import {useFormContext} from '../../src/context';
 import {
   Field,
   Checkbox,
@@ -919,5 +920,65 @@ describe('Field uncontrolled DOM sync', () => {
     await user.type(input, 'hello world');
     expect(renders).toBe(before);
     expect(input.value).toBe('hello world');
+  });
+});
+
+describe('Field native validation gate', () => {
+  it('skips the custom validator on a native-failing kick by default', async () => {
+    const user = userEvent.setup();
+    const validate = vi.fn();
+    const form = createForm({initialValues: {email: 'x'}, mode: 'onChange'});
+    render(
+      <Form form={form}>
+        <Field name="email" required validate={validate} />
+      </Form>
+    );
+    const input = screen.getByRole('textbox');
+    // jsdom's constraint implementation is thin — pin the element's
+    // verdict directly, exactly what the gate consults.
+    const checkValidity = vi.fn(() => false);
+    input.checkValidity = checkValidity;
+    await user.clear(input);
+    expect(checkValidity).toHaveBeenCalled();
+    expect(validate).not.toHaveBeenCalled();
+  });
+
+  it('runs the custom validator when the form flag is false', async () => {
+    const user = userEvent.setup();
+    const validate = vi.fn(v => (v ? undefined : 'required'));
+    const form = createForm({
+      initialValues: {email: 'x'},
+      mode: 'onChange',
+      shouldUseNativeValidation: false
+    });
+    render(
+      <Form form={form}>
+        <Field name="email" required validate={validate} />
+      </Form>
+    );
+    const input = screen.getByRole('textbox');
+    const checkValidity = vi.fn(() => false);
+    input.checkValidity = checkValidity;
+    await user.clear(input);
+    // The gate never consulted the DOM; the custom validator owns the kick.
+    expect(checkValidity).not.toHaveBeenCalled();
+    expect(validate).toHaveBeenCalledWith('', expect.anything());
+  });
+
+  it('seeds the internally created form from the <Form> prop', () => {
+    function Probe() {
+      const form = useFormContext();
+      return (
+        <span data-testid="probe">
+          {String(form.shouldUseNativeValidation)}
+        </span>
+      );
+    }
+    render(
+      <Form initialValues={{}} shouldUseNativeValidation={false}>
+        <Probe />
+      </Form>
+    );
+    expect(screen.getByTestId('probe').textContent).toBe('false');
   });
 });

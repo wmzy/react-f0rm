@@ -59,3 +59,30 @@ setValue(form, 'user.name', 'Ann');  // value must be a string
 ```
 
 Paths accept dot notation for object keys and bracket subscripts for array indices (`'user.name'`, `'tags[0]'`). Numeric segments are bracket-only: dotted `'tags.0'` throws a `TypeError` at runtime (the message suggests the bracket spelling) and is not a `FieldPath` member. Quoted subscripts (`a['b c']`, and `items["0"]` to explicitly name a string key rather than an index) are supported by the runtime path parser but are not enumerated by `FieldPath`. When `T` is `any` (the default), paths fall back to plain `string` and values to `any`, so untyped usage keeps working.
+
+## Typed Errors (`FieldErrors<T>`)
+
+`useErrors(form)` and `useFormState(form).errors` return `FieldErrors<T>` — react-hook-form's typed `formState.errors` counterpart. Keys are resolved from the values shape (per-key values are `FieldError[] | undefined`), and they follow the **runtime** key form: dot-joined dotted paths, arrays included — `'user.name'`, `'tags.0'` (the record joins segments with dots, so bracket spelling `'tags[0]'` is not a record key). The reserved `_form` slot for form-level errors is typed too:
+
+```tsx
+const errors = useErrors(form); // FieldErrors<Values>
+
+errors.email;              // FieldError[] | undefined — typo'd keys fail at compile time
+errors['tags.0'];          // array rows use the dotted form
+errors['_form'];           // the FORM_ERROR slot
+```
+
+## Opaque Leaves (`OpaqueTypes`)
+
+Date/Dayjs/class-instance values are values, not field trees — but structurally they are objects, so path recursion would descend into them. The opt-in registry stops it (react-hook-form 7.87's same-named registry):
+
+```tsx
+declare module 'react-f0rm' {
+  interface OpaqueTypes {
+    dayjs: Dayjs;
+  }
+}
+
+// 'createdAt' is now a leaf: 'createdAt.year' is not a FieldPath and
+// PathValue<Values, 'createdAt'> resolves to Dayjs.
+```
