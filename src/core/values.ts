@@ -1,5 +1,5 @@
 import {emit} from '../emitter';
-import createPath from '../path';
+import createPath, {segmentsFromKey} from '../path';
 import type {Name, Path, PathSegments} from '../path';
 import type {FieldPath, PathValueOf} from '../types';
 import {freezeValues, get, isEqual, setOwned, unset} from '../util';
@@ -71,7 +71,7 @@ function computeValues(form: Form): any {
   const owned = new Set<object>();
   let merged = parsedValues ?? initialValues;
   for (const [key, value] of values) {
-    merged = setOwned(merged, JSON.parse(key), value, owned);
+    merged = setOwned(merged, segmentsFromKey(key), value, owned);
   }
   // Unregistered fields leave a tombstone in `deleted`; remove those paths
   // from the merged result so they don't fall back to initialValues. unset
@@ -80,7 +80,7 @@ function computeValues(form: Form): any {
   // than writing undefined, which would leave `a: undefined` entries behind
   // in anything that spreads getValues().
   for (const key of deleted) {
-    merged = unset(merged, JSON.parse(key));
+    merged = unset(merged, segmentsFromKey(key));
   }
   // DEV-only: hand back a frozen snapshot (a clone — freezing the merged
   // tree in place would also freeze the initialValues/parsedValues
@@ -250,13 +250,6 @@ export function emitChangeByPath({emitter}: Form, path: Path): void {
   emit(emitter, 'change', path);
 }
 
-/** Per-form registry of mounted fields' validation-mode overrides: path
- * key -> the field's `mode` option (undefined = follow {@link Form.mode})
- * plus an owner token so competing mounts at one path clean up safely.
- * Presence of an entry is the "a field is mounted at this path" signal
- * that routes {@link changeValueByPath} into the gated user-change
- * pipeline ({@link userChangeByPath}). Held in a WeakMap so the Form
- * shape carries only plain state fields. */
 /** Snapshot of one field's aggregated state, as {@link getFieldState}
  * returns it. `errors` is the stored array shared with the form — treat it
  * as read-only, like every {@link getFieldErrors} result. */
@@ -557,7 +550,7 @@ export function reset(
     collectValueLeaves(getValues(form), [], keptValues);
   } else if (options?.keepDirtyValues) {
     for (const [key, value] of form.values) {
-      const segments = JSON.parse(key) as PathSegments;
+      const segments = segmentsFromKey(key);
       // Same predicate as getDirtyFields/forEachDirtyField: a live value
       // differing from its effective baseline (committed baselines read
       // clean and are not kept).
@@ -671,7 +664,3 @@ export function resetField<
   bumpDirtyVersion(form);
   bumpValuesVersion(form);
 }
-
-/**
- * @param form
- */

@@ -1,13 +1,13 @@
 import {useCallback, useEffect, useRef} from 'react';
 import {getValueByPath, userChangeByPath} from '../form';
 import type {Form} from '../form';
-import createPath from '../path';
 import type {PathSegments} from '../path';
 import type {FieldPath, PathValueOf} from '../types';
 import {isPromise} from '../util';
 import {onPathEvent} from '../subscribe';
 import {useWatchCore} from './form';
-import usePath from './path';
+import usePath, {pathFromKey} from './path';
+import useStage from './stage';
 
 /**
  * Options accepted by {@link useTransform}.
@@ -104,7 +104,7 @@ export default function useTransform<
       onPathEvent(
         form.emitter,
         'change',
-        createPath(JSON.parse(path.key) as PathSegments),
+        pathFromKey(path.key),
         'leaf',
         invalidate
       ),
@@ -120,10 +120,8 @@ export default function useTransform<
   // re-subscribing (the same pattern useValidate uses for its options).
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seqRef = useRef(0);
-  const fromDisplayRef = useRef(fromDisplay);
-  fromDisplayRef.current = fromDisplay;
-  const debounceRef = useRef(asyncDebounceMs ?? 0);
-  debounceRef.current = asyncDebounceMs ?? 0;
+  const fromDisplayRef = useStage(fromDisplay);
+  const debounceRef = useStage(asyncDebounceMs ?? 0);
   useEffect(
     () => () => {
       if (timerRef.current !== null) clearTimeout(timerRef.current);
@@ -162,7 +160,7 @@ export default function useTransform<
         run();
       }
     },
-    [form, path]
+    [form, path, fromDisplayRef, debounceRef]
   );
 
   return {value, onChange};

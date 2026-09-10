@@ -1,5 +1,5 @@
 import {emit} from '../emitter';
-import createPath from '../path';
+import createPath, {segmentsFromKey} from '../path';
 import type {Name, Path, PathSegments} from '../path';
 import type {FieldPath} from '../types';
 import type {Form} from '../form';
@@ -48,19 +48,13 @@ export function hasTouchedByPath({touched}: Form, path: Path): boolean {
 }
 
 /**
- * Is dirty -- any value differs from initialValues
- * @param form
- */
-/**
  * Get touched fields as user-facing dotted paths ('a.b', 'a.0.c'), unlike
  * the JSON array keys stored in the touched Set.
  * @param form
  * @return array of touched fields' dotted paths
  */
 export function getTouchedFields({touched}: Form): string[] {
-  return Array.from(touched, key =>
-    (JSON.parse(key) as PathSegments).join('.')
-  );
+  return Array.from(touched, key => segmentsFromKey(key).join('.'));
 }
 
 /**
@@ -70,21 +64,3 @@ export function getTouchedFields({touched}: Form): string[] {
 export function isTouched({touched}: Form): boolean {
   return touched.size > 0;
 }
-
-/**
- * Remove a field: by default its live value drops out of reads and
- * `getValues()` (the path is tombstoned, so it never falls back to
- * initialValues), its dirty baseline, touched flag and errors are cleared.
- * The keep-flags preserve slices of that state instead.
- *
- * @param form
- * @param name
- */
-/**
- * Options accepted by {@link removeField}. All flags default to `false` —
- * the historical remove semantics (value dropped, path tombstoned, dirty
- * baseline/touched/errors cleared). Names mirror react-hook-form's
- * `unregister` options to ease migration; RHF's `shouldValidate` and
- * `keepDefaultValue` have no counterparts (removal never validates, and
- * the tombstone is exactly the "do not revive from initialValues" choice).
- */

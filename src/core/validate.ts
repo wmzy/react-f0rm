@@ -6,6 +6,7 @@ import type {
   FieldError,
   FieldErrorEntry,
   Form,
+  ReValidateMode,
   ValidationMode,
   ValidateResult,
   ValidationOutcome
@@ -305,27 +306,29 @@ export function registerValidatorByPath(
       });
   };
 
+  /** Run the sync gate. When it fails and `asyncAlways` does not keep the
+   * validator in play, the gate owns the kick's outcome: drop any pending
+   * window or in-flight round and the validating mark, then report the
+   * kick short-circuited. */
+  const gateOwnsKick = (): boolean => {
+    if (!(runSync() && !registration.asyncAlways?.())) return false;
+    supersede();
+    unmark();
+    return true;
+  };
+
   /** A debounce window fired: the value may have drifted since the last
-   * kick (programmatic writes do not kick validators), so re-run the
-   * sync gate before spending the debounced validator on a value the
-   * gate already rejects. Under asyncAlways a failing gate does not own
-   * the outcome — the validator still runs and both verdicts land. */
+   * kick (programmatic writes do not kick validators), so the sync gate is
+   * re-run before spending the debounced validator on a value the gate
+   * already rejects. */
   const run = () => {
     timer = null;
-    if (runSync() && !registration.asyncAlways?.()) {
-      supersede();
-      unmark();
-      return;
-    }
+    if (gateOwnsKick()) return;
     runValidator();
   };
 
   const kick = () => {
-    if (runSync() && !registration.asyncAlways?.()) {
-      supersede();
-      unmark();
-      return;
-    }
+    if (gateOwnsKick()) return;
     if (!registration.validate()) return;
     const debounce = registration.debounce();
     if (debounce > 0) {
@@ -513,16 +516,11 @@ function setFormErrors(
       ...(isIndex(key) ? [key] : normalizePath(key))
     ];
     if (typeof value === 'string') {
-      if (value) {
-        setError(form, path, value);
-        recordFootprint(form, path, footprint);
-      }
+      if (value) landLeafError(form, path, value, footprint);
     } else if (Array.isArray(value)) {
-      setError(form, path, value);
-      recordFootprint(form, path, footprint);
+      landLeafError(form, path, value, footprint);
     } else if (isFieldError(value)) {
-      setError(form, path, value);
-      recordFootprint(form, path, footprint);
+      landLeafError(form, path, value, footprint);
     } else if (value && typeof value === 'object') {
       setFormErrors(form, value, path, footprint);
     }
@@ -543,6 +541,18 @@ function recordFootprint(
   const path = createPath(segments);
   const stored = form.errors.get(path.key);
   if (stored) footprint.set(path.key, stored);
+}
+
+/** Write a leaf error and record the stored array into the round's
+ * footprint — the pair every leaf write performs. */
+function landLeafError(
+  form: Form,
+  path: PathSegments,
+  error: string | FieldError | (string | FieldError)[],
+  footprint?: Map<string, FieldError[]>
+): void {
+  setError(form, path, error);
+  recordFootprint(form, path, footprint);
 }
 
 /**
@@ -812,6 +822,30 @@ function settleFormValidate(
   }
 }
 
+/** The mode/reValidateMode gate shared by the change- and blur-side
+ * validator kicks and both validateDeps re-runs. `cadence` is the
+ * triggering event's mode ('onChange' or 'onBlur'); `touched` says the
+ * changed field counts as touched (a blur always does); `hasError` (read
+ * lazily) reports whether a live error is on screen — whose error depends
+ * on the caller: the field's own, the form-level round's footprint, or a
+ * dependent's. Fires for the `cadence` and `'all'` modes, for
+ * `'onTouched'` once touched, and otherwise only when `reValidateMode`
+ * matches `cadence` and an error is still live. */
+export function shouldKick(
+  mode: ValidationMode,
+  cadence: 'onChange' | 'onBlur',
+  touched: boolean,
+  hasError: () => boolean,
+  reValidateMode: ReValidateMode
+): boolean {
+  return (
+    mode === cadence ||
+    mode === 'all' ||
+    (mode === 'onTouched' && touched) ||
+    (reValidateMode === cadence && hasError())
+  );
+}
+
 /**
  * Form-level twin of the gated validator kick in `useField`'s onChange:
  * re-run the form-level `validate` after a user change to a field listed
@@ -849,10 +883,13 @@ export function revalidateFormOnChange(
 ): void {
   if (!form.validateDeps?.has(path.key) || !form.validate) return;
   if (
-    mode === 'onChange' ||
-    mode === 'all' ||
-    (mode === 'onTouched' && hasTouchedByPath(form, path)) ||
-    (form.reValidateMode === 'onChange' && hasFormValidateErrors(form))
+    shouldKick(
+      mode,
+      'onChange',
+      hasTouchedByPath(form, path),
+      () => hasFormValidateErrors(form),
+      form.reValidateMode
+    )
   ) {
     runFormValidate(form).catch(() => {});
   }
@@ -944,10 +981,13 @@ export function revalidateDependentsOnChange(
     // validated it under the same gate.
     if (dependent === path.key) continue;
     if (
-      mode === 'onChange' ||
-      mode === 'all' ||
-      (mode === 'onTouched' && hasTouchedByPath(form, path)) ||
-      (form.reValidateMode === 'onChange' && form.errors.has(dependent))
+      shouldKick(
+        mode,
+        'onChange',
+        hasTouchedByPath(form, path),
+        () => form.errors.has(dependent),
+        form.reValidateMode
+      )
     ) {
       form.validators.get(dependent)?.();
     }

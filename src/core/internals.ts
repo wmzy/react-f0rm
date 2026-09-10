@@ -9,6 +9,16 @@ type ValuesCache = {version: number; result: any};
 
 export const valuesCaches: WeakMap<Form, ValuesCache> = new WeakMap();
 
+/** Increment a memo cache's `version` counter — the write half of the
+ * version-bump/read pattern that marks its result stale. */
+function bumpVersion<V extends {version: number}>(
+  map: WeakMap<Form, V>,
+  form: Form
+): void {
+  const cache = map.get(form);
+  if (cache) cache.version++;
+}
+
 /**
  * Invalidate `form`'s cached {@link getValues} result. Called at every
  * point that can change values, parsedValues or initialValues
@@ -17,8 +27,7 @@ export const valuesCaches: WeakMap<Form, ValuesCache> = new WeakMap();
  * the next write.
  */
 export function bumpValuesVersion(form: Form): void {
-  const cache = valuesCaches.get(form);
-  if (cache) cache.version++;
+  bumpVersion(valuesCaches, form);
 }
 
 /** Per-form memoization of {@link getErrorsRecord} /
@@ -42,40 +51,9 @@ export const errorsCaches: WeakMap<Form, ErrorsCache> = new WeakMap();
  * error drops. A no-op until the first read installed a cache entry.
  */
 export function bumpErrorsVersion(form: Form): void {
-  const cache = errorsCaches.get(form);
-  if (cache) cache.version++;
+  bumpVersion(errorsCaches, form);
 }
 
-/**
- * Get form values: the values Map layered over parsedValues (when a schema
- * validation produced them) layered over initialValues.
- *
- * Merged with copy-on-write ownership tracking ({@link setOwned}): every
- * distinct container on a written path is allocated once and shared by all
- * paths through it, instead of re-copying the whole branch for every key.
- * One owned set spans the whole merge, so containers borrowed from the
- * parsedValues tree are copied before mutation exactly like initialValues
- * ones. The result is a freshly merged tree per mutation, with untouched
- * branches sharing references with the baseline exactly like chained
- * `set` did.
- *
- * Memoized per form like {@link getDirtyFields}: every value write bumps a
- * `version` counter ({@link bumpValuesVersion}) while reads reset it, so
- * consecutive reads hand back the same reference (submit, changeValue and
- * form-level validate all read the whole tree, often several times per
- * interaction). Treat the result as read-only — the next read after a
- * write returns a fresh tree, but between writes the cached one is shared
- * with every other reader.
- *
- * parsedValues is the schema's complete output tree: once validation
- * succeeds it replaces the initialValues baseline (fields the schema
- * dropped disappear), while live edits in the values Map still win over
- * both. It never affects dirty state — {@link isDirty} and
- * {@link getDirtyFields} compare live edits against initialValues only,
- * because parsing is not a user edit.
- *
- * @param form
- */
 /** Per-path dirty-comparison baselines installed by writes with
  * `shouldDirty: false`: the written value becomes that field's baseline —
  * the write reads as a commit, not an edit. Module-private (like
@@ -144,8 +122,7 @@ export const dirtyFieldsCaches: WeakMap<Form, DirtyFieldsCache> = new WeakMap();
  * re-renders.
  */
 export function bumpDirtyVersion(form: Form): void {
-  const cache = dirtyFieldsCaches.get(form);
-  if (cache) cache.version++;
+  bumpVersion(dirtyFieldsCaches, form);
 }
 /** Numbers only occur inside a segments path (`['a', 0]`), never as
  * standalone names, so a top-level number marks `name` as one single path
@@ -165,16 +142,6 @@ export function isFieldError(value: any): value is FieldError {
   );
 }
 
-/**
- * Flatten a form-level validate result and write each leaf error through
- * setError. Nested objects descend into deeper paths ({a: {b: 'msg'}} sets
- * the 'a.b' error), array values contribute every non-empty string they
- * hold as separate errors (zod flatten() formErrors style), and
- * FieldError-shaped objects are stored as-is. Falsy values are skipped.
- *
- * When `footprint` is passed (validateDeps forms only), every leaf this
- * round actually stored is recorded into it — the exact stored array —
- * so the next round can drop exactly what this one wrote.
 /** Store a schema validator's parsed output as the getValues baseline
  * layer above initialValues. Payload-less 'change' notifies value
  * watchers (useValue, useDirtyFields, ...); dirty state is untouched —
@@ -189,20 +156,3 @@ export function setParsedValues(form: Form, values: any): void {
   bumpValuesVersion(form);
   emit(form.emitter, 'change');
 }
-
-/**
- * Land a form-level validate result. A plain record keeps the
- * long-standing behavior — flattened into field errors by
- * {@link setFormErrors}. A branded {@link ValidationOutcome} splits
- * instead: `errors` flattens exactly like a plain record, and `values`
- * (the schema's parsed output — coerced/transformed values included)
- * becomes the form's parsedValues baseline. Falsy results are skipped,
- * branded or not.
- *
- * Forms that opted into `validateDeps` additionally get round-scoped
- * error ownership: before the new result lands, the errors the previous
- * round wrote are dropped ({@link clearFormValidateErrors}), so a re-run
- * that passes makes the cross-field error disappear — and the new
- * round's own writes become the tracked footprint. Forms without the
- * option keep the historical write-only behavior untouched.
- */

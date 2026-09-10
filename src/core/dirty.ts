@@ -1,4 +1,5 @@
-import type {Path, PathSegments} from '../path';
+import {segmentsFromKey} from '../path';
+import type {Path} from '../path';
 import type {Form} from '../form';
 import {dirtyFieldsCaches, getDirtyBaseline} from './internals';
 
@@ -32,16 +33,10 @@ export function isDirty(form: Form): boolean {
 
 function forEachDirtyField(form: Form, fn: (dottedKey: string) => void): void {
   for (const [key, value] of form.values) {
-    const path = JSON.parse(key) as PathSegments;
+    const path = segmentsFromKey(key);
     if (getDirtyBaseline(form, key, path) !== value) fn(path.join('.'));
   }
 }
-
-/** Per-path dirty-comparison baselines installed by writes with
- * `shouldDirty: false`: the written value becomes that field's baseline —
- * the write reads as a commit, not an edit. Module-private (like
- * {@link dirtyFieldsCaches}) so the Form shape is untouched for forms that
- * never opt in. */
 
 function computeDirtyFields(form: Form): Record<string, boolean> {
   const dirtyFields: Record<string, boolean> = {};
@@ -84,10 +79,3 @@ export function getDirtyFields(form: Form): Record<string, boolean> {
   }
   return cache.result;
 }
-
-/**
- * Get touched fields as user-facing dotted paths ('a.b', 'a.0.c'), unlike
- * the JSON array keys stored in the touched Set.
- * @param form
- * @return array of touched fields' dotted paths
- */

@@ -24,7 +24,7 @@ import type {FieldPath, PathValueOf} from '../types';
 import {hasRuleConstraints, rulesToValidator} from '../rules';
 import type {FieldRules} from '../rules';
 import {errorIdFromKey} from '../errorId';
-import {extractEventValue, isPromise} from '../util';
+import {eventToValueOrDefault, isPromise} from '../util';
 import {
   hasDisabledAncestor,
   registerFieldDisabled,
@@ -32,12 +32,10 @@ import {
 } from '../core/disabled';
 import {useWatchCore} from './form';
 import {onKeyEvent, onPathEvent} from '../subscribe';
-import usePath from './path';
+import usePath, {pathFromKey} from './path';
 import useValidate from './validate';
 import type {Validator} from './validate';
-import {removeFieldForUnmount, restoreRemovedField} from '../core/unmount';
-import type {RemovedFieldSnapshot} from '../core/unmount';
-import useStage, {useStageFn, useUnmountRestore} from './stage';
+import useStage, {useStageFn, useUnmountFieldRemoval} from './stage';
 
 /** Dev-only flag, replaced at build time (rollup.config.js `replace`);
  * defined for the test environment in vitest.config.ts. */
@@ -383,7 +381,7 @@ function useDelayedErrors(
     (invalidate: () => void) => {
       // Rebuild the Path from its key so the callback never captures the
       // render-scope `path` object — the subscription pins on the key.
-      const spath = createPath(JSON.parse(path.key) as PathSegments);
+      const spath = pathFromKey(path.key);
       const clearTimer = () => {
         if (timerRef.current !== null) {
           clearTimeout(timerRef.current);
@@ -606,7 +604,7 @@ export function useFieldCore<
           : onPathEvent(
               form.emitter,
               'change',
-              createPath(JSON.parse(path.key) as PathSegments),
+              pathFromKey(path.key),
               'leaf',
               invalidate
             ),
@@ -641,7 +639,7 @@ export function useFieldCore<
         onPathEvent(
           form.emitter,
           'disabled',
-          createPath(JSON.parse(path.key) as PathSegments),
+          pathFromKey(path.key),
           'branch',
           invalidate
         ),
@@ -659,7 +657,7 @@ export function useFieldCore<
   // never declares the option registers nothing.
   const disabledTokenRef = useRef<object | null>(null);
   useEffect(() => {
-    const spath = createPath(JSON.parse(path.key) as PathSegments);
+    const spath = pathFromKey(path.key);
     const registration = registerFieldDisabled(form, spath, disabled);
     if (registration) disabledTokenRef.current = registration.token;
     return () => {
@@ -686,7 +684,7 @@ export function useFieldCore<
   // mode. That is almost always a bug (a stray duplicate name, a remount
   // racing the old instance) — say so in DEV.
   useEffect(() => {
-    const spath = createPath(JSON.parse(path.key) as PathSegments);
+    const spath = pathFromKey(path.key);
     const {token, displaced} = registerFieldMode(form, spath, modeOption);
     if (__DEV__ && displaced) {
       // eslint-disable-next-line no-console -- the whole point of this branch
@@ -760,7 +758,7 @@ export function useFieldCore<
   // payload-carrying emits (typing, setValue), so bulk operations pay one
   // iteration over the registered cells and keystrokes pay one branch.
   useEffect(() => {
-    const spath = createPath(JSON.parse(path.key) as PathSegments);
+    const spath = pathFromKey(path.key);
     let entry = uncontrolledSyncRegistry.get(form);
     if (!entry) {
       const cells = new Map<string, () => {el: any; path: Path}>();
@@ -793,17 +791,7 @@ export function useFieldCore<
   // default (tombstone). The removal snapshots first and a setup that
   // immediately follows the cleanup (StrictMode's dev
   // setup→cleanup→setup cycle) restores it — see useUnmountRestore.
-  const removalSnapshotRef = useRef<RemovedFieldSnapshot | null>(null);
-  const teardownOnUnmount = useStageFn(() => {
-    if ((shouldUnregister ?? form.shouldUnregister) === false) return;
-    removalSnapshotRef.current = removeFieldForUnmount(form, path);
-  });
-  const restoreAfterStrictMode = useStageFn(() => {
-    const snapshot = removalSnapshotRef.current;
-    removalSnapshotRef.current = null;
-    if (snapshot) restoreRemovedField(form, path, snapshot);
-  });
-  useUnmountRestore(teardownOnUnmount, restoreAfterStrictMode);
+  useUnmountFieldRemoval(form, path, shouldUnregister);
 
   // inputProps: the DOM-boundary adapter over the same headless handlers.
   // Its onChange takes the DOM event — extraction per the options above or
@@ -816,9 +804,10 @@ export function useFieldCore<
         'valueAsNumber wins. Use eventToValue for anything else.'
     );
   }
-  const extract =
-    eventToValue ??
-    ((e: any) => extractEventValue(e, {valueAsNumber, valueAsDate}));
+  const extract = eventToValueOrDefault(eventToValue, {
+    valueAsNumber,
+    valueAsDate
+  });
   const inputProps: UseFieldInputProps = {
     name: path.key,
     ref: focusRef,

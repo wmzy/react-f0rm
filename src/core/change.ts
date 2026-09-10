@@ -1,13 +1,14 @@
 import createPath from '../path';
 import type {Path, PathSegments} from '../path';
 import type {FieldPath, PathValueOf} from '../types';
-import type {Form, ValidationMode} from '../form';
+import type {Form, FormValidateMode, ValidationMode} from '../form';
 import {setValueByPath} from './values';
 import type {SetFieldOptions} from './values';
 import {
   revalidateFormOnChange,
   revalidateDependentsOnChange,
-  runFormValidate
+  runFormValidate,
+  shouldKick
 } from './validate';
 import {hasTouchedByPath, setTouchedByPath} from './touched';
 import {getFieldErrorsByPath} from './errors';
@@ -142,6 +143,14 @@ export function unregisterFieldMode(
   if (modes && entry && entry.token === token) modes.delete(path.key);
 }
 
+/** Fire the form-level validate cadence (a user change/blur re-run of the
+ * form validate) and swallow the async rejection — nothing in a
+ * change/blur handler can await the round. */
+function fireFormValidate(form: Form, cadence: FormValidateMode): void {
+  if (form.validateMode !== cadence || !form.validate) return;
+  runFormValidate(form).catch(() => {});
+}
+
 /** The user-change validation gate shared by a mounted field's onChange
  * and {@link changeValueByPath}: kick the field's validator, the
  * form-level `validateDeps` re-run and the field-level `validateDeps`
@@ -151,26 +160,24 @@ export function unregisterFieldMode(
  * it ever shows. */
 function runUserChangeGate(form: Form, path: Path, mode: ValidationMode): void {
   if (
-    mode === 'onChange' ||
-    mode === 'all' ||
-    (mode === 'onTouched' && hasTouchedByPath(form, path)) ||
-    (getFieldErrorsByPath(form, path).length > 0 &&
-      form.reValidateMode === 'onChange')
+    shouldKick(
+      mode,
+      'onChange',
+      hasTouchedByPath(form, path),
+      () => getFieldErrorsByPath(form, path).length > 0,
+      form.reValidateMode
+    )
   )
     form.validators.get(path.key)?.();
   // Form-level validate deps: a user change to a listed field re-runs the
-  // form-level validate under the same mode/reValidateMode gating above
-  // (evaluated against the last round's own error footprint). No-op for
-  // forms without validateDeps.
+  // form-level validate under the same gate (its error footprint arms the
+  // reValidate kick). No-op for forms without validateDeps.
   revalidateFormOnChange(form, path, mode);
   // Form-level validate cadence (Options.validateMode): 'onChange' re-runs
   // the form-level validate on every user change — no dep list required
   // (TanStack validators.onChange). The round's own footprint reclaim
-  // still applies, so a passing re-run clears what the previous round
-  // wrote. Fire-and-forget like the dep re-run above.
-  if (form.validateMode === 'onChange' && form.validate) {
-    runFormValidate(form).catch(() => {});
-  }
+  // still applies, so a passing re-run clears what the previous round wrote.
+  fireFormValidate(form, 'onChange');
   // Field-level validate deps: fields that declared this path re-run their
   // own validators under the same gate. No-op when nobody declared it.
   revalidateDependentsOnChange(form, path, mode);
@@ -211,25 +218,16 @@ export function userBlur(form: Form, path: Path): void {
   if (!entry) return;
   const mode = entry.mode ?? form.mode;
   if (
-    mode === 'onBlur' ||
-    mode === 'onTouched' ||
-    mode === 'all' ||
-    (getFieldErrorsByPath(form, path).length > 0 &&
-      form.reValidateMode === 'onBlur')
+    shouldKick(
+      mode,
+      'onBlur',
+      true,
+      () => getFieldErrorsByPath(form, path).length > 0,
+      form.reValidateMode
+    )
   )
     form.validators.get(path.key)?.();
   // Form-level validate cadence (Options.validateMode): 'onBlur' re-runs
-  // the form-level validate on every user blur — TanStack
-  // validators.onBlur. Same fire-and-forget contract as the change-side
-  // cadence.
-  if (form.validateMode === 'onBlur' && form.validate) {
-    runFormValidate(form).catch(() => {});
-  }
+  // the form-level validate on every user blur — TanStack validators.onBlur.
+  fireFormValidate(form, 'onBlur');
 }
-
-/**
- * Get field error
- * @param form
- * @param name
- * @return FieldError object or undefined
- */

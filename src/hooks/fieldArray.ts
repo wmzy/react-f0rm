@@ -13,14 +13,12 @@ import {
   swapValuesByPath,
   updateValueByPath
 } from '../core/array';
-import {removeFieldForUnmount, restoreRemovedField} from '../core/unmount';
-import type {RemovedFieldSnapshot} from '../core/unmount';
 import {rulesToValidator} from '../rules';
 import type {FieldRules} from '../rules';
 import {onPathEvent} from '../subscribe';
 import {useFieldErrorsByPath} from './form';
 import usePath from './path';
-import useStage, {useStageFn, useUnmountRestore} from './stage';
+import useStage, {useStageFn, useUnmountFieldRemoval} from './stage';
 import useValidate from './validate';
 
 /** Per-form row-id counter. A module-level counter would grow across
@@ -200,17 +198,7 @@ export function useFieldArrayCore<TItem = any, K extends string = 'id'>(
   // errors/touched/dirty entries. The snapshot/restore pair rides
   // useUnmountRestore so StrictMode's dev setup→cleanup→setup cycle does
   // not wipe the branch on mount while real unmounts stay synchronous.
-  const removalSnapshotRef = useRef<RemovedFieldSnapshot | null>(null);
-  const teardownOnUnmount = useStageFn(() => {
-    if ((shouldUnregister ?? form.shouldUnregister) === false) return;
-    removalSnapshotRef.current = removeFieldForUnmount(form, path);
-  });
-  const restoreAfterStrictMode = useStageFn(() => {
-    const snapshot = removalSnapshotRef.current;
-    removalSnapshotRef.current = null;
-    if (snapshot) restoreRemovedField(form, path, snapshot);
-  });
-  useUnmountRestore(teardownOnUnmount, restoreAfterStrictMode);
+  useUnmountFieldRemoval(form, path, shouldUnregister);
 
   // Declarative array rules: `required` splits into the synchronous gate
   // (runs immediately on every kick, never debounced) exactly like

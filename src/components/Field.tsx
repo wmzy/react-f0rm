@@ -11,7 +11,7 @@ import type {Path, PathSegments} from '../path';
 import type {StandardSchemaV1} from '../standardSchema';
 import {hasStandardProps, schemaToFieldValidator} from '../standardSchema';
 import type {FieldPath, PathValueOf} from '../types';
-import {extractEventValue} from '../util';
+import {eventToValueOrDefault} from '../util';
 
 /** Dev-only flag, replaced at build time (rollup.config.js `replace`);
  * defined for the test environment in vitest.config.ts. */
@@ -187,6 +187,14 @@ function ariaProps(
   };
 }
 
+/** Declarative rules → native constraint attributes for browser/AT hints
+ * (`required`, `minLength`, `pattern`, …). `undefined` when no rules. */
+function toConstraintAttrs(
+  rules: FieldRules | undefined
+): Record<string, any> | undefined {
+  return rules ? rulesToConstraintAttrs(rules) : undefined;
+}
+
 /**
  * The callable shape of {@link Field}: `form` + `name` flow their generics
  * into `validate`'s value argument (`PathValueOf<TValues, TPath>`). A named
@@ -333,9 +341,10 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
           'valueAsNumber wins. Use eventToValue for anything else.'
       );
     }
-    const toValue =
-      eventToValue ??
-      ((e: any) => extractEventValue(e, {valueAsNumber, valueAsDate}));
+    const toValue = eventToValueOrDefault(eventToValue, {
+      valueAsNumber,
+      valueAsDate
+    });
 
     // file inputs never receive a value/defaultValue prop (they cannot be
     // value-controlled); uncontrolled renders defaultValue, controlled
@@ -359,7 +368,7 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
     // native checkValidity gate now also sees the derived attrs and
     // skips the user's `validate` for that kick (RHF first-error
     // semantics).
-    const constraintAttrs = rules ? rulesToConstraintAttrs(rules) : undefined;
+    const constraintAttrs = toConstraintAttrs(rules);
 
     return (
       <>
@@ -445,9 +454,7 @@ export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
       disabled,
       mode
     });
-    // Same error-id convention as Field: the checkbox describes the
-    // fieldErrorId(name) element whenever it has an error.
-    const constraintAttrs = rules ? rulesToConstraintAttrs(rules) : undefined;
+    const constraintAttrs = toConstraintAttrs(rules);
     return (
       <input
         {...constraintAttrs}
@@ -482,8 +489,6 @@ type SelectProps<
  * Field's default event-to-value behavior; a multiple select stores the
  * values of all selected options as a string array.
  */
-/** Normalize a field value for a <select>: multiple wants a string array,
- * single-select wants a string. */
 function toSelectValue(
   multiple: boolean | undefined,
   value: any
@@ -548,9 +553,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
       disabled,
       mode
     });
-    // Same error-id convention as Field: the select describes the
-    // fieldErrorId(name) element whenever it has an error.
-    const constraintAttrs = rules ? rulesToConstraintAttrs(rules) : undefined;
+    const constraintAttrs = toConstraintAttrs(rules);
     return (
       <select
         {...constraintAttrs}

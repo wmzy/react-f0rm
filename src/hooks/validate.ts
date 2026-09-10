@@ -3,11 +3,11 @@ import {on} from '../emitter';
 import {FormContext} from '../context';
 import {registerValidatorByPath} from '../form';
 import type {Form, SyncValidator, Validator} from '../form';
-import createPath from '../path';
-import type {Path, PathSegments} from '../path';
+import type {Path} from '../path';
 import {hasStandardProps, schemaToFieldValidator} from '../standardSchema';
 import type {StandardSchemaV1} from '../standardSchema';
-import {useStageFn} from './stage';
+import {pathFromKey} from './path';
+import useStage, {useStageFn} from './stage';
 
 // The validator contract itself is framework-free and lives in the core
 // (`src/form.ts`); re-exported here so historical imports keep working.
@@ -99,20 +99,16 @@ export default function useValidate(
     validateOption && hasStandardProps(validateOption)
       ? schemaToFieldValidator(validateOption as StandardSchemaV1<any, any>)
       : (validateOption as Validator | undefined);
-  const debounceRef = useRef(options?.debounce ?? 0);
-  debounceRef.current = options?.debounce ?? 0;
-  const syncRef = useRef(options?.sync);
-  syncRef.current = options?.sync;
-  const asyncAlwaysRef = useRef(options?.asyncAlways ?? false);
-  asyncAlwaysRef.current = options?.asyncAlways ?? false;
+  const debounceRef = useStage(options?.debounce ?? 0);
+  const syncRef = useStage(options?.sync);
+  const asyncAlwaysRef = useStage(options?.asyncAlways ?? false);
   // Same live-ref pattern: the effect keys on [form, path.key], so the
   // option read must not appear in its closure — or it would demand a dep
   // that re-runs the registration on every options object.
-  const validateOnMountRef = useRef(options?.validateOnMount);
-  validateOnMountRef.current = options?.validateOnMount;
+  const validateOnMountRef = useStage(options?.validateOnMount);
 
   useEffect(() => {
-    const spath = createPath(JSON.parse(path.key) as PathSegments);
+    const spath = pathFromKey(path.key);
     const dispose = registerValidatorByPath(form, spath, {
       validate: () => validateRef.current,
       debounce: () => debounceRef.current,
@@ -151,7 +147,14 @@ export default function useValidate(
       disposed = true;
       dispose();
     };
-  }, [form, path.key]);
+  }, [
+    form,
+    path.key,
+    debounceRef,
+    syncRef,
+    asyncAlwaysRef,
+    validateOnMountRef
+  ]);
 
   return useStageFn(() => form.validators.get(path.key)?.());
 }

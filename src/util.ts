@@ -257,6 +257,16 @@ export function extractEventValue(
   return target.value;
 }
 
+/** The library's default event-to-value binding: an explicit
+ * `eventToValue` wins, otherwise extraction follows `valueAsNumber` /
+ * `valueAsDate`. Shared by <Field>'s binding and useField's inputProps. */
+export function eventToValueOrDefault(
+  eventToValue: ((e: any) => any) | undefined,
+  options?: {valueAsNumber?: boolean; valueAsDate?: boolean}
+): (e: any) => any {
+  return eventToValue ?? ((e: any) => extractEventValue(e, options));
+}
+
 /** Structural equality for form default data (primitives, arrays, plain
  * objects, Dates). Class instances and other exotic objects compare as
  * unequal, which errs on the side of re-seeding when {@link

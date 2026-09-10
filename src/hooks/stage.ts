@@ -1,4 +1,8 @@
 import {useCallback, useEffect, useRef, type MutableRefObject} from 'react';
+import {removeFieldForUnmount, restoreRemovedField} from '../core/unmount';
+import type {RemovedFieldSnapshot} from '../core/unmount';
+import type {Form} from '../form';
+import type {Path} from '../path';
 
 export default function useStage<T>(value: T): MutableRefObject<T> {
   const ref = useRef(value);
@@ -58,4 +62,28 @@ export function useUnmountRestore(
       teardownOnce();
     };
   }, [removedRef, teardownRef, restoreRef]);
+}
+
+/**
+ * The concrete {@link useUnmountRestore} use shared by field and
+ * field-array unmount: snapshot-and-remove the field/branch unless the
+ * effective `shouldUnregister` (own option, falling back to the
+ * form-level flag) opts out, restoring it on a StrictMode remount.
+ */
+export function useUnmountFieldRemoval(
+  form: Form,
+  path: Path,
+  shouldUnregister: boolean | undefined
+): void {
+  const removalSnapshotRef = useRef<RemovedFieldSnapshot | null>(null);
+  const teardownOnUnmount = useStageFn(() => {
+    if ((shouldUnregister ?? form.shouldUnregister) === false) return;
+    removalSnapshotRef.current = removeFieldForUnmount(form, path);
+  });
+  const restoreAfterStrictMode = useStageFn(() => {
+    const snapshot = removalSnapshotRef.current;
+    removalSnapshotRef.current = null;
+    if (snapshot) restoreRemovedField(form, path, snapshot);
+  });
+  useUnmountRestore(teardownOnUnmount, restoreAfterStrictMode);
 }

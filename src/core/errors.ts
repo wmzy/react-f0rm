@@ -1,5 +1,5 @@
 import {emit} from '../emitter';
-import createPath from '../path';
+import createPath, {segmentsFromKey} from '../path';
 import type {Name, Path, PathSegments} from '../path';
 import type {FieldPath, OpaqueTypes} from '../types';
 import type {FieldError, FieldErrorEntry, Form} from '../form';
@@ -16,22 +16,12 @@ import {
  * getError(form, FORM_ERROR) / getFieldErrors(form, FORM_ERROR). */
 export const FORM_ERROR = '_form';
 
-/** When a field is validated:
- * - `'onSubmit'` (default): only on submit
- * - `'onBlur'`: when the field loses focus
- * - `'onChange'`: on every change
- * - `'onTouched'`: on first blur, then on every change
- * - `'all'`: on both change and blur
- */
 /** Brand marking a form-level validate result as a structured
  * {@link ValidationOutcome} (parsed values and/or errors) rather than a
  * plain nested error record. Symbols cannot collide with user error
  * records, so detection is an exact `VALIDATION_OUTCOME in result`. */
 export const VALIDATION_OUTCOME: unique symbol = Symbol('validation-outcome');
 
-/** Structured form-level validate result: `errors` uses the same nested
- * shape a plain error record uses, `values` is the schema's parsed output
- * (coerce/transform results included). Either side may be omitted. */
 /**
  * Get field error
  * @param form
@@ -98,7 +88,7 @@ export function getFieldErrorsByPath({errors}: Form, path: Path): FieldError[] {
 export function getErrors({errors}: Form): FieldErrorEntry[] {
   const entries: FieldErrorEntry[] = [];
   for (const [key, list] of errors) {
-    const path = (JSON.parse(key) as PathSegments).join('.');
+    const path = segmentsFromKey(key).join('.');
     for (const {type, message} of list) entries.push({path, type, message});
   }
   return entries;
@@ -200,7 +190,7 @@ function computeErrorsViews(form: Form): void {
     // The raw key preserves the parser's number-vs-string segment
     // distinction: 'items[0]' segments carry the number 0 (array index in
     // the tree) while 'items["0"]' carries the string '0' (object key).
-    const segments = JSON.parse(key) as PathSegments;
+    const segments = segmentsFromKey(key);
     result[segments.join('.')] = list;
     let node = tree;
     for (let i = 0; i < segments.length - 1; i++) {
@@ -312,9 +302,6 @@ export function getFirstError({errors}: Form): string | undefined {
   return errors.values().next().value?.[0]?.message;
 }
 
-/** Snapshot of one field's aggregated state, as {@link getFieldState}
- * returns it. `errors` is the stored array shared with the form — treat it
- * as read-only, like every {@link getFieldErrors} result. */
 /** Options accepted by {@link setError}. */
 export type SetErrorOptions = {
   /**
@@ -496,18 +483,6 @@ export function clearServerErrors(form: Form): void {
   }
 }
 
-/**
- * Set field touched state
- * @param form
- * @param name
- */
-/**
- * @param form
- */
 export function hasErrors({errors}: Form): boolean {
   return errors.size > 0;
 }
-
-/** Options accepted by {@link trigger}. `shouldTouch` defaults to `false`;
- * omitting the options object entirely keeps the plain validate-only
- * behavior, so the historical two-argument calls are untouched. */

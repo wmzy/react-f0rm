@@ -38,6 +38,7 @@ import type {FieldPath, PathValueOf} from '../types';
 import createPath from '../path';
 import type {PathSegments, Path} from '../path';
 import {get, isEqual, isPromise} from '../util';
+import {pathFromKey} from './path';
 
 /**
  * Create a form instance bound to this component.
@@ -342,13 +343,7 @@ export function useValueByPath(
   // by path.
   const subscribeFactory = useCallback(
     (invalidate: () => void) =>
-      onPathEvent(
-        emitter,
-        'change',
-        createPath(JSON.parse(key) as PathSegments),
-        scope,
-        invalidate
-      ),
+      onPathEvent(emitter, 'change', pathFromKey(key), scope, invalidate),
     [emitter, key, scope]
   );
   return useWatchCore(subscribeFactory, () => {
@@ -389,21 +384,35 @@ export function useTouched<
   return useTouchedByPath(form, createPath(name));
 }
 
+/** Exact-key subscription shared by the per-path readers whose state is
+ * stored per key (touched, errors): the getter is passed through to
+ * {@link useWatchCore} unchanged. */
+function useKeyWatch<T>(
+  form: Form,
+  path: Path,
+  event: SubscribeEvent,
+  getter: () => T
+): T {
+  const {emitter} = form;
+  const {key} = path;
+  const subscribeFactory = useCallback(
+    (invalidate: () => void) => onKeyEvent(emitter, event, key, invalidate),
+    [emitter, event, key]
+  );
+  return useWatchCore(subscribeFactory, getter);
+}
+
 /**
  * Get field touched state by path
  */
 export function useTouchedByPath(form: Form, path: Path): boolean {
-  const {emitter} = form;
-  const {key} = path;
   // Touched is stored per exact key, so only this field's own setTouched
   // (now emitted with its path) matters; payload-less broadcasts (reset,
   // removeField) still sync everything.
-  const subscribeFactory = useCallback(
-    (invalidate: () => void) => onKeyEvent(emitter, 'touched', key, invalidate),
-    [emitter, key]
-  );
-  return useWatchCore(
-    subscribeFactory,
+  return useKeyWatch(
+    form,
+    path,
+    'touched',
     hasTouchedByPath.bind(null, form, path)
   );
 }
@@ -424,16 +433,15 @@ export function useError<
  * @return current FieldError object ({type, message}), or undefined
  */
 export function useErrorByPath(form: Form, path: Path): FieldError | undefined {
-  const {emitter} = form;
-  const {key} = path;
   // Errors are stored per exact key, so only writes to this field's error
   // (setErrorByPath now emits with its path) matter; payload-less
   // broadcasts (clearErrors, reset, removeField) still sync everything.
-  const subscribeFactory = useCallback(
-    (invalidate: () => void) => onKeyEvent(emitter, 'errors', key, invalidate),
-    [emitter, key]
+  return useKeyWatch(
+    form,
+    path,
+    'errors',
+    getErrorByPath.bind(null, form, path)
   );
-  return useWatchCore(subscribeFactory, getErrorByPath.bind(null, form, path));
 }
 
 /**
@@ -454,18 +462,14 @@ export function useFieldErrors<
  *         array when the field has none
  */
 export function useFieldErrorsByPath(form: Form, path: Path): FieldError[] {
-  const {emitter} = form;
-  const {key} = path;
   // Same exact-key subscription and snapshot rules as useErrorByPath: the
   // getter returns the shared empty constant when clean and the stored
   // array by reference otherwise, so the useSyncExternalStore snapshot is
   // reference-stable between unrelated events.
-  const subscribeFactory = useCallback(
-    (invalidate: () => void) => onKeyEvent(emitter, 'errors', key, invalidate),
-    [emitter, key]
-  );
-  return useWatchCore(
-    subscribeFactory,
+  return useKeyWatch(
+    form,
+    path,
+    'errors',
     getFieldErrorsByPath.bind(null, form, path)
   );
 }
@@ -501,13 +505,7 @@ export function useIsFieldDirtyByPath(form: Form, path: Path): boolean {
   const {key} = path;
   const subscribeFactory = useCallback(
     (invalidate: () => void) =>
-      onPathEvent(
-        emitter,
-        'change',
-        createPath(JSON.parse(key) as PathSegments),
-        'leaf',
-        invalidate
-      ),
+      onPathEvent(emitter, 'change', pathFromKey(key), 'leaf', invalidate),
     [emitter, key]
   );
   return useWatchCore(subscribeFactory, () => isFieldDirtyByPath(form, path));
@@ -596,6 +594,18 @@ const FORM_STATE_EVENTS: readonly SubscribeEvent[] = [
   'loading'
 ];
 
+/** Subscribe to every state-bearing event at once — the wiring
+ * {@link useFormState} and {@link useStore} share. */
+function subscribeFormStateEvents(
+  emitter: EventEmitter<FormEvents>,
+  invalidate: () => void
+): () => void {
+  const offs = FORM_STATE_EVENTS.map(event => on(emitter, event, invalidate));
+  return () => {
+    for (const off of offs) off();
+  };
+}
+
 function getFormState<T extends Record<string, any>>(
   form: Form<T>
 ): FormState<T> {
@@ -650,14 +660,8 @@ export function useFormState<T extends Record<string, any> = any>(
 ): FormState<T> {
   const getter = useCallback(() => getFormState(form), [form]);
   const subscribeFactory = useCallback(
-    (invalidate: () => void) => {
-      const offs = FORM_STATE_EVENTS.map(event =>
-        on(form.emitter, event, invalidate)
-      );
-      return () => {
-        for (const off of offs) off();
-      };
-    },
+    (invalidate: () => void) =>
+      subscribeFormStateEvents(form.emitter, invalidate),
     [form.emitter]
   );
   return useWatchCore(subscribeFactory, getter, isSameFormState);
@@ -690,14 +694,8 @@ export function useStore<T>(
   isEqual?: (prev: T, next: T) => boolean
 ): T {
   const subscribeFactory = useCallback(
-    (invalidate: () => void) => {
-      const offs = FORM_STATE_EVENTS.map(event =>
-        on(form.emitter, event, invalidate)
-      );
-      return () => {
-        for (const off of offs) off();
-      };
-    },
+    (invalidate: () => void) =>
+      subscribeFormStateEvents(form.emitter, invalidate),
     [form.emitter]
   );
   return useWatchCore(subscribeFactory, selector, isEqual);

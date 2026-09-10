@@ -281,5 +281,3 @@ export function handleSubmit<T extends Record<string, any> = any>(
     }
   };
 }
-
-/** Options accepted by {@link setFocus}. All flags default to `false`. */
