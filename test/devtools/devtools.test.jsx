@@ -9,7 +9,8 @@ import createForm, {
   setValue,
   setError,
   setTouched,
-  handleSubmit
+  handleSubmit,
+  reset
 } from '../../src/form';
 import {FormProvider} from '../../src/context';
 import {Devtools} from '../../src/devtools';
@@ -212,13 +213,13 @@ describe('Devtools', () => {
 
     // ArrowLeft from the first tab wraps around to the last one.
     await user.keyboard('{ArrowLeft}');
-    const submitsTab = screen.getByRole('tab', {name: /submits/i});
-    expect(submitsTab.getAttribute('aria-selected')).toBe('true');
-    expect(document.activeElement).toBe(submitsTab);
+    const eventsTab = screen.getByRole('tab', {name: /events/i});
+    expect(eventsTab.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(eventsTab);
 
     // Non-arrow keys leave the selection alone.
     await user.keyboard('x');
-    expect(submitsTab.getAttribute('aria-selected')).toBe('true');
+    expect(eventsTab.getAttribute('aria-selected')).toBe('true');
   });
 
   it('shows empty-state placeholders on the errors, touched and dirty tabs', async () => {
@@ -334,6 +335,45 @@ describe('Devtools', () => {
     const entry = screen.getByText('#1').parentElement;
     expect(entry.textContent).toMatch(/ok/);
     expect(entry.textContent).not.toMatch(/failed/);
+  });
+
+  it('records every form event on the events tab with its path', async () => {
+    const user = userEvent.setup();
+    const form = createForm({initialValues: {name: 'a', tags: []}});
+    renderDevtools(form);
+
+    act(() => setValue(form, 'name', 'b'));
+    act(() => setError(form, 'tags[0]', 'required'));
+    act(() => reset(form));
+
+    await user.click(screen.getByRole('tab', {name: /events/i}));
+    const rows = document.querySelectorAll('.rf0-dt-panel .rf0-dt-item');
+    const labels = Array.from(rows).map(row => {
+      const tag = row.querySelector('.rf0-dt-item-tag');
+      const path = row.querySelector('.rf0-dt-item-path');
+      return `${tag?.textContent}:${path?.textContent ?? ''}`;
+    });
+    // Newest first: 'reset' is the last event a reset() emits, so it tops
+    // the list; the scoped writes carry their paths, the payload-less
+    // broadcasts (touched/validating/submitting/…) render a dash.
+    expect(labels[0]).toMatch(/^reset:—$/);
+    expect(labels).toContain('errors:tags.0');
+    expect(labels).toContain('change:name');
+    // The tab badge counts the recorded events.
+    const eventsTab = screen.getByRole('tab', {name: /events/i});
+    expect(eventsTab.textContent).toContain(String(labels.length));
+  });
+
+  it('clears the event timeline through the Clear button', async () => {
+    const user = userEvent.setup();
+    const form = createForm({initialValues: {name: 'a'}});
+    renderDevtools(form);
+    act(() => setValue(form, 'name', 'b'));
+    await user.click(screen.getByRole('tab', {name: /events/i}));
+    expect(screen.getByText('change')).toBeTruthy();
+    await user.click(screen.getByRole('button', {name: /clear/i}));
+    expect(screen.getByText('no events yet')).toBeTruthy();
+    expect(screen.queryByText('change')).toBeNull();
   });
 
   // The no-DOM branch (injectDevtoolsStyles' SSR guard) is covered in

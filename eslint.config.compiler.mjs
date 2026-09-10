@@ -1,8 +1,9 @@
 // Standalone flat config for the CI compiler-smoke job (ci.yml):
 // eslint-plugin-react-compiler over src/ only, no other rules. Kept
-// separate from eslint.config.mjs so the main lint run stays stable while
-// the compiler violations are triaged; the CI job is non-blocking
-// (continue-on-error) until the codebase is compiler-clean.
+// separate from eslint.config.mjs so the main lint run stays stable; the
+// CI job is blocking — the source is compiler-clean, so a new
+// react-hooks/@typescript-eslint disable comment inside a component or a
+// compiler rule violation fails it.
 import reactCompiler from 'eslint-plugin-react-compiler';
 import tseslintParser from '@typescript-eslint/parser';
 import tseslintPlugin from '@typescript-eslint/eslint-plugin';

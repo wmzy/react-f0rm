@@ -3,6 +3,7 @@ import {renderHook, render, act} from '@testing-library/react';
 import React from 'react';
 import useForm, {
   useValue,
+  useValues,
   useError,
   useErrors,
   useFieldErrors,
@@ -1387,5 +1388,46 @@ describe('useValue options', () => {
     act(() => setValue(form, 'user.name', 'b'));
     // The cached snapshot stays: the descendant write never invalidated it.
     expect(result.current).toBe(first);
+  });
+});
+
+describe('useValues', () => {
+  it('returns the whole values tree', () => {
+    const initialValues = {name: 'test', nested: {count: 1}};
+    const form = createForm({initialValues});
+    const {result} = renderHook(() => useValues(form));
+    expect(result.current).toEqual(initialValues);
+  });
+
+  it('re-renders on every change event', () => {
+    const form = createForm({initialValues: {name: 'a', email: 'e'}});
+    const {result} = renderHook(() => useValues(form));
+    expect(result.current).toEqual({name: 'a', email: 'e'});
+    act(() => setValue(form, 'name', 'b'));
+    expect(result.current).toEqual({name: 'b', email: 'e'});
+    act(() => setValue(form, 'email', 'f'));
+    expect(result.current).toEqual({name: 'b', email: 'f'});
+  });
+
+  it('hands back one memoized snapshot between writes', () => {
+    const form = createForm({initialValues: {name: 'a'}});
+    const {result, rerender} = renderHook(() => useValues(form));
+    const first = result.current;
+    // A re-render without a value write keeps the shared reference.
+    rerender();
+    expect(result.current).toBe(first);
+    act(() => setValue(form, 'name', 'b'));
+    expect(result.current).not.toBe(first);
+    const second = result.current;
+    rerender();
+    expect(result.current).toBe(second);
+  });
+
+  it('reflects bulk operations like reset', () => {
+    const form = createForm({initialValues: {name: 'a'}});
+    const {result} = renderHook(() => useValues(form));
+    act(() => setValue(form, 'name', 'draft'));
+    act(() => reset(form));
+    expect(result.current).toEqual({name: 'a'});
   });
 });

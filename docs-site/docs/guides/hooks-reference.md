@@ -31,6 +31,19 @@ const summary = useWatch(
 
 The framework-free counterpart is `watch(form, event, getter, isEqual?)` — the same contract as a plain subscribe/getSnapshot handle for non-React bindings and imperative code. `subscribe` is the imperative-only sibling (runs callbacks, renders nothing): use `subscribe` for linkages, a hook when the value must appear on screen.
 
+## `useValues` — the whole tree, one subscription
+
+`useValues(form)` watches the entire values tree — any 'change' event re-renders the calling component with the memoized `getValues(form)` snapshot. React-hook-form's `watch()` with no arguments. Broad scope by design: fine for cheap summary components, but per-field readers should use [`useValue`](#usevalue) so a keystroke re-renders exactly the affected field.
+
+```tsx
+import {useValues} from 'react-f0rm';
+
+function Summary({form}) {
+  const values = useValues(form); // full tree, reference-stable between writes
+  return <pre>{JSON.stringify(values, null, 2)}</pre>;
+}
+```
+
 ## `useStore` — the selector primitive
 
 `useStore(form, selector, isEqual?)` subscribes to **every** state-bearing event and keeps `selector()`'s result as the snapshot — TanStack Form's `useStore(store, selector)` counterpart. The selector is a plain closure; read the form through any getter inside it.
@@ -73,7 +86,7 @@ function ErrorSummary({form}: {form: Form<Profile>}) {
 }
 ```
 
-Keys follow the runtime form: array paths are dot-joined (`'tags.0'`, not `'tags[0]'` — bracket spelling is a path form, the record joins segments with dots).
+Keys follow the runtime form: array paths are dot-joined (`'tags.0'`, not `'tags[0]'` — bracket spelling is a path form, the record joins segments with dots). Two exported helpers bridge the spellings: `fieldPathToDottedKey('tags[0].name')` → `'tags.0.name'` (the record key to read), `dottedKeyToFieldPath('tags.0.name')` → `'tags[0].name'` (the form every field API takes); the `DottedPath<P>` type names the key style at compile time.
 
 ## `useTransform` — display ≠ stored value
 

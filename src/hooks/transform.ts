@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useRef} from 'react';
 import {getValueByPath, userChangeByPath} from '../form';
 import type {Form} from '../form';
+import createPath from '../path';
 import type {PathSegments} from '../path';
 import type {FieldPath, PathValueOf} from '../types';
 import {isPromise} from '../util';
@@ -100,8 +101,13 @@ export default function useTransform<
 
   const subscribeFactory = useCallback(
     (invalidate: () => void) =>
-      onPathEvent(form.emitter, 'change', path, 'leaf', invalidate),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- usePath memoizes the Path per key, so key pins the subscription like every path-scoped hook
+      onPathEvent(
+        form.emitter,
+        'change',
+        createPath(JSON.parse(path.key) as PathSegments),
+        'leaf',
+        invalidate
+      ),
     [form.emitter, path.key]
   );
   const raw = useWatchCore(subscribeFactory, () => getValueByPath(form, path));

@@ -11,7 +11,10 @@ import createForm, {
   getFirstError,
   clearErrors,
   hasErrors,
-  setServerErrors
+  setServerErrors,
+  getErrorsRecord,
+  fieldPathToDottedKey,
+  dottedKeyToFieldPath
 } from '../../src/form';
 import createPath from '../../src/path';
 
@@ -265,5 +268,47 @@ describe('getErrors / getFirstError / clearErrors / hasErrors', () => {
     clearErrors(form);
     expect(seen).toEqual(['["a"]', null]);
     expect(hasErrors(form)).toBe(false);
+  });
+});
+
+describe('fieldPathToDottedKey / dottedKeyToFieldPath', () => {
+  it('converts bracket spelling to the dotted record key', () => {
+    expect(fieldPathToDottedKey('items[0].name')).toBe('items.0.name');
+    expect(fieldPathToDottedKey('user.name')).toBe('user.name');
+    // Quoted segments drop their quotes like the parser does.
+    expect(fieldPathToDottedKey('items["0"]')).toBe('items.0');
+  });
+
+  it('accepts segment arrays', () => {
+    expect(fieldPathToDottedKey(['a', 0, 'b'])).toBe('a.0.b');
+  });
+
+  it('converts dotted record keys back to bracket spelling', () => {
+    expect(dottedKeyToFieldPath('items.0.name')).toBe('items[0].name');
+    expect(dottedKeyToFieldPath('items.10.name')).toBe('items[10].name');
+    expect(dottedKeyToFieldPath('user.name')).toBe('user.name');
+    expect(dottedKeyToFieldPath('tags.0')).toBe('tags[0]');
+  });
+
+  it('round-trips between the two spellings', () => {
+    for (const name of ['a.b.c', 'items[0].name', 'items[0].sub[1]']) {
+      expect(dottedKeyToFieldPath(fieldPathToDottedKey(name))).toBe(name);
+    }
+  });
+
+  it('reads getErrorsRecord entries through the translated key', () => {
+    const form = createForm();
+    setError(form, 'items[0].name', 'required');
+    const record = getErrorsRecord(form);
+    expect(record['items.0.name']).toEqual([
+      {type: 'custom', message: 'required'}
+    ]);
+    expect(record[fieldPathToDottedKey('items[0].name')]).toBe(
+      record['items.0.name']
+    );
+    expect(getError(form, dottedKeyToFieldPath('items.0.name'))).toEqual({
+      type: 'custom',
+      message: 'required'
+    });
   });
 });

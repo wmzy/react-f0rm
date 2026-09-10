@@ -186,6 +186,7 @@ type SelfCheckPath = {
     'a.z' extends FieldPath<{a: {b: string}}> ? false : true
   >;
 };
+
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- 编译期自检：类型存在本身即断言，由 tsc --noEmit 强制
 type SelfCheckValue = {
   dottedLeaf: Check<Equal<PathValue<{a: {b: string}}, 'a.b'>, string>>;

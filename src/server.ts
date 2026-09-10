@@ -121,6 +121,68 @@ export function formDataFromValues(values: Record<string, any>): FormData {
   return fd;
 }
 
+/** Parse one FormData string value: values that look like JSON — the
+ * shape {@link formDataFromValues} produces for plain objects — parse
+ * back to their original structure; everything else stays the literal
+ * string. Quoted-looking text is deliberately NOT parsed: a user typing
+ * `"hello"` into a field must keep their quotes, and
+ * {@link formDataFromValues} never encodes a stored string as a quoted
+ * JSON literal, so skipping it costs no round-trip fidelity. */
+function parseFormDataString(raw: string): unknown {
+  const value = raw.trim();
+  if (value.length > 0 && (value.startsWith('{') || value.startsWith('['))) {
+    try {
+      return JSON.parse(value);
+    } catch {
+      // Typed text that merely looks like JSON — keep the literal input.
+      return raw;
+    }
+  }
+  return raw;
+}
+
+/**
+ * Convert FormData back into a values object — the inverse of
+ * {@link formDataFromValues}, covering both the shapes that function
+ * produces and native form submits.
+ *
+ * Multiple entries under one key collect into an array (FormData's
+ * multi-value convention, which {@link formDataFromValues} uses for
+ * arrays); a single entry stays scalar. String values that look like JSON
+ * (`{…}`, `[…]`) parse back into objects/arrays — the shape plain objects
+ * take through {@link formDataFromValues} — while everything else stays a
+ * string, exactly like a native form submit: scalar types round-trip
+ * through String() (numbers, booleans, ISO dates), so let a schema coerce
+ * them back (`z.coerce.number()` style). File values pass through
+ * unchanged; keys missing from the FormData are omitted, matching the
+ * null/undefined skipping {@link formDataFromValues} does.
+ *
+ * Pairs with {@link validateValues} to close the Server Action loop
+ * without hand-rolled `.get()` calls:
+ *
+ *     export async function register(formData: FormData) {
+ *       const result = await validateValues(valuesFromFormData(formData), {
+ *         validate: standardSchemaFormValidator(schema)
+ *       });
+ *       if (!result.valid) return {errors: result.errors};
+ *       await db.insert(result.values);
+ *     }
+ */
+export function valuesFromFormData(formData: FormData): Record<string, any> {
+  const values: Record<string, any> = {};
+  // Iterate unique keys (FormData.keys() repeats per entry); getAll
+  // collects every entry under one key in insertion order.
+  for (const key of new Set(formData.keys())) {
+    const entries = formData.getAll(key);
+    const read = (entry: FormDataEntryValue): unknown =>
+      typeof File !== 'undefined' && entry instanceof File
+        ? entry
+        : parseFormDataString(entry as string);
+    values[key] = entries.length === 1 ? read(entries[0]) : entries.map(read);
+  }
+  return values;
+}
+
 /**
  * Validate a payload of values on the server — no form instance, no
  * React.

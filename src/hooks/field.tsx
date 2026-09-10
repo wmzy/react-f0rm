@@ -1,9 +1,10 @@
-import {useCallback, useContext, useEffect, useRef, useState} from 'react';
+import {useCallback, useContext, useEffect, useRef} from 'react';
 import type {Context} from 'react';
 import {on} from '../emitter';
 import {FormContext} from '../context';
 import {
   emitChangeByPath,
+  getFieldErrorsByPath,
   getValueByPath,
   isFieldDirtyByPath,
   registerFieldMode,
@@ -22,14 +23,14 @@ import {hasStandardProps, schemaToFieldValidator} from '../standardSchema';
 import type {FieldPath, PathValueOf} from '../types';
 import {rulesToValidator} from '../rules';
 import type {FieldRules} from '../rules';
-import {useFieldErrorsByPath, useWatch, useWatchCore} from './form';
+import {useWatch, useWatchCore} from './form';
 import {onKeyEvent, onPathEvent} from '../subscribe';
 import usePath from './path';
 import useValidate from './validate';
 import type {Validator} from './validate';
 import {removeFieldForUnmount, restoreRemovedField} from '../core/unmount';
 import type {RemovedFieldSnapshot} from '../core/unmount';
-import {useStageFn, useUnmountRestore} from './stage';
+import useStage, {useStageFn, useUnmountRestore} from './stage';
 import {isPromise} from '../util';
 
 /** Dev-only flag, replaced at build time (rollup.config.js `replace`);
@@ -293,36 +294,101 @@ function combineRulesAndValidate(
  * immediate. Only the none → some transition waits — an error that clears
  * inside the window never shows, and once an error is visible, later
  * changes (a new message, entries added or removed) apply immediately.
- * With `delay === undefined` the subscription value passes through
- * untouched: no timers and no state writes, so fields that do not opt in
- * pay nothing beyond the hook calls themselves.
+ *
+ * The subscription rides {@link useWatchCore} (useSyncExternalStore), so
+ * it is live before sibling passive effects kick mount validation and
+ * re-renders synchronously on every error event — the same contract the
+ * previous dedicated error watch held. The pending window is the only
+ * mutable piece and lives in refs: the subscribe callback flips it and
+ * the window's timer invalidates the snapshot at the deadline. No state
+ * writes at all — the shown list is derived from the store plus the
+ * window flag, so nothing runs in an effect body or during render. With
+ * `delay === undefined` the subscription still drives re-renders but the
+ * store's list passes through untouched: no timers, no window state —
+ * fields that do not opt in pay nothing beyond the hook call itself.
  */
+
+/** Shared empty list returned while {@link useDelayedErrors} holds an
+ * appearing error back — a stable reference so consumers can memo on it,
+ * mirroring the core's shared NO_ERRORS constant. */
+const NO_DELAYED_ERRORS: FieldError[] = [];
+
 function useDelayedErrors(
-  errors: FieldError[],
+  form: Form<any>,
+  path: Path,
   delay: number | undefined
 ): FieldError[] {
-  const [shown, setShown] = useState<FieldError[]>(errors);
-  useEffect(() => {
-    if (delay === undefined) return;
-    // Clearing is always immediate: an error cleared inside the window is
-    // cancelled before ever showing, a shown one hides at once (errors is
-    // the shared empty constant on this branch).
-    if (errors.length === 0) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- 取消窗口是设计行为：清空必须立刻生效
-      setShown(errors);
-      return;
-    }
-    // Already showing an error: swaps and list changes apply at once.
-    if (shown.length > 0) {
-      setShown(errors);
-      return;
-    }
-    // Appearing from none: wait out the window. The cleanup clears the
-    // timer when errors change again or the field unmounts.
-    const timer = setTimeout(() => setShown(errors), delay);
-    return () => clearTimeout(timer);
-  }, [errors, delay, shown]);
-  return delay === undefined ? errors : shown;
+  // The window flag and the last event's shape live in refs: the
+  // subscribe callback reads them across events, and the snapshot reads
+  // the flag at render. Single-threaded, so flag-then-invalidate is
+  // always observed as one consistent state.
+  const pendingRef = useRef(false);
+  const prevRef = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const subscribeFactory = useCallback(
+    (invalidate: () => void) => {
+      // Rebuild the Path from its key so the callback never captures the
+      // render-scope `path` object — the subscription pins on the key.
+      const spath = createPath(JSON.parse(path.key) as PathSegments);
+      const clearTimer = () => {
+        if (timerRef.current !== null) {
+          clearTimeout(timerRef.current);
+          timerRef.current = null;
+        }
+      };
+      // A re-subscription (delay change, StrictMode remount) drops any
+      // stale window: the new subscription re-derives from the store.
+      pendingRef.current = false;
+      prevRef.current = false;
+      clearTimer();
+      const startWindow = () => {
+        clearTimer();
+        pendingRef.current = true;
+        timerRef.current = setTimeout(() => {
+          timerRef.current = null;
+          pendingRef.current = false;
+          // Deadline reached with the errors stable through the window:
+          // re-render so the snapshot reveals them.
+          invalidate();
+        }, delay);
+      };
+      const off = onKeyEvent(form.emitter, 'errors', spath.key, () => {
+        const has = getFieldErrorsByPath(form, spath).length > 0;
+        const was = prevRef.current;
+        prevRef.current = has;
+        if (delay !== undefined) {
+          if (!has) {
+            // Clearing is always immediate: an error cleared inside the
+            // window is cancelled before ever showing, a shown one hides
+            // at once.
+            if (pendingRef.current) {
+              clearTimer();
+              pendingRef.current = false;
+            }
+          } else if (!was || pendingRef.current) {
+            // Appearing from none — or changing inside the window, which
+            // restarts it: wait out `delay` before showing. Already
+            // showing: swaps and list changes apply at once (nothing to
+            // do beyond the invalidate below).
+            startWindow();
+          }
+        }
+        invalidate();
+      });
+      return () => {
+        off();
+        clearTimer();
+      };
+    },
+    [form, path.key, delay]
+  );
+
+  return useWatchCore(subscribeFactory, () =>
+    delay === undefined || !pendingRef.current
+      ? getFieldErrorsByPath(form, path)
+      : NO_DELAYED_ERRORS
+  );
 }
 
 /**
@@ -458,13 +524,12 @@ export function useFieldCore<
         : undefined
   });
 
-  // All errors of the field through one subscription; the array reference
-  // is stable (stored array or shared empty constant), so consumers can
-  // memo on it. delayError gates only this render-layer view of the list;
-  // the stored list keeps driving the reValidateMode kicks inside the
-  // core's user-change gate.
-  const liveErrors = useFieldErrorsByPath(form, path);
-  const errors = useDelayedErrors(liveErrors, delayError);
+  // All errors of the field through one subscription owned by
+  // useDelayedErrors; the array reference is stable (stored array or
+  // shared empty constants), so consumers can memo on it. delayError
+  // gates only this render-layer view of the list; the stored list keeps
+  // driving the reValidateMode kicks inside the core's user-change gate.
+  const errors = useDelayedErrors(form, path, delayError);
   const errorObject = errors[0];
   const error = errorObject?.message;
   const value = useFieldValue(form, path, !!uncontrolled);
@@ -481,8 +546,13 @@ export function useFieldCore<
       (invalidate: () => void) =>
         uncontrolled
           ? () => {}
-          : onPathEvent(form.emitter, 'change', path, 'leaf', invalidate),
-      // eslint-disable-next-line react-hooks/exhaustive-deps -- usePath memoizes the Path per key, so key pins the subscription like every path-scoped hook
+          : onPathEvent(
+              form.emitter,
+              'change',
+              createPath(JSON.parse(path.key) as PathSegments),
+              'leaf',
+              invalidate
+            ),
       [form.emitter, path.key, uncontrolled]
     ),
     () => isFieldDirtyByPath(form, path)
@@ -516,7 +586,8 @@ export function useFieldCore<
   // mode. That is almost always a bug (a stray duplicate name, a remount
   // racing the old instance) — say so in DEV.
   useEffect(() => {
-    const {token, displaced} = registerFieldMode(form, path, modeOption);
+    const spath = createPath(JSON.parse(path.key) as PathSegments);
+    const {token, displaced} = registerFieldMode(form, spath, modeOption);
     if (__DEV__ && displaced) {
       // eslint-disable-next-line no-console -- the whole point of this branch
       console.warn(
@@ -526,8 +597,7 @@ export function useFieldCore<
           `longer applies. Use distinct names if both must stay mounted.`
       );
     }
-    return () => unregisterFieldMode(form, path, token);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are `path.key` on purpose: usePath memoizes the Path per key, so re-registering on key (not object identity) is enough
+    return () => unregisterFieldMode(form, spath, token);
   }, [form, path.key, modeOption]);
 
   // Publish this field's validateDeps declaration so the dep fields'
@@ -535,13 +605,16 @@ export function useFieldCore<
   // the serialized dep list, so a re-render passing an equal inline array
   // does not churn the registry; a genuinely changed list re-registers.
   const depsKey = validateDeps?.length ? validateDeps.join('\n') : undefined;
+  // Stage the dep list: the effect keys on `depsKey` (the serialized
+  // list), and reads the live array through the ref so an equal inline
+  // array per render never re-registers while a changed one always does.
+  const validateDepsRef = useStage<string[] | undefined>(validateDeps);
   useEffect(() => {
     if (!depsKey) return;
-    const depKeys = validateDeps!.map(dep => createPath(dep).key);
+    const depKeys = validateDepsRef.current!.map(dep => createPath(dep).key);
     registerFieldValidateDeps(form, path.key, depKeys);
     return () => unregisterFieldValidateDeps(form, path.key, depKeys);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are `depsKey` on purpose: depKeys derive from the same option value the key serializes
-  }, [form, path.key, depsKey]);
+  }, [form, path.key, depsKey, validateDepsRef]);
 
   // The focus channel. 'focusError' carries the target's path key —
   // emitted by handleSubmit's failed round (the first error's key, gated
@@ -587,7 +660,7 @@ export function useFieldCore<
   // payload-carrying emits (typing, setValue), so bulk operations pay one
   // iteration over the registered cells and keystrokes pay one branch.
   useEffect(() => {
-    if (!uncontrolled) return;
+    const spath = createPath(JSON.parse(path.key) as PathSegments);
     let entry = uncontrolledSyncRegistry.get(form);
     if (!entry) {
       const cells = new Map<string, () => {el: any; path: Path}>();
@@ -605,7 +678,7 @@ export function useFieldCore<
       entry = {cells, off};
       uncontrolledSyncRegistry.set(form, entry);
     }
-    entry.cells.set(path.key, () => ({el: elementRef.current, path}));
+    entry.cells.set(path.key, () => ({el: elementRef.current, path: spath}));
     return () => {
       entry!.cells.delete(path.key);
       if (entry!.cells.size === 0) {
@@ -613,7 +686,6 @@ export function useFieldCore<
         uncontrolledSyncRegistry.delete(form);
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are `path.key` on purpose: usePath returns a stable Path per key, and the closure's `path` changes identity only when the key does
   }, [form, path.key, uncontrolled]);
 
   // Effective unmount behavior: the field's own option, falling back

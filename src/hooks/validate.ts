@@ -3,7 +3,8 @@ import {on} from '../emitter';
 import {FormContext} from '../context';
 import {registerValidatorByPath} from '../form';
 import type {Form, SyncValidator, Validator} from '../form';
-import type {Path} from '../path';
+import createPath from '../path';
+import type {Path, PathSegments} from '../path';
 import {hasStandardProps, schemaToFieldValidator} from '../standardSchema';
 import type {StandardSchemaV1} from '../standardSchema';
 import {useStageFn} from './stage';
@@ -104,9 +105,15 @@ export default function useValidate(
   syncRef.current = options?.sync;
   const asyncAlwaysRef = useRef(options?.asyncAlways ?? false);
   asyncAlwaysRef.current = options?.asyncAlways ?? false;
+  // Same live-ref pattern: the effect keys on [form, path.key], so the
+  // option read must not appear in its closure — or it would demand a dep
+  // that re-runs the registration on every options object.
+  const validateOnMountRef = useRef(options?.validateOnMount);
+  validateOnMountRef.current = options?.validateOnMount;
 
   useEffect(() => {
-    const dispose = registerValidatorByPath(form, path, {
+    const spath = createPath(JSON.parse(path.key) as PathSegments);
+    const dispose = registerValidatorByPath(form, spath, {
       validate: () => validateRef.current,
       debounce: () => debounceRef.current,
       sync: () => syncRef.current,
@@ -117,7 +124,7 @@ export default function useValidate(
     // direction. Validator-less registrations never kick — an empty kick
     // clears whatever error was already stored at the path (a server
     // backfill that landed before mount, say).
-    const validateOnMount = options?.validateOnMount ?? form.validateOnMount;
+    const validateOnMount = validateOnMountRef.current ?? form.validateOnMount;
     if (!validateOnMount || (!validateRef.current && !syncRef.current)) {
       return dispose;
     }
@@ -144,7 +151,6 @@ export default function useValidate(
       disposed = true;
       dispose();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are `path.key` on purpose: usePath returns a stable Path per key, so re-subscribing on key (not object identity) is enough
   }, [form, path.key]);
 
   return useStageFn(() => form.validators.get(path.key)?.());

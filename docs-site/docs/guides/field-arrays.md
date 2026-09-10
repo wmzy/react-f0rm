@@ -86,3 +86,60 @@ The same operations exist without React: `appendValue`/`prependValue`/`insertVal
 ## Per-row Subscriptions
 
 For large arrays, `useFieldArrayItem({name, id})` scopes the subscription to a single row so editing row K re-renders only row K — see [Hooks Reference](./hooks-reference.md#usefieldarrayitem--one-row-one-subscription).
+
+## Large Arrays & Virtualization
+
+`useFieldArray` re-renders the component holding the array whenever any row or the array itself changes — correct for dozens of rows, wasteful for thousands. Two levers scale it up:
+
+1. **Keep the list component cheap.** The subscription is branch-scoped, so the re-render cost is your list's render cost, not the library's. Memoize row components (rows only re-render when their own props change).
+2. **Virtualize the window.** Only mounted rows exist in the DOM; `fields` still describes the whole array, but the window component maps only the visible slice:
+
+```tsx
+import {useVirtualizer} from '@tanstack/react-virtual';
+
+function BigList() {
+  const {fields, append} = useFieldArray({name: 'rows'});
+  const parentRef = React.useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count: fields.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 32
+  });
+
+  return (
+    <div ref={parentRef} style={{height: 480, overflowY: 'auto'}}>
+      <div style={{height: virtualizer.getTotalSize(), position: 'relative'}}>
+        {virtualizer.getVirtualItems().map(virtualRow => {
+          const index = virtualRow.index;
+          const field = fields[index];
+          return (
+            <div
+              key={field.id}
+              style={{position: 'absolute', top: 0, transform: `translateY(${virtualRow.start}px)`}}
+            >
+              {/* shouldUnregister: false — scrolled-out rows must keep
+                  their values, not tombstone on unmount. */}
+              <Field name={['rows', index, 'name']} shouldUnregister={false} />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+```
+
+The row `id` (not the index) is the React key and the `useFieldArrayItem` lookup — both stay valid across reorders and removals, while a freshly appended row mounts once at its real position.
+
+### What re-renders on each operation
+
+- **Editing one row** — the array holder re-renders; memoized rows only when their slice changed. For per-row granularity without the holder, pair virtualization with `useFieldArrayItem({name, id})` per mounted row: a single-row edit re-renders exactly that row.
+- **`append`/`prepend`** — one new row mounts; existing rows keep their state (stable ids).
+- **`remove`/`swap`/`move`** — index migration re-renders the affected rows by design (their values moved); rows outside the touched indices are untouched.
+- **`replace(values)`** — every id regenerates: all mounted rows remount. This is the refetch shape — use it only when the server result truly replaces the list.
+
+Two known tradeoffs at scale:
+
+- **Unmount semantics matter.** Virtualization unmounts rows constantly, and this library's default unmount behavior is a tombstone — a scrolled-out row drops out of `getValues()` unless it is told to stay. Virtualized row fields therefore need `shouldUnregister: false` (per field, or `createForm({shouldUnregister: false})` for the whole form), so off-screen rows keep their committed values.
+- **Only mounted validators run.** Per-row field validators only exist while the row is mounted; off-screen rows validate through the array's `rules` and the form-level validator (schema), which read the whole values tree. For virtualized lists, keep the schema or array `rules` as the validation source of truth.
+- **Row ids, not indices.** `useFieldArrayItem` looks a row up synchronously at render from the array layer — always pass the same `id` prop `fields` carries, never index-derived keys.

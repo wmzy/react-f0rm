@@ -16,7 +16,7 @@ const pathCache = new Map<string, (string | number)[]>();
 /** Test-only view of the path cache size. Not re-exported from the
  * package entry — tests import this module directly to assert the
  * FIFO bound above. */
-export const pathCacheSize = () => pathCache.size;
+export const pathCacheSize: () => number = () => pathCache.size;
 
 export function normalizePath(
   path: string | (string | number)[]
@@ -43,7 +43,8 @@ export function normalizePath(
  * (string | number)[] arrays, and index-shaped strings can still arrive
  * from internal callers (error-tree keys) or array containers met
  * during set/setOwned walks. */
-export const isIndex = (segment: string) => /^-?\d+$/.test(segment);
+export const isIndex: (segment: string) => boolean = segment =>
+  /^-?\d+$/.test(segment);
 
 function parsePath(path: string): (string | number)[] {
   const result: (string | number)[] = [];

@@ -22,7 +22,7 @@ type JsonNodeProps = {
  * One line of the tree: either a collapsible container row
  * (`▸ key: {`) or a leaf (`key: value`).
  */
-function JsonNode({name, value, depth = 0}: JsonNodeProps) {
+function JsonNode({name, value, depth = 0}: JsonNodeProps): React.JSX.Element {
   const [open, setOpen] = useState(depth <= DEFAULT_OPEN_DEPTH);
 
   const label =

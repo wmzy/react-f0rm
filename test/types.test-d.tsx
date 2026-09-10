@@ -25,6 +25,7 @@ import {
   Select,
   useFormContext,
   useValue,
+  useValues,
   createForm,
   createFormContext,
   type FormInstance,
@@ -49,6 +50,7 @@ import {
   type PathValueOf,
   type FieldError,
   type FieldErrors,
+  type DottedPath,
   type FormState,
   type InferSchemaValues
 } from '../src/index';
@@ -612,3 +614,17 @@ void [errsRecord, errsHook, formStateErrs, formStateRet];
 type StoreSel = ReturnType<typeof useStore<string>>;
 const storeSel: Expect<Equal<StoreSel, string>> = true;
 void storeSel;
+
+// ---- goal 16: useValues + the dotted-key helpers ---------------------------------
+
+// useValues returns the form's values tree, typed.
+type ValuesRet = ReturnType<typeof useValues<LoginValues>>;
+const valuesRet: Expect<Equal<ValuesRet, LoginValues>> = true;
+void valuesRet;
+
+// DottedPath names the errors-record key style: bracket paths convert to
+// dotted keys at the type level, matching getErrorsRecord at runtime.
+const dottedKey: DottedPath<'items[0].name'> = 'items.0.name';
+const dottedTop: DottedPath<'email'> = 'email';
+const dottedQuoted: DottedPath<'items["0"]'> = 'items.0';
+void [dottedKey, dottedTop, dottedQuoted];

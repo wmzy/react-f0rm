@@ -111,10 +111,14 @@ export function getErrors({errors}: Form): FieldErrorEntry[] {
  * The declared keys follow the runtime, so typed reads
  * (`errors['items.0.name']`) match what the record actually holds. Quoted
  * segments ('items["0"]') drop their quotes like the parser does.
+ *
+ * Public so consumers can name the key style in their own types —
+ * `const key: DottedPath<'items[0].name'> = 'items.0.name'`.
  */
-type DottedPath<P extends string> = P extends `${infer H}[${infer N}]${infer R}`
-  ? `${H extends '' ? '' : `${H}.`}${N extends `"${infer K}"` | `'${infer K}'` ? K : N}${DottedPath<R>}`
-  : P;
+export type DottedPath<P extends string> =
+  P extends `${infer H}[${infer N}]${infer R}`
+    ? `${H extends '' ? '' : `${H}.`}${N extends `"${infer K}"` | `'${infer K}'` ? K : N}${DottedPath<R>}`
+    : P;
 
 /**
  * Every error as one record keyed by user-facing dotted path, typed
@@ -158,6 +162,41 @@ export function getErrorsRecord<T extends Record<string, any> = any>(
     errorsCaches.set(form, {version: 0, result});
   }
   return result;
+}
+
+/**
+ * Convert a field path (bracket spelling, the `name` every API takes) into
+ * the dotted key {@link getErrorsRecord} / {@link getErrors} use:
+ * `'items[0].name'` → `'items.0.name'`. Useful for error-record reads —
+ * `errors[fieldPathToDottedKey(name)]` — and for centralizing the
+ * translation when the two spellings meet in one component.
+ */
+export function fieldPathToDottedKey(name: Name): string {
+  return createPath(name).value.join('.');
+}
+
+/**
+ * Convert a dotted errors-record key back into bracket path spelling:
+ * `'items.0.name'` → `'items[0].name'` — the form every API takes, so the
+ * result feeds straight into `getError(form, …)` / `<Field name=…>`.
+ *
+ * Numeric-shaped segments become bracket segments; everything else stays
+ * dot-joined. Inherently lossy by the record's own convention: the dotted
+ * key cannot distinguish a segment containing a literal dot (a quoted path
+ * like `a["b.c"]` joins to the same `'a.b.c'` as `a.b.c`) — for such paths
+ * keep the bracket spelling and use {@link fieldPathToDottedKey} for the
+ * record read instead.
+ */
+export function dottedKeyToFieldPath(key: string): string {
+  const segments = key.split('.');
+  const numeric = (segment: string) => /^(0|[1-9]\d*)$/.test(segment);
+  return segments
+    .map((segment, i) =>
+      i > 0 && numeric(segment)
+        ? `[${segment}]`
+        : `${i > 0 ? '.' : ''}${segment}`
+    )
+    .join('');
 }
 
 /**

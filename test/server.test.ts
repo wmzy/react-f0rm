@@ -13,7 +13,8 @@ import {describe, it, expect} from 'vitest';
 import {
   validateValues,
   VALIDATION_OUTCOME,
-  formDataFromValues
+  formDataFromValues,
+  valuesFromFormData
 } from '../src/server';
 
 describe('validateValues', () => {
@@ -113,5 +114,68 @@ describe('formDataFromValues', () => {
     const fd = formDataFromValues({files});
     expect(fd.getAll('files')).toHaveLength(2);
     expect((fd.getAll('files')[0] as File).name).toBe('a.txt');
+  });
+});
+
+describe('valuesFromFormData', () => {
+  it('keeps single string entries as strings (native form convention)', () => {
+    const fd = new FormData();
+    fd.append('name', 'ada');
+    fd.append('age', '36');
+    expect(valuesFromFormData(fd)).toEqual({name: 'ada', age: '36'});
+  });
+
+  it('collects repeated keys into arrays', () => {
+    const fd = new FormData();
+    fd.append('tags', 'a');
+    fd.append('tags', 'b');
+    fd.append('tags', 'c');
+    expect(valuesFromFormData(fd)).toEqual({tags: ['a', 'b', 'c']});
+  });
+
+  it('parses JSON-looking strings back into objects', () => {
+    const fd = new FormData();
+    fd.append('meta', '{"deep":1}');
+    fd.append('list', '[1,2,3]');
+    expect(valuesFromFormData(fd)).toEqual({
+      meta: {deep: 1},
+      list: [1, 2, 3]
+    });
+  });
+
+  it('keeps malformed JSON-looking text literal', () => {
+    const fd = new FormData();
+    fd.append('note', '{not json');
+    expect(valuesFromFormData(fd)).toEqual({note: '{not json'});
+  });
+
+  it('keeps quoted-looking text literal (quotes survive)', () => {
+    const fd = new FormData();
+    fd.append('note', '"hello"');
+    expect(valuesFromFormData(fd)).toEqual({note: '"hello"'});
+  });
+
+  it('passes File entries through unchanged', () => {
+    const file = new File(['x'], 'a.txt', {type: 'text/plain'});
+    const fd = new FormData();
+    fd.append('upload', file);
+    expect(valuesFromFormData(fd)).toEqual({upload: file});
+  });
+
+  it('round-trips formDataFromValues output (scalars as strings)', () => {
+    const original = {
+      name: 'ada',
+      tags: ['a', 'b'],
+      meta: {deep: 1},
+      nothing: null
+    };
+    const back = valuesFromFormData(formDataFromValues(original));
+    // Scalars round-trip through String() like a native submit — coerce
+    // them back in the schema; objects and arrays recover their shape.
+    expect(back).toEqual({
+      name: 'ada',
+      tags: ['a', 'b'],
+      meta: {deep: 1}
+    });
   });
 });

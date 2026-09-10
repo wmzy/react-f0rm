@@ -334,8 +334,13 @@ export function useValueByPath(
   // by path.
   const subscribeFactory = useCallback(
     (invalidate: () => void) =>
-      onPathEvent(emitter, 'change', path, scope, invalidate),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps are `key` on purpose: useValue creates a fresh Path per render, so the object must stay out of the deps while the key string pins the subscription
+      onPathEvent(
+        emitter,
+        'change',
+        createPath(JSON.parse(key) as PathSegments),
+        scope,
+        invalidate
+      ),
     [emitter, key, scope]
   );
   return useWatchCore(subscribeFactory, () => {
@@ -345,6 +350,25 @@ export function useValueByPath(
     const value = getValueByPath(form, path);
     return value === undefined ? options?.defaultValue : value;
   });
+}
+
+/**
+ * Subscribe to the whole values tree: re-renders the calling component
+ * whenever any 'change' event lands — react-hook-form's `watch()` with no
+ * arguments. The snapshot is the memoized `getValues(form)` result, so
+ * repeated reads during one render share one reference and, under
+ * `__DEV__`, one frozen copy.
+ *
+ * Broad scope by design: read it in components that must stay cheap and
+ * need the full tree; per-field readers should reach for {@link useValue}
+ * instead so a keystroke re-renders exactly the affected field.
+ */
+export function useValues<T extends Record<string, any> = any>(
+  form: Form<T>
+): T {
+  // Arrow wrapper, not getValues.bind: bind collapses the generic, so the
+  // bound getter would type as () => Record<string, any> and lose the T.
+  return useWatch<T>(form, 'change', () => getValues(form));
 }
 
 /**
@@ -469,8 +493,13 @@ export function useIsFieldDirtyByPath(form: Form, path: Path): boolean {
   const {key} = path;
   const subscribeFactory = useCallback(
     (invalidate: () => void) =>
-      onPathEvent(emitter, 'change', path, 'leaf', invalidate),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- same key-pinning convention as useValueByPath
+      onPathEvent(
+        emitter,
+        'change',
+        createPath(JSON.parse(key) as PathSegments),
+        'leaf',
+        invalidate
+      ),
     [emitter, key]
   );
   return useWatchCore(subscribeFactory, () => isFieldDirtyByPath(form, path));

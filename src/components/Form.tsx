@@ -159,7 +159,7 @@ export default function Form<T extends Record<string, any> = any>({
   shouldFocusError,
   shouldUseNativeValidation,
   ...props
-}: FormProps<T>) {
+}: FormProps<T>): React.JSX.Element {
   const f2 = useForm<T>({
     initialValues,
     values,

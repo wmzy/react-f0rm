@@ -67,12 +67,35 @@ jobs:
         env:
           BENCH_ASSERT: "1"
 
-  # React Compiler smoke: eslint-plugin-react-compiler over src/.
-  # Non-blocking (continue-on-error) — the job surfaces compiler
-  # violations without gating merges until the codebase is clean.
+  # The shipped type surface, locked two ways: the source must pass
+  # --isolatedDeclarations (every exported symbol carries an explicit
+  # annotation, so downstream consumers compiling with the flag keep
+  # working), and the packed tarball must resolve cleanly under every
+  # module-resolution mode (arethetypeswrong, all rows green).
+  types:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: npx tsc -p tsconfig.build.json --isolatedDeclarations --allowJs false --checkJs false --declarationDir node_modules/.cache/dts-check
+      - run: pnpm build
+      - run: npx attw --pack .
+
+  # React Compiler compliance: eslint-plugin-react-compiler over src/.
+  # Blocking — the source is compiler-clean (no disabled react-hooks
+  # rules inside components; key-pinning subscriptions derive from path
+  # keys and staged refs instead of eslint-disable escapes), so a new
+  # disable comment or compiler violation fails the job.
   compiler-smoke:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v5
 

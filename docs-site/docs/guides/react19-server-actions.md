@@ -79,6 +79,34 @@ import {formDataFromValues} from 'react-f0rm/server';
 
 `formDataFromValues` (from `react-f0rm/server`) builds the same payload for the JS path that the browser would post natively — arrays as repeated entries, files passthrough, dates as ISO strings.
 
+## Parsing FormData back: `valuesFromFormData`
+
+A Server Action that receives the FormData — the `<Form action={fn}>` dispatch, a native no-JS post, or any multipart handler — parses it back with `valuesFromFormData` (the inverse of `formDataFromValues`, also from `react-f0rm/server`) and feeds the result straight to `validateValues` — zero hand-rolled `.get()` calls:
+
+```tsx
+// actions.ts
+'use server';
+
+import {valuesFromFormData, validateValues} from 'react-f0rm/server';
+import {standardSchemaFormValidator} from 'react-f0rm/resolvers/standard-schema';
+import {registerSchema} from './schemas';
+
+export async function register(formData: FormData) {
+  const result = await validateValues(valuesFromFormData(formData), {
+    validate: standardSchemaFormValidator(registerSchema)
+  });
+  if (!result.valid) {
+    // result.errors is the flat FieldErrorEntry[] — feed it to the
+    // client's setServerErrors, or re-render the server form directly.
+    return {errors: result.errors};
+  }
+  // result.values carries the schema-coerced tree (z.coerce.number() etc.)
+  await db.users.insert(result.values);
+}
+```
+
+The parser follows native form conventions: repeated keys collect into arrays, File entries pass through, and strings that look like JSON (`{…}`/`[…]` — the shape `formDataFromValues` gives plain objects) parse back to their structure; everything else stays a string, so let the schema coerce scalar types back (`z.coerce.number()`), exactly as a native submit would require.
+
 ## Pattern: `useActionState` + `onValidSubmit`
 
 `<Form>` runs `handleSubmit` internally (see [Submission](./submission.md)), so `onValidSubmit` is the bridge point: it fires only after native constraints *and* custom validators pass, receiving the values object.

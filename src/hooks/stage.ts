@@ -34,17 +34,28 @@ export function useUnmountRestore(
   restore: () => void
 ): void {
   const removedRef = useRef(false);
+  // Latest-value refs: the effect runs once per mount, and the contract
+  // asks for referentially stable callbacks (build them with
+  // {@link useStageFn}), so the staged versions are the mount-time
+  // versions in practice.
+  const teardownRef = useStage(teardown);
+  const restoreRef = useStage(restore);
   useEffect(() => {
+    // Copy the staged callbacks at setup: the cleanup then reads stable
+    // locals instead of `ref.current` (which may legitimately have
+    // changed by cleanup time), and the deps hold only stable ref objects
+    // so the effect still runs exactly once per mount.
+    const teardownOnce = teardownRef.current;
+    const restoreOnce = restoreRef.current;
     // The previous cleanup ran the teardown — this setup is the StrictMode
     // remount: put the state back.
     if (removedRef.current) {
       removedRef.current = false;
-      restore();
+      restoreOnce();
     }
     return () => {
       removedRef.current = true;
-      teardown();
+      teardownOnce();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- teardown/restore are stage-stable; the effect must run exactly once per mount
-  }, []);
+  }, [removedRef, teardownRef, restoreRef]);
 }

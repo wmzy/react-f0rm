@@ -4,7 +4,7 @@ import useField from '../hooks/field';
 import type {Validator} from '../hooks/validate';
 import type {Name} from '../path';
 
-type GroupProps = {
+export type GroupProps = {
   children: React.ReactNode;
   name: Name;
   form?: any;
@@ -13,7 +13,9 @@ type GroupProps = {
   [key: string]: any;
 };
 
-type ItemProps = React.InputHTMLAttributes<HTMLInputElement> & {value: any};
+export type ItemProps = React.InputHTMLAttributes<HTMLInputElement> & {
+  value: any;
+};
 
 /**
  * Shared implementation of the Radio and Checkbox group components: a
@@ -25,8 +27,11 @@ type ItemProps = React.InputHTMLAttributes<HTMLInputElement> & {value: any};
  * (context, aria wiring, toggle logic) is byte-identical, so both are
  * thin factories over this builder.
  */
-export function createGroupItem(type: 'radio' | 'checkbox') {
-  function Group({children, ...props}: GroupProps) {
+export function createGroupItem(type: 'radio' | 'checkbox'): {
+  Group: (props: GroupProps) => React.JSX.Element;
+  Item: (props: ItemProps) => React.JSX.Element;
+} {
+  function Group({children, ...props}: GroupProps): React.JSX.Element {
     const {value, onChange, ...rest} = useField(props);
     return (
       <CheckboxGroupProvider
@@ -41,7 +46,7 @@ export function createGroupItem(type: 'radio' | 'checkbox') {
     );
   }
 
-  function Item({value, ...props}: ItemProps) {
+  function Item({value, ...props}: ItemProps): React.JSX.Element {
     const {valueSet, onChange, error, errorObject, errors, ...rest} =
       useCheckboxGroupContext();
 

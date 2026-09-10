@@ -22,11 +22,11 @@ A headless, event-driven React form library with field-level subscriptions.
 - **Async validation with cancellation.** `validateDebounce` per field + an `AbortSignal` in every validator's meta — superseded rounds cancel their in-flight work; pending debounce counts as validating so submit waits; `asyncAlways` lands a gate's verdict and the validator's result per-source.
 - **Multiple errors per field.** Every field holds an ordered `FieldError[]`; resolvers forward every schema issue.
 - **Headless everywhere.** You own the markup — `useField`/`handleSubmit`/`subscribe`/`watch` work without the DOM (React Native included); `Field`/`Checkbox`/`Select`/`Form` are thin DOM adapters over the same hooks. See [Headless & React Native](https://wmzy.github.io/react-f0rm/guides/headless-react-native).
-- **Selector primitive.** `useStore(form, selector, isEqual?)` is the TanStack `useStore` counterpart; `useWatch` with the `isEqual` bailout covers single events; `useFormState` is the built-in aggregate. See [Hooks Reference](https://wmzy.github.io/react-f0rm/guides/hooks-reference).
-- **React 19 / Server Actions.** `<Form action>` dispatches validated, schema-coerced values as `FormData`; an action returning `{errors: {field: msg}}` hydrates the fields as server errors; `react-f0rm/server` re-validates payloads without React. See the [Server Actions guide](https://wmzy.github.io/react-f0rm/guides/react19-server-actions).
+- **Selector primitive.** `useStore(form, selector, isEqual?)` is the TanStack `useStore` counterpart; `useValues(form)` watches the whole tree (RHF `watch()` with no arguments); `useWatch` with the `isEqual` bailout covers single events; `useFormState` is the built-in aggregate. See [Hooks Reference](https://wmzy.github.io/react-f0rm/guides/hooks-reference).
+- **React 19 / Server Actions.** `<Form action>` dispatches validated, schema-coerced values as `FormData`; an action returning `{errors: {field: msg}}` hydrates the fields as server errors; `react-f0rm/server` re-validates payloads without React and parses incoming FormData back with `valuesFromFormData`. See the [Server Actions guide](https://wmzy.github.io/react-f0rm/guides/react19-server-actions).
 - **Accessibility wired in.** `aria-invalid` + `aria-describedby` → `fieldErrorId(name)` on every bound field; `renderError` completes the `role="alert"` chain.
 - **Tombstone unregister, async initial values, declarative `rules`** (store-side errors + native constraint attributes), `validateOnMount`, `validateDeps` cross-field re-runs, `useTransform` async transforms, `createFormContext` typed isolated contexts, `reset`/`resetField` with RHF-parity keep-flags, `<Devtools />` from `react-f0rm/devtools`, `react-f0rm/persist` — see the [docs site](https://wmzy.github.io/react-f0rm/) for the full surface.
-- **12.88 KB gzip core** (11.72 KB brotli, emitter-external measurement); devtools/server/persist/resolvers ship as separate tree-shakeable entries.
+- **13.08 KB gzip core** (11.91 KB brotli, emitter-external measurement); devtools/server/persist/resolvers ship as separate tree-shakeable entries.
 
 ## Install
 
@@ -130,7 +130,7 @@ Short version: **pick react-f0rm** for controlled components with true per-field
 ## Development
 
 ```bash
-npm test              # 840 tests, vmThreads pool (~3s)
+npm test              # 858 tests, vmThreads pool (~3s)
 npm run test:watch    # watch mode
 npm run coverage      # coverage report (95/90/95/95 thresholds enforced)
 npx vitest bench --run test/bench/  # benchmarks

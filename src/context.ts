@@ -1,4 +1,11 @@
-import {createContext, createElement, useContext, type ReactNode} from 'react';
+import {
+  createContext,
+  createElement,
+  useContext,
+  type Context,
+  type Provider,
+  type ReactNode
+} from 'react';
 import {
   useFieldCore,
   type UseFieldOptions,
@@ -16,9 +23,10 @@ import type {Form} from './form';
 import type {Name, PathSegments} from './path';
 import type {FieldPath} from './types';
 
-export const FormContext = createContext<Form<any> | null>(null);
+export const FormContext: Context<Form<any> | null> =
+  createContext<Form<any> | null>(null);
 
-export const FormProvider = FormContext.Provider;
+export const FormProvider: Provider<Form<any> | null> = FormContext.Provider;
 
 /**
  * Read the form from the module-level {@link FormContext}. Pass the values
@@ -35,6 +43,36 @@ export function useFormContext<T extends Record<string, any> = any>(): Form<T> {
   return form;
 }
 
+/** The bundle {@link createFormContext} returns: a private React context
+ * plus the hooks pre-bound to it, all typed against `TValues`. */
+export type FormContextBundle<TValues extends Record<string, any> = any> = {
+  /** The raw React context, for `<Form context={...}>`: the component
+   * keeps its submit machinery while providing into this instance's
+   * private context. */
+  context: Context<Form<TValues> | null>;
+  FormProvider: (props: {
+    form: Form<TValues>;
+    children: ReactNode;
+  }) => ReactNode;
+  useFormContext: () => Form<TValues>;
+  useField: <
+    TPath extends FieldPath<TValues> | PathSegments =
+      FieldPath<TValues> | PathSegments
+  >(
+    options: {name: TPath} & Omit<UseFieldOptions<TValues, TPath>, 'form'>
+  ) => UseFieldResult<TValues, TPath>;
+  useFieldArray: <TItem = any, K extends string = 'id'>(options: {
+    name: FieldPath<TValues> | Name;
+    keyName?: K;
+    rules?: FieldRules;
+    shouldUnregister?: boolean;
+  }) => UseFieldArrayResult<TItem, K>;
+  useFieldArrayItem: <TValue = any>(options: {
+    name: FieldPath<TValues> | Name;
+    id: string;
+  }) => UseFieldArrayItemResult<TValue>;
+};
+
 /**
  * Create an isolated bundle of form-context bindings: its own React context
  * plus `useField` / `useFieldArray` / `useFieldArrayItem` /
@@ -50,7 +88,9 @@ export function useFormContext<T extends Record<string, any> = any>(): Form<T> {
  * separate form. The bundle also carries its raw React context
  * (`Ctx.context`) so `<Form context={Ctx.context}>` can provide into it.
  */
-export function createFormContext<TValues extends Record<string, any> = any>() {
+export function createFormContext<
+  TValues extends Record<string, any> = any
+>(): FormContextBundle<TValues> {
   const Context = createContext<Form<TValues> | null>(null);
 
   // A `form`-prop wrapper instead of exposing Context.Provider directly:
@@ -116,9 +156,10 @@ export function createFormContext<TValues extends Record<string, any> = any>() {
   };
 }
 
-export const CheckboxGroupContext = createContext<any>(null);
+export const CheckboxGroupContext: Context<any> = createContext<any>(null);
 
-export const CheckboxGroupProvider = CheckboxGroupContext.Provider;
+export const CheckboxGroupProvider: Provider<any> =
+  CheckboxGroupContext.Provider;
 
 export function useCheckboxGroupContext(): any {
   const group = useContext(CheckboxGroupContext);

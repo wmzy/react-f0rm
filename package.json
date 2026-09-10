@@ -8,51 +8,93 @@
   "unpkg": "dist/index.umd.min.js",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.cjs.js"
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs.js"
+      }
     },
     "./resolvers/standard-schema": {
-      "types": "./dist/resolvers/standard-schema.d.ts",
-      "import": "./dist/resolvers/standard-schema.mjs",
-      "require": "./dist/resolvers/standard-schema.cjs.js"
+      "import": {
+        "types": "./dist/resolvers/standard-schema.d.mts",
+        "default": "./dist/resolvers/standard-schema.mjs"
+      },
+      "require": {
+        "types": "./dist/resolvers/standard-schema.d.cts",
+        "default": "./dist/resolvers/standard-schema.cjs.js"
+      }
     },
     "./resolvers/zod": {
-      "types": "./dist/resolvers/zod.d.ts",
-      "import": "./dist/resolvers/zod.mjs",
-      "require": "./dist/resolvers/zod.cjs.js"
+      "import": {
+        "types": "./dist/resolvers/zod.d.mts",
+        "default": "./dist/resolvers/zod.mjs"
+      },
+      "require": {
+        "types": "./dist/resolvers/zod.d.cts",
+        "default": "./dist/resolvers/zod.cjs.js"
+      }
     },
     "./resolvers/yup": {
-      "types": "./dist/resolvers/yup.d.ts",
-      "import": "./dist/resolvers/yup.mjs",
-      "require": "./dist/resolvers/yup.cjs.js"
+      "import": {
+        "types": "./dist/resolvers/yup.d.mts",
+        "default": "./dist/resolvers/yup.mjs"
+      },
+      "require": {
+        "types": "./dist/resolvers/yup.d.cts",
+        "default": "./dist/resolvers/yup.cjs.js"
+      }
     },
     "./devtools": {
-      "types": "./dist/devtools/index.d.ts",
-      "import": "./dist/devtools/index.mjs",
-      "require": "./dist/devtools/index.cjs.js"
+      "import": {
+        "types": "./dist/devtools/index.d.mts",
+        "default": "./dist/devtools/index.mjs"
+      },
+      "require": {
+        "types": "./dist/devtools/index.d.cts",
+        "default": "./dist/devtools/index.cjs.js"
+      }
     },
     "./server": {
-      "types": "./dist/server/index.d.ts",
-      "import": "./dist/server/index.mjs",
-      "require": "./dist/server/index.cjs.js"
+      "import": {
+        "types": "./dist/server/index.d.mts",
+        "default": "./dist/server/index.mjs"
+      },
+      "require": {
+        "types": "./dist/server/index.d.cts",
+        "default": "./dist/server/index.cjs.js"
+      }
     },
     "./persist": {
-      "types": "./dist/persist.d.ts",
-      "import": "./dist/persist.mjs",
-      "require": "./dist/persist.cjs.js"
+      "import": {
+        "types": "./dist/persist.d.mts",
+        "default": "./dist/persist.mjs"
+      },
+      "require": {
+        "types": "./dist/persist.d.cts",
+        "default": "./dist/persist.cjs.js"
+      }
     }
   },
   "types": "dist/index.d.ts",
   "files": [
-    "dist"
+    "dist",
+    "server.js",
+    "server.d.ts",
+    "devtools.js",
+    "devtools.d.ts",
+    "persist.js",
+    "persist.d.ts",
+    "resolvers"
   ],
   "sideEffects": false,
   "scripts": {
     "prepare": "husky",
     "start": "vitest --watch",
     "commit": "lint-staged && git-cz -n",
-    "build": "npm run clean && cross-env NODE_ENV=production rollup -c",
+    "build": "npm run clean && cross-env NODE_ENV=production rollup -c && node scripts/postbuild.mjs",
     "prepublishOnly": "rimraf dist && npm run build",
     "coverage": "vitest run --coverage",
     "test": "vitest run",
@@ -108,6 +150,7 @@
     }
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
     "@babel/core": "^8.0.1",
     "@babel/preset-env": "^8.0.2",
     "@babel/preset-react": "^8.0.1",
@@ -174,13 +217,17 @@
     {
       "path": "dist/index.mjs",
       "limit": "12.5 KB",
-      "ignore": ["@for-fun/event-emitter"]
+      "ignore": [
+        "@for-fun/event-emitter"
+      ]
     },
     {
       "path": "dist/index.mjs",
-      "limit": "13.5 KB",
+      "limit": "14 KB",
       "gzip": true,
-      "ignore": ["@for-fun/event-emitter"]
+      "ignore": [
+        "@for-fun/event-emitter"
+      ]
     },
     {
       "path": "dist/devtools/index.mjs",

@@ -7,7 +7,7 @@ import type {FieldError, Form} from '../form';
  * pattern {@link dirtyFieldsCaches} gives {@link getDirtyFields}. */
 type ValuesCache = {version: number; result: any};
 
-export const valuesCaches = new WeakMap<Form, ValuesCache>();
+export const valuesCaches: WeakMap<Form, ValuesCache> = new WeakMap();
 
 /**
  * Invalidate `form`'s cached {@link getValues} result. Called at every
@@ -28,7 +28,7 @@ export function bumpValuesVersion(form: Form): void {
  * until the next error write. */
 type ErrorsCache = {version: number; result: Record<string, FieldError[]>};
 
-export const errorsCaches = new WeakMap<Form, ErrorsCache>();
+export const errorsCaches: WeakMap<Form, ErrorsCache> = new WeakMap();
 
 /**
  * Invalidate `form`'s cached {@link getErrorsRecord} result. Called at
@@ -130,7 +130,7 @@ export function clearDirtyBaselines(form: Form, key?: string): void {
  * it, reads reset it, so a non-zero version means the cache is stale. */
 type DirtyFieldsCache = {version: number; result: Record<string, boolean>};
 
-export const dirtyFieldsCaches = new WeakMap<Form, DirtyFieldsCache>();
+export const dirtyFieldsCaches: WeakMap<Form, DirtyFieldsCache> = new WeakMap();
 
 /**
  * Invalidate `form`'s cached {@link getDirtyFields} result. Called at every

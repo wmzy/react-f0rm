@@ -5,6 +5,7 @@ import {on} from '../emitter';
 import {FormContext} from '../context';
 import {getErrors, getValues, reset, trigger} from '../form';
 import type {FieldErrorEntry, Form} from '../form';
+import type {Path} from '../path';
 import {
   useDirtyFields,
   useIsSubmitting,
@@ -30,9 +31,24 @@ export type DevtoolsProps<T extends Record<string, any> = any> = {
   position?: DevtoolsPosition;
 };
 
-type TabId = 'values' | 'errors' | 'touched' | 'dirty' | 'submits';
+type TabId = 'values' | 'errors' | 'touched' | 'dirty' | 'submits' | 'events';
 
-const TABS: TabId[] = ['values', 'errors', 'touched', 'dirty', 'submits'];
+const TABS: TabId[] = [
+  'values',
+  'errors',
+  'touched',
+  'dirty',
+  'submits',
+  'events'
+];
+
+/** One emitted form event, newest first in the event timeline tab. */
+type EventTrace = {
+  n: number;
+  event: string;
+  at: number;
+  path?: string;
+};
 
 /** One completed submit attempt, snapshotted when `isSubmitting` flips
  * back to false — the outcome, final (schema-coerced) values and errors
@@ -80,7 +96,7 @@ function countLeaves(value: unknown): number {
 export default function Devtools<T extends Record<string, any> = any>({
   form,
   position = 'top-right'
-}: DevtoolsProps<T>) {
+}: DevtoolsProps<T>): React.JSX.Element {
   // Idempotent + SSR-guarded; moving it off module scope keeps the
   // devtools entry free of import-time side effects (package.json
   // declares `sideEffects: false`, so bundlers may drop a bare
@@ -144,6 +160,58 @@ export default function Devtools<T extends Record<string, any> = any>({
     });
   }, [f]);
 
+  // Event timeline: every form event lands here, newest first, capped at
+  // the 50 most recent. State writes ride the event callback (set-state
+  // from an event-driven subscription, never from the effect body or
+  // render). Payloads are summarized: path events carry their segments,
+  // focusError its key (pretty-printed), payload-less events nothing.
+  const [events, setEvents] = useState<EventTrace[]>([]);
+  useEffect(() => {
+    let seq = 0;
+    const push = (event: string, path?: string) => {
+      seq += 1;
+      const trace: EventTrace = {n: seq, event, at: Date.now()};
+      if (path !== undefined) trace.path = path;
+      setEvents(prev => [trace, ...prev].slice(0, 50));
+    };
+    const disposers: Array<() => void> = [];
+    for (const event of [
+      'change',
+      'errors',
+      'touched',
+      'validating'
+    ] as const) {
+      disposers.push(
+        on(f.emitter, event, (path?: Path) =>
+          push(event, path ? path.value.join('.') : undefined)
+        )
+      );
+    }
+    disposers.push(
+      on(f.emitter, 'focusError', (key: string) => {
+        // The key is JSON-serialized segments — pretty-print it like the
+        // other path events; malformed input falls back to the raw key.
+        try {
+          push('focusError', (JSON.parse(key) as string[]).join('.'));
+        } catch {
+          push('focusError', key);
+        }
+      })
+    );
+    for (const event of [
+      'submitting',
+      'submitCount',
+      'submitSuccessful',
+      'reset',
+      'disabled',
+      'status',
+      'loading'
+    ] as const) {
+      disposers.push(on(f.emitter, event, () => push(event)));
+    }
+    return () => disposers.forEach(dispose => dispose());
+  }, [f]);
+
   if (!open) {
     return (
       <button
@@ -166,7 +234,8 @@ export default function Devtools<T extends Record<string, any> = any>({
     errors: errors.length,
     touched: touched.length,
     dirty: Object.keys(dirty).length,
-    submits: submits.length
+    submits: submits.length,
+    events: events.length
   };
 
   /** Arrow-key tab navigation (buttons stay click/Enter/Space operable). */
@@ -304,6 +373,31 @@ export default function Devtools<T extends Record<string, any> = any>({
                 <JsonTree value={trace.values} />
               </details>
             ))
+          ))}
+        {tab === 'events' &&
+          (events.length === 0 ? (
+            <p className="rf0-dt-empty">no events yet</p>
+          ) : (
+            <>
+              <div>
+                <button
+                  type="button"
+                  className="rf0-dt-action"
+                  onClick={() => setEvents([])}
+                >
+                  Clear
+                </button>
+              </div>
+              {events.map(trace => (
+                <div key={`${trace.n}:${trace.at}`} className="rf0-dt-item">
+                  <span className="rf0-dt-item-tag">{trace.event}</span>
+                  <span className="rf0-dt-item-path">{trace.path ?? '—'}</span>
+                  <span className="rf0-dt-item-msg rf0-dt-item-msg--ok">
+                    {new Date(trace.at).toLocaleTimeString()}
+                  </span>
+                </div>
+              ))}
+            </>
           ))}
       </div>
 
