@@ -86,10 +86,26 @@ HTML attributes (`required`, `type='email'`, `min`, …) keep running through th
 | `errors` | `FieldError[]` | Every error registered for the field, insertion order — `error`/`errorObject` are its first entry; empty and reference-stable when clean |
 | `isDirty` | `boolean` | Whether the field is dirty — a live value exists and differs from the field's effective baseline (committed `shouldDirty: false` baselines included). Live in controlled mode; **pinned at mount in uncontrolled mode** (like `value`) so typing never re-renders the field — `useIsFieldDirty(form, name)` is the live scoped channel for either mode |
 | `validating` | `boolean` | Whether a validator round for this field is in flight — a pending debounce window or an unresolved async validator (the reactive `getFieldState(form, name).isValidating`) |
-| `onChange` | `(value: any) => void` | Update value |
+| `onChange` | `(value: any) => void` | Update value — the headless channel: it takes the **raw value** (design-system controls hand values, not events). See `inputProps` for the event-based DOM binding |
 | `onBlur` | `() => void` | Mark as touched |
 | `name` | `string` | Serialized field name (path key) |
-| `disabled` | `boolean` | Merged disabled flag — the form-level flag (`createForm({disabled})`, toggled by `setDisabled`) OR-ed with this field's own `disabled` option, updated live |
+| `disabled` | `boolean` | Merged disabled flag — `form.disabled || own option === true || (not opted out with false && an ancestor declared disabled)`. A parent field's `disabled: true` disables its descendants (RHF subtree semantics); `disabled: false` on a descendant opts back out. The form-level flag cannot be opted out of |
+| `focusRef` | `(el: any) => void` | Callback ref carrying the focus channel — attach it for `setFocus` / failed-submit auto-focus |
+| `inputProps` | `UseFieldInputProps` | DOM-ready props for `<input {...field.inputProps} />`: `name`, `value`/`defaultValue`/`checked` (per `type` and `uncontrolled`), event-based `onChange` (extraction via `eventToValue`/`valueAsNumber`/`valueAsDate`, file/checkbox auto-detected), `onBlur`, `ref` (the focus channel), `disabled`, and `aria-invalid`/`aria-describedby` while an error is live — render the message element with `fieldErrorId(name)` to complete the chain. Spread it first so your own props win |
+
+The `inputProps` binding is the same contract `<Field>` renders — one spread instead of hand-wiring:
+
+```tsx
+const {inputProps, error} = useField({name: 'email'});
+return (
+  <>
+    <input {...inputProps} placeholder="you@example.com" />
+    {error && <span role="alert" id={fieldErrorId('email')}>{error}</span>}
+  </>
+);
+```
+
+Options consumed only by `inputProps`: `eventToValue` (custom extractor; the default follows the element's own protocol — `target.files` for file inputs, `target.checked` for checkboxes, `target.valueAsNumber`/`target.valueAsDate` under their flags, `target.value` otherwise), `valueAsNumber`, `valueAsDate`, and `type` (`'checkbox'` spreads `checked` instead of `value`, `'file'` spreads neither).
 
 ## Unregister Semantics
 

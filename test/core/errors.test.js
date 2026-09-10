@@ -1,6 +1,7 @@
 import {describe, it, expect, vi} from 'vitest';
 import {on} from '../../src/emitter';
 import createForm, {
+  FORM_ERROR,
   getError,
   getErrorByPath,
   getFieldErrors,
@@ -13,6 +14,7 @@ import createForm, {
   hasErrors,
   setServerErrors,
   getErrorsRecord,
+  getErrorsTree,
   fieldPathToDottedKey,
   dottedKeyToFieldPath
 } from '../../src/form';
@@ -310,5 +312,80 @@ describe('fieldPathToDottedKey / dottedKeyToFieldPath', () => {
       type: 'custom',
       message: 'required'
     });
+  });
+});
+
+describe('getErrorsTree', () => {
+  it('nests errors along the values tree: objects, array indices, leaves', () => {
+    const form = createForm();
+    setError(form, 'a.b', 'deep');
+    setError(form, 'items[0].name', ['required', 'short']);
+    setError(form, 'items[1]', 'row');
+    setError(form, 'top', 'top-level');
+    const tree = getErrorsTree(form);
+    expect(tree.a.b).toEqual([{type: 'custom', message: 'deep'}]);
+    expect(tree.items).toHaveLength(2);
+    expect(Object.keys(tree.items)).toEqual(['0', '1']);
+    expect(tree.items[0].name.map(e => e.message)).toEqual([
+      'required',
+      'short'
+    ]);
+    expect(tree.items[1]).toEqual([{type: 'custom', message: 'row'}]);
+    expect(tree.top).toEqual([{type: 'custom', message: 'top-level'}]);
+  });
+
+  it('keeps quoted string keys as object keys instead of array indices', () => {
+    const form = createForm();
+    setError(form, 'items["0"]', 'quoted');
+    const tree = getErrorsTree(form);
+    expect(tree.items['0']).toEqual([{type: 'custom', message: 'quoted'}]);
+    expect(tree.items).not.toBeInstanceOf(Array);
+  });
+
+  it('holds form-level errors under the FORM_ERROR slot', () => {
+    const form = createForm();
+    setError(form, FORM_ERROR, 'boom');
+    const tree = getErrorsTree(form);
+    expect(tree[FORM_ERROR]).toEqual([{type: 'custom', message: 'boom'}]);
+  });
+
+  it('resolves the row-vs-field conflict by insertion order (later wins)', () => {
+    const rowThenField = createForm();
+    setError(rowThenField, 'items[0]', 'row');
+    setError(rowThenField, 'items[0].name', 'field');
+    const fieldWins = getErrorsTree(rowThenField);
+    expect(fieldWins.items[0].name).toEqual([
+      {type: 'custom', message: 'field'}
+    ]);
+
+    const fieldThenRow = createForm();
+    setError(fieldThenRow, 'items[0].name', 'field');
+    setError(fieldThenRow, 'items[0]', 'row');
+    const rowWins = getErrorsTree(fieldThenRow);
+    expect(rowWins.items[0]).toEqual([{type: 'custom', message: 'row'}]);
+  });
+
+  it('hands back one stable reference while no error write changed content', () => {
+    const form = createForm({initialValues: {a: ''}});
+    const empty = getErrorsTree(form);
+    expect(getErrorsTree(form)).toBe(empty);
+    setError(form, 'a', 'oops');
+    const withError = getErrorsTree(form);
+    expect(withError).not.toBe(empty);
+    expect(getErrorsTree(form)).toBe(withError);
+    // Clearing rebuilds the tree too.
+    clearErrors(form);
+    expect(getErrorsTree(form)).toEqual({});
+  });
+
+  it('leaves the dotted record untouched alongside the tree', () => {
+    const form = createForm();
+    setError(form, 'items[0].name', 'x');
+    expect(getErrorsRecord(form)['items.0.name']).toEqual([
+      {type: 'custom', message: 'x'}
+    ]);
+    expect(getErrorsTree(form).items[0].name).toEqual([
+      {type: 'custom', message: 'x'}
+    ]);
   });
 });

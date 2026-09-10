@@ -21,12 +21,16 @@ export function bumpValuesVersion(form: Form): void {
   if (cache) cache.version++;
 }
 
-/** Per-form memoization of {@link getErrorsRecord} (src/core/errors.ts),
- * the same version-bump/read pattern {@link valuesCaches} gives
- * {@link getValues}: every errors-Map mutation bumps the counter, reads
- * reset it, so consecutive reads hand back one stable record reference
- * until the next error write. */
-type ErrorsCache = {version: number; result: Record<string, FieldError[]>};
+/** Per-form memoization of {@link getErrorsRecord} /
+ * {@link getErrorsTree} (src/core/errors.ts), the same version-bump/read
+ * pattern {@link valuesCaches} gives {@link getValues}: every errors-Map
+ * mutation bumps the counter, reads reset it, so consecutive reads hand
+ * back one stable record/tree reference until the next error write. */
+type ErrorsCache = {
+  version: number;
+  result: Record<string, FieldError[]>;
+  tree: any;
+};
 
 export const errorsCaches: WeakMap<Form, ErrorsCache> = new WeakMap();
 

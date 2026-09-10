@@ -5,8 +5,10 @@ import type {EventEmitter} from './emitter';
 import createPath from './path';
 import type {Name, Path} from './path';
 import type {FieldPath} from './types';
+import type {FieldRules} from './rules';
 import {isPromise} from './util';
 import {setInitialValues} from './core/values';
+import {registerField} from './core/register';
 import type {SetFocusOptions} from './core/focus';
 import type {VALIDATION_OUTCOME} from './core/errors';
 
@@ -52,6 +54,86 @@ export type ValidationMode =
  * - `'onSubmit'`: only on submit (no live re-validation)
  */
 export type ReValidateMode = 'onChange' | 'onBlur' | 'onSubmit';
+
+/** When the form-level {@link Options.validate} re-runs outside
+ * submit/`trigger`/`validateOnMount`:
+ * - `'onSubmit'` (default): only on submit/trigger — cross-field linkage
+ *   goes through {@link Options.validateDeps} instead
+ * - `'onChange'`: every user change to a bound field re-runs it
+ * - `'onBlur'`: every user blur of a bound field re-runs it
+ *
+ * TanStack Form's `validators.onChange`/`validators.onBlur` counterpart:
+ * a cadence declaration instead of enumerating deps. The re-run rides the
+ * changed field's own user-change pipeline (typing and `changeValue`
+ * alike, never programmatic `setValue`), honors {@link
+ * Options.validateDebounce}, and reuses the round-scoped error footprint —
+ * a passing re-run clears what the previous round wrote.
+ */
+export type FormValidateMode = 'onSubmit' | 'onChange' | 'onBlur';
+
+/**
+ * Options accepted by {@link Form.register} — the non-hook binding for
+ * uncontrolled fields (react-hook-form's `register` contract: the bound
+ * element never re-renders; the store carries every write).
+ */
+export type RegisterOptions = {
+  /**
+   * Field-level validation mode for this binding (see {@link
+   * ValidationMode}): typing gates on it exactly like a mounted
+   * `useField`. Defaults to the form's `mode`.
+   */
+  mode?: ValidationMode;
+  /**
+   * Unmount behavior: `true` (the default, this library's historical
+   * default) tombstones the path when the element unmounts, `false` keeps
+   * the value. Falls back to the form-level
+   * `createForm({shouldUnregister})` when omitted.
+   */
+  shouldUnregister?: boolean;
+  /**
+   * DOM event → value extractor for the returned `onChange`. Defaults to
+   * the element's own protocol: `target.files` for file inputs,
+   * `target.checked` for checkboxes, `target.valueAsNumber` /
+   * `target.valueAsDate` under those flags, `target.value` otherwise —
+   * the same extraction `<Field>` performs.
+   */
+  eventToValue?: (e: any) => any;
+  /** Store `e.target.valueAsNumber` instead of the string value
+   * (`<input type="number">`, RHF's `register({valueAsNumber})`). An
+   * explicit `eventToValue` takes precedence. */
+  valueAsNumber?: boolean;
+  /** Store `e.target.valueAsDate` instead of the string value (RHF's
+   * `register({valueAsDate})`). An explicit `eventToValue` takes
+   * precedence; combining with `valueAsNumber` is a TypeError. */
+  valueAsDate?: boolean;
+  /**
+   * Declarative rules for this binding — the same {@link FieldRules}
+   * `useField`/`<Field>` take (`required` runs as the synchronous gate,
+   * `validate` callbacks included). Wired through the framework-free
+   * `registerValidatorByPath`, so `trigger`/submit/`mode` gating see it
+   * exactly like a hook-registered validator. `validateDebounce` is
+   * fixed at 0 — the rules run immediately on every kick.
+   */
+  rules?: FieldRules;
+};
+
+/**
+ * What {@link Form.register} returns: spread these props onto an
+ * uncontrolled DOM element (`<input {...form.register('name')} />`).
+ * The bound element never re-renders — read live state through
+ * `useValue`/`useError`/`getValues`, exactly like react-hook-form's
+ * `register` contract. `name` is the store's path key; `onChange` writes
+ * the extracted value through the gated user-change pipeline; `ref`
+ * attaches the element (seeds its initial DOM content into the store,
+ * wires the 'focusError' channel and bulk-reset DOM sync) and detaches it
+ * on unmount (tombstone unless `shouldUnregister: false`).
+ */
+export type RegisterProps = {
+  name: string;
+  onChange: (e: any) => void;
+  onBlur: () => void;
+  ref: (el: any) => void;
+};
 
 /** Structured form-level validate result: `errors` uses the same nested
  * shape a plain error record uses, `values` is the schema's parsed output
@@ -115,7 +197,7 @@ export type FormEvents =
   | ['submitCount', []]
   | ['submitSuccessful', []]
   | ['reset', []]
-  | ['disabled', []]
+  | ['disabled', [path?: Path]]
   | ['status', []]
   | ['loading', []]
   | ['focusError', [key: string, options?: SetFocusOptions]];
@@ -160,6 +242,12 @@ export type Form<T extends Record<string, any> = any> = {
    * changes re-run the form-level `validate`; normalized from {@link
    * Options.validateDeps} at create time and fixed thereafter. */
   validateDeps?: ReadonlySet<string>;
+  /** When the form-level `validate` re-runs outside submit/trigger —
+   * the cadence declared by {@link Options.validateMode}, seeded at
+   * create time and fixed thereafter ('onSubmit' by default; with
+   * 'onChange'/'onBlur' every user change/blur to a bound field re-runs
+   * it, no dep list required). */
+  validateMode: FormValidateMode;
   isSubmitting: boolean;
   /** Whether a submit has been attempted — set by `handleSubmit` on every
    * attempt (validation outcome aside), cleared by `reset`.
@@ -216,6 +304,18 @@ export type Form<T extends Record<string, any> = any> = {
    * Starts `undefined`.
    */
   status: any;
+  /**
+   * Non-hook field binding — react-hook-form's `register` contract:
+   * spread the returned props onto an uncontrolled DOM element
+   * (`<input {...form.register('name')} />`) and the element never
+   * re-renders, while the store carries every write and `trigger`/submit
+   * validate it. Seeding, the 'focusError' channel, bulk-reset DOM sync
+   * and unmount tombstoning ride the `ref` callback's attach/detach —
+   * no React state involved, so `register` works anywhere (dynamic
+   * lists, conditional fields, non-React adapters). See {@link
+   * RegisterOptions} / {@link RegisterProps}.
+   */
+  register: (name: Name, options?: RegisterOptions) => RegisterProps;
 };
 
 export type Options<T extends Record<string, any> = any> = {
@@ -283,6 +383,20 @@ export type Options<T extends Record<string, any> = any> = {
    * manual `setError` — are never touched. TanStack Form's counterpart is
    * `onChangeListenTo` (v1) / validator `triggers` (v2 alpha). */
   validateDeps?: FieldPath<T>[];
+  /**
+   * When the form-level `validate` re-runs outside submit/`trigger`/
+   * `validateOnMount` — a cadence declaration instead of enumerating
+   * {@link Options.validateDeps}. `'onSubmit'` (the default) keeps the
+   * historical behavior (submit/trigger only, deps for cross-field
+   * linkage). `'onChange'` re-runs the form-level validate on every user
+   * change to a bound field; `'onBlur'` on every user blur. The re-run
+   * rides the changed field's own user-change pipeline (typing and
+   * `changeValue` alike, never programmatic `setValue`), honors
+   * {@link Options.validateDebounce}, and clears what the previous round
+   * wrote — TanStack Form's `validators.onChange`/`validators.onBlur`
+   * counterpart. See {@link FormValidateMode}.
+   */
+  validateMode?: FormValidateMode;
   /**
    * Form-level default for a bound field's unmount behavior. `true` (the
    * default) tombstones an unmounted field — it drops out of
@@ -375,6 +489,7 @@ export default function create<T extends Record<string, any> = any>(
     validate: wrappedValidate,
     mode: options?.mode ?? 'onSubmit',
     reValidateMode: options?.reValidateMode ?? 'onChange',
+    validateMode: options?.validateMode ?? 'onSubmit',
     disabled: options?.disabled ?? false,
     validateOnMount: options?.validateOnMount ?? false,
     asyncAlways: options?.asyncAlways ?? false,
@@ -395,7 +510,9 @@ export default function create<T extends Record<string, any> = any>(
     submitCount: 0,
     isSubmitSuccessful: undefined,
     isLoading: false,
-    status: undefined
+    status: undefined,
+    register: (name, registerOptions) =>
+      registerField(form, name, registerOptions)
   };
   if (isPromise(source)) {
     // The form starts empty; when the source resolves, its values become
@@ -439,5 +556,6 @@ export * from './core/touched';
 export * from './core/dirty';
 export * from './core/validate';
 export * from './core/change';
+export * from './core/register';
 export * from './core/submit';
 export * from './core/focus';

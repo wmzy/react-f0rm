@@ -33,7 +33,7 @@ The framework-free counterpart is `watch(form, event, getter, isEqual?)` — the
 
 ## `useValues` — the whole tree, one subscription
 
-`useValues(form)` watches the entire values tree — any 'change' event re-renders the calling component with the memoized `getValues(form)` snapshot. React-hook-form's `watch()` with no arguments. Broad scope by design: fine for cheap summary components, but per-field readers should use [`useValue`](#usevalue) so a keystroke re-renders exactly the affected field.
+`useValues(form)` watches the entire values tree — any 'change' event re-renders the calling component with the memoized `getValues(form)` snapshot. React-hook-form's `watch()` with no arguments. Broad scope by design: fine for cheap summary components, but per-field readers should use `useValue` so a keystroke re-renders exactly the affected field.
 
 ```tsx
 import {useValues} from 'react-f0rm';
@@ -87,6 +87,31 @@ function ErrorSummary({form}: {form: Form<Profile>}) {
 ```
 
 Keys follow the runtime form: array paths are dot-joined (`'tags.0'`, not `'tags[0]'` — bracket spelling is a path form, the record joins segments with dots). Two exported helpers bridge the spellings: `fieldPathToDottedKey('tags[0].name')` → `'tags.0.name'` (the record key to read), `dottedKeyToFieldPath('tags.0.name')` → `'tags[0].name'` (the form every field API takes); the `DottedPath<P>` type names the key style at compile time.
+
+## `useErrorsTree` — the nested view
+
+The same errors as a nested object following the values tree — `errors.items?.[0]?.name` with typed optional chains, RHF's `formState.errors` read style:
+
+```tsx
+const errors = useErrorsTree(form); // FieldErrorsTree<Profile>
+errors.items?.[0]?.name?.[0]?.message;
+```
+
+`FieldErrorsTree<T>` mirrors the values shape: objects recurse, arrays become arrays of the item's tree, leaves hold `FieldError[] | undefined` (primitives, `Date`/`File`/`FileList`/`Map`/`Set` and `OpaqueTypes`-registered leaves). Both views share one version-bumped cache — stable references, re-renders only when an error write changed content. One insertion-order rule: a row-level error (`items[0]`) and a field error (`items[0].name`) cannot share the slot — whichever landed later owns it; the flat record never conflicts.
+
+## `form.register` — the non-hook binding
+
+`form.register(name, options?)` returns spreadable DOM props for an uncontrolled element — RHF's `register` contract without a hook, usable in dynamic lists, conditional fields and non-React adapters:
+
+```tsx
+<input {...form.register('email', {rules: {required: true}})} />
+```
+
+The element never re-renders; the store carries every write (extraction auto-detects file/checkbox and honors `valueAsNumber`/`valueAsDate`/`eventToValue`), the ref attach seeds the element's `defaultValue`/`checked` into the store, wires the `'focusError'` channel and bulk-reset DOM sync, and detach tombstones (unless `shouldUnregister: false`). `useField({uncontrolled: true})` is the hook-side counterpart.
+
+## `validateMode` — form-level cadence
+
+`createForm({validateMode: 'onChange' | 'onBlur'})` re-runs the form-level `validate` on every user change/blur to a bound field — TanStack's `validators.onChange/onBlur` — instead of enumerating `validateDeps`. Rounds own their errors: a passing re-run clears exactly what the previous round wrote (field validators' and manual errors survive). `validateDebounce` still merges kicks, and programmatic `setValue` never fires it. Default `'onSubmit'` keeps the historical behavior.
 
 ## `useTransform` — display ≠ stored value
 

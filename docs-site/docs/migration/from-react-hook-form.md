@@ -46,12 +46,24 @@ This guide maps React Hook Form v7 concepts to react-f0rm piece by piece. Every 
 
 The `mode` / `reValidateMode` strings (`'onSubmit'`, `'onBlur'`, `'onChange'`, `'onTouched'`, `'all'` and `'onChange'` / `'onBlur'` / `'onSubmit'`) mean the same thing. **Start with `createForm({shouldUnregister: false})` (or `<Form shouldUnregister={false}>`) if you relied on RHF's keep-the-value unmount behavior** — react-f0rm's default tombstones unmounted fields so they drop out of `getValues()`.
 
-### 2. Replace `register` with `Field`
+### 2. Replace `register` with `Field` — or keep `register`
 
 ```diff
 - <input {...register('email', {required: 'Email is required'})} />
 + <Field name="email" rules={{required: 'Email is required'}} />
 ```
+
+**`register` itself also exists** — `form.register(name)` returns the same spreadable props, no hook involved, so most `register` call sites migrate 1:1:
+
+```diff
+- const { register } = useForm();
++ const form = createForm({shouldUnregister: false});   // or useForm()
+  …
+- <input {...register('email', {required: 'Email is required'})} />
++ <input {...form.register('email', {rules: {required: 'Email is required'}})} />
+```
+
+The bound element never re-renders (RHF contract), while the store carries every write — `getValues`/submit/validation read it, `useError`/`useValue` stay reactive, and `rules`/`mode`/`valueAsNumber`/`valueAsDate`/`shouldUnregister` are accepted. Two semantic notes: unmount still tombstones by default (pass `shouldUnregister: false` per binding or `createForm({shouldUnregister: false})` — the same inversion described in [Pitfalls](#pitfalls)), and `disabled` is not part of the returned props — set it as a plain DOM attribute.
 
 The `register` rule subset maps onto the `rules` prop:
 

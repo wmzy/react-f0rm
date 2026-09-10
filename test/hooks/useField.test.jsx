@@ -753,6 +753,7 @@ describe('useField', () => {
       'errors',
       'focusRef',
       'form',
+      'inputProps',
       'isDirty',
       'name',
       'onBlur',

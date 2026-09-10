@@ -1,15 +1,17 @@
 import * as React from 'react';
 import useField from '../hooks/field';
+import {errorIdFromKey} from '../errorId';
+export {fieldErrorId} from '../errorId';
 import {FormContext} from '../context';
 import type {Validator} from '../hooks/validate';
 import type {Form, ValidationMode} from '../form';
 import {rulesToConstraintAttrs} from '../rules';
 import type {FieldRules} from '../rules';
-import type {Name, Path, PathSegments} from '../path';
-import createPath from '../path';
+import type {Path, PathSegments} from '../path';
 import type {StandardSchemaV1} from '../standardSchema';
 import {hasStandardProps, schemaToFieldValidator} from '../standardSchema';
 import type {FieldPath, PathValueOf} from '../types';
+import {extractEventValue} from '../util';
 
 /** Dev-only flag, replaced at build time (rollup.config.js `replace`);
  * defined for the test environment in vitest.config.ts. */
@@ -164,17 +166,6 @@ function setRef<T>(ref: React.Ref<T> | undefined, value: T | null) {
 }
 
 /**
- * Converts a path key (the JSON.stringify'd path segments, e.g. '["a","0"]')
- * into a valid HTML id ('a-0'): quotes, brackets, commas and whitespace
- * become hyphens; leading/trailing hyphens are trimmed. Falls back to
- * 'field' if nothing remains.
- */
-function errorIdFromKey(key: string): string {
-  const id = key.replace(/["'[\],\s]+/g, '-').replace(/^-+|-+$/g, '');
-  return id || 'field';
-}
-
-/**
  * The aria wiring every bound field shares: `aria-invalid` when the field
  * has an error, and `aria-describedby` pointing at the error-message
  * element id derived from the field key — the same id `fieldErrorId(name)`
@@ -194,20 +185,6 @@ function ariaProps(
           .join(' ')
       : props['aria-describedby']
   };
-}
-
-/**
- * The error-message element id a field's `aria-describedby` points at —
- * `fieldErrorId('a[0].b')` is `'a-0-b'`, the same id `Field`'s built-in
- * `renderError` span carries. This is the library-level wiring convention:
- * whenever a bound field (Field/Checkbox/Select) has an error it sets
- * `aria-invalid` and describes the element with this id, so a custom error
- * component only needs `<span id={fieldErrorId(name)} role="alert">` to
- * complete the accessible-name chain for screen readers.
- * @param name the same field name passed to the bound component
- */
-export function fieldErrorId(name: Name): string {
-  return errorIdFromKey(createPath(name).key);
 }
 
 /**
@@ -358,13 +335,7 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
     }
     const toValue =
       eventToValue ??
-      (isFile
-        ? (e: any) => e.target.files
-        : valueAsNumber
-          ? (e: any) => e.target.valueAsNumber
-          : valueAsDate
-            ? (e: any) => e.target.valueAsDate
-            : (e: any) => e.target.value);
+      ((e: any) => extractEventValue(e, {valueAsNumber, valueAsDate}));
 
     // file inputs never receive a value/defaultValue prop (they cannot be
     // value-controlled); uncontrolled renders defaultValue, controlled

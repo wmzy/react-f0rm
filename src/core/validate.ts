@@ -492,9 +492,10 @@ function touchKeys(form: Form, keys: string[]): void {
  * hold as separate errors (zod flatten() formErrors style), and
  * FieldError-shaped objects are stored as-is. Falsy values are skipped.
  *
- * When `footprint` is passed (validateDeps forms only), every leaf this
- * round actually stored is recorded into it — the exact stored array —
- * so the next round can drop exactly what this one wrote.
+ * When `footprint` is passed (forms with `validateDeps` or a live
+ * `validateMode`), every leaf this round actually stored is recorded into
+ * it — the exact stored array — so the next round can drop exactly what
+ * this one wrote.
  */
 function setFormErrors(
   form: Form,
@@ -553,18 +554,23 @@ function recordFootprint(
  * becomes the form's parsedValues baseline. Falsy results are skipped,
  * branded or not.
  *
- * Forms that opted into `validateDeps` additionally get round-scoped
- * error ownership: before the new result lands, the errors the previous
- * round wrote are dropped ({@link clearFormValidateErrors}), so a re-run
- * that passes makes the cross-field error disappear — and the new
- * round's own writes become the tracked footprint. Forms without the
- * option keep the historical write-only behavior untouched.
+ * Forms that re-run the validate on user input — via {@link
+ * Options.validateDeps} or a live {@link Options.validateMode} cadence —
+ * additionally get round-scoped error ownership: before the new result
+ * lands, the errors the previous round wrote are dropped
+ * ({@link clearFormValidateErrors}), so a re-run that passes makes the
+ * cross-field error disappear — and the new round's own writes become the
+ * tracked footprint. Submit-only forms (no deps, `validateMode:
+ * 'onSubmit'`) keep the historical write-only behavior untouched.
  */
 function applyValidateResult(
   form: Form,
   result: ValidateResult<any> | undefined
 ): void {
-  const footprint = form.validateDeps ? getFormErrorFootprint(form) : undefined;
+  const footprint =
+    form.validateDeps || form.validateMode !== 'onSubmit'
+      ? getFormErrorFootprint(form)
+      : undefined;
   if (footprint) {
     clearFormValidateErrors(form, footprint);
     footprint.clear();
@@ -581,8 +587,9 @@ function applyValidateResult(
 
 /** Per-form error footprint of the last form-level validate round: every
  * path key it flattened onto, with the exact array instance it stored.
- * Tracked only for forms that opted into `validateDeps` — held in a
- * WeakMap so the Form shape and the non-opted pipeline stay untouched. */
+ * Tracked only for forms that re-run the validate on user input
+ * (`validateDeps` or a live `validateMode`) — held in a WeakMap so the
+ * Form shape and the submit-only pipeline stay untouched. */
 const formErrorFootprints = new WeakMap<Form, Map<string, FieldError[]>>();
 
 function getFormErrorFootprint(form: Form): Map<string, FieldError[]> {

@@ -120,6 +120,25 @@ Details that fall out of the plumbing:
 
 TanStack Form's counterpart is `onChangeListenTo` (v1) / validator `triggers` (v2 alpha); both re-run a validator when listed fields change. react-f0rm keeps the declaration at the form level (the validate belongs to the form) and gates the re-run by the library's own `mode`/`reValidateMode` semantics instead of adding an always-on listener.
 
+### Re-running on every change or blur (`validateMode`)
+
+Enumerating deps gets brittle when most fields feed the cross-field rule (order forms, calculators). `validateMode` declares a cadence instead — TanStack's `validators.onChange`/`validators.onBlur`:
+
+```tsx
+const form = useForm({
+  initialValues: {quantity: 1, price: 10},
+  validate: values =>
+    values.quantity > 0 && values.price > 0
+      ? {}
+      : {quantity: 'Quantity and price must be positive'},
+  validateMode: 'onChange' // every user change re-runs the form validate
+});
+```
+
+- `'onChange'` re-runs on every user change to a bound field, `'onBlur'` on every blur, `'onSubmit'` (the default) keeps the historical submit/trigger-only behavior.
+- The same plumbing as `validateDeps` applies: user changes only (never programmatic `setValue`), `validateDebounce` merges kicks, and rounds own their errors — a passing re-run clears exactly what the previous round wrote while field validators' and manual errors survive.
+- With a live cadence the round-scoped error ownership is always armed (no opt-in needed), so the submit-then-fix flow works everywhere.
+
 ## Schema Validation
 
 Use the Zod or Yup resolvers at field level:

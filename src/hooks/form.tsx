@@ -13,6 +13,7 @@ import createForm, {
   FORM_ERROR,
   getErrorByPath,
   getErrorsRecord,
+  getErrorsTree,
   getFieldErrorsByPath,
   getValueByPath,
   getValues,
@@ -25,7 +26,14 @@ import createForm, {
   setInitialValues,
   runFormValidate
 } from '../form';
-import type {FieldError, FieldErrors, Form, FormEvents, Options} from '../form';
+import type {
+  FieldError,
+  FieldErrors,
+  FieldErrorsTree,
+  Form,
+  FormEvents,
+  Options
+} from '../form';
 import type {FieldPath, PathValueOf} from '../types';
 import createPath from '../path';
 import type {PathSegments, Path} from '../path';
@@ -712,6 +720,21 @@ export function useErrors<T extends Record<string, any> = any>(
   form: Form<T>
 ): FieldErrors<T> {
   return useWatch(form, 'errors', () => getErrorsRecord(form));
+}
+
+/**
+ * Get every error as one nested object following the values tree
+ * (`errors.items?.[0]?.name` reads) — the typed optional-chaining
+ * counterpart of {@link useErrors}' flat dotted record. Leaves hold the
+ * stored FieldError[] arrays shared with the form (treat as read-only).
+ * Memoized alongside the record (see {@link getErrorsTree}): the hook
+ * re-renders only when an error write actually changed the tree's
+ * content.
+ */
+export function useErrorsTree<T extends Record<string, any> = any>(
+  form: Form<T>
+): FieldErrorsTree<T> {
+  return useWatch(form, 'errors', () => getErrorsTree(form));
 }
 
 /**

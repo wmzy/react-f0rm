@@ -43,13 +43,16 @@ import {
   replaceValues,
   updateValue,
   useErrors,
+  useErrorsTree,
   useFormState,
   useStore,
   getErrorsRecord,
+  getErrorsTree,
   type FieldPath,
   type PathValueOf,
   type FieldError,
   type FieldErrors,
+  type FieldErrorsTree,
   type DottedPath,
   type FormState,
   type InferSchemaValues
@@ -607,6 +610,42 @@ const formStateRet: Expect<
   Equal<ReturnType<typeof useFormState<LoginValues>>, FormState<LoginValues>>
 > = true;
 void [errsRecord, errsHook, formStateErrs, formStateRet];
+
+// The nested tree mirrors the values shape: objects recurse, arrays become
+// arrays of the item's tree, leaves hold FieldError[] | undefined, and the
+// form-level slot is typed too. (Indexed access through the top-level
+// intersection resolves to the node shape — the FORM_ERROR slot surfaces
+// only on the whole tree, matching the runtime.)
+type ErrsTree = FieldErrorsTree<LoginValues>;
+const errsTreeChecks: [
+  Expect<Equal<ErrsTree['email'], FieldError[] | undefined>>,
+  Expect<
+    Equal<ErrsTree['profile'], {bio?: FieldError[] | undefined} | undefined>
+  >,
+  // Arrays of primitives are arrays of the leaf error list.
+  Expect<Equal<NonNullable<ErrsTree['tags']>, FieldError[][]>>,
+  Expect<Equal<ErrsTree['_form'], FieldError[] | undefined>>
+] = [true, true, true, true];
+void errsTreeChecks;
+
+// @ts-expect-error typo'd keys fail on the nested tree too
+declare const badTreeKey: ErrsTree['emial'];
+void badTreeKey;
+
+// The readers hand the typed tree back.
+const errsTree: Expect<
+  Equal<
+    ReturnType<typeof getErrorsTree<LoginValues>>,
+    FieldErrorsTree<LoginValues>
+  >
+> = true;
+const errsTreeHook: Expect<
+  Equal<
+    ReturnType<typeof useErrorsTree<LoginValues>>,
+    FieldErrorsTree<LoginValues>
+  >
+> = true;
+void [errsTree, errsTreeHook];
 
 // ---- goal 15: useStore selector primitive ---------------------------------------
 

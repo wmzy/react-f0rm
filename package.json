@@ -216,14 +216,14 @@
   "size-limit": [
     {
       "path": "dist/index.mjs",
-      "limit": "12.5 KB",
+      "limit": "13.1 KB",
       "ignore": [
         "@for-fun/event-emitter"
       ]
     },
     {
       "path": "dist/index.mjs",
-      "limit": "14 KB",
+      "limit": "14.6 KB",
       "gzip": true,
       "ignore": [
         "@for-fun/event-emitter"
@@ -251,7 +251,7 @@
     },
     {
       "path": "dist/server/index.mjs",
-      "limit": "5 KB",
+      "limit": "7.5 KB",
       "gzip": true
     },
     {

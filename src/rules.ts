@@ -52,6 +52,24 @@ export type FieldRules = {
   messages?: Partial<Record<Exclude<RuleType, 'required'>, string>>;
 };
 
+/** Does `rules` declare any constraint? `messages` alone does not
+ * validate anything, and a constraint-free object would otherwise compile
+ * into a validator that always passes — which would still open debounce
+ * windows and hold the validating mark for nothing. `validate` callbacks
+ * count: they are the only constraint a validate-only rules object
+ * carries. */
+export function hasRuleConstraints(rules: FieldRules): boolean {
+  return (
+    rules.required !== undefined ||
+    rules.min !== undefined ||
+    rules.max !== undefined ||
+    rules.minLength !== undefined ||
+    rules.maxLength !== undefined ||
+    rules.pattern !== undefined ||
+    rules.validate !== undefined
+  );
+}
+
 /** Default English messages, aligned with RHF's default-message style. */
 function defaultMessage(type: RuleType, bound?: number): string {
   switch (type) {

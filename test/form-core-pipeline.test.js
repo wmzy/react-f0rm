@@ -14,6 +14,8 @@ import createForm, {
   hasTouched,
   registerFieldMode,
   registerValidatorByPath,
+  setError,
+  setValue,
   unregisterFieldMode,
   userBlur,
   userChangeByPath
@@ -184,5 +186,138 @@ describe('core-only field pipeline', () => {
     resolvers[0]('stale'); // superseded round settles: dropped
     await new Promise(resolve => setTimeout(resolve, 0));
     expect(getError(form, 'a')).toBeUndefined();
+  });
+});
+
+// ---- form-level validateMode cadence ------------------------------------
+// Options.validateMode: a cadence declaration — 'onChange'/'onBlur' re-run
+// the form-level validate on every user change/blur to a bound field, no
+// dep list required. Submit-only forms keep the historical behavior.
+
+describe('form-level validateMode cadence', () => {
+  const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+
+  it("default 'onSubmit': a user change never re-runs the form validate", () => {
+    const seen = [];
+    const form = createForm({
+      initialValues: {a: ''},
+      validate: values => {
+        seen.push(values.a);
+        return {};
+      }
+    });
+    const path = createPath('a');
+    const {token} = registerFieldMode(form, path, undefined);
+    userChangeByPath(form, path, 'x');
+    userBlur(form, path);
+    expect(seen).toHaveLength(0);
+    unregisterFieldMode(form, path, token);
+  });
+
+  it("'onChange' re-runs the form validate on every user change", async () => {
+    const seen = [];
+    const form = createForm({
+      initialValues: {a: ''},
+      validate: values => {
+        seen.push(values.a);
+        return {};
+      },
+      validateMode: 'onChange'
+    });
+    const path = createPath('a');
+    const {token} = registerFieldMode(form, path, undefined);
+    userChangeByPath(form, path, 'x');
+    userChangeByPath(form, path, 'y');
+    await flush();
+    expect(seen).toEqual(['x', 'y']);
+    unregisterFieldMode(form, path, token);
+  });
+
+  it("'onBlur' re-runs on blur only, never on change", async () => {
+    const seen = [];
+    const form = createForm({
+      initialValues: {a: ''},
+      validate: values => {
+        seen.push(values.a);
+        return {};
+      },
+      validateMode: 'onBlur'
+    });
+    const path = createPath('a');
+    const {token} = registerFieldMode(form, path, undefined);
+    userChangeByPath(form, path, 'x');
+    expect(seen).toHaveLength(0);
+    userBlur(form, path);
+    await flush();
+    expect(seen).toEqual(['x']);
+    unregisterFieldMode(form, path, token);
+  });
+
+  it('a passing re-run clears what the previous round wrote (round-scoped footprint)', async () => {
+    const form = createForm({
+      initialValues: {password: 'a', confirm: 'b'},
+      validate: values =>
+        values.password === values.confirm
+          ? {}
+          : {confirm: 'Passwords do not match'},
+      validateMode: 'onChange'
+    });
+    const password = createPath('password');
+    const {token} = registerFieldMode(form, password, undefined);
+
+    // Mismatch lands on the first change (and sticks while it stays).
+    userChangeByPath(form, password, 'x');
+    await flush();
+    expect(getError(form, 'confirm')?.message).toBe('Passwords do not match');
+
+    // Fixing the mismatch clears the error on the next re-run — the
+    // submit-then-fix flow, now live without a dep list.
+    setValue(form, 'confirm', 'x');
+    userChangeByPath(form, password, 'x');
+    await flush();
+    expect(getError(form, 'confirm')).toBeUndefined();
+    unregisterFieldMode(form, password, token);
+  });
+
+  it('a passing re-run never touches errors other writers own', async () => {
+    const form = createForm({
+      initialValues: {a: '', b: ''},
+      validate: () => ({b: 'from the form round'}),
+      validateMode: 'onChange'
+    });
+    const path = createPath('a');
+    const {token} = registerFieldMode(form, path, undefined);
+    userChangeByPath(form, path, 'x');
+    await flush();
+    expect(getError(form, 'b')?.message).toBe('from the form round');
+    // A manual error at another path survives the next passing round's
+    // footprint reclaim — the round never wrote it.
+    setError(form, 'a', 'manual');
+    userChangeByPath(form, path, 'y');
+    await flush();
+    expect(getError(form, 'a')?.message).toBe('manual');
+    expect(getError(form, 'b')?.message).toBe('from the form round');
+    unregisterFieldMode(form, path, token);
+  });
+
+  it('rides changeValueByPath (mounted) but never programmatic setValue', async () => {
+    const seen = [];
+    const form = createForm({
+      initialValues: {a: ''},
+      validate: values => {
+        seen.push(values.a);
+        return {};
+      },
+      validateMode: 'onChange'
+    });
+    const path = createPath('a');
+    const {token} = registerFieldMode(form, path, undefined);
+    changeValueByPath(form, path, 'via-change');
+    await flush();
+    expect(seen).toEqual(['via-change']);
+    setValue(form, 'a', 'via-set');
+    await flush();
+    expect(seen).toEqual(['via-change']);
+    unregisterFieldMode(form, path, token);
   });
 });

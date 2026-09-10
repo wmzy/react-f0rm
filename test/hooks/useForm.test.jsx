@@ -6,6 +6,7 @@ import useForm, {
   useValues,
   useError,
   useErrors,
+  useErrorsTree,
   useFieldErrors,
   useTouched,
   useIsDirty,
@@ -1297,6 +1298,46 @@ describe('useErrors', () => {
       type: 'server',
       message: 'from server'
     });
+  });
+});
+
+describe('useErrorsTree', () => {
+  it('returns the nested tree and stays {} while clean', () => {
+    const form = createForm({initialValues: {a: '', items: []}});
+    const {result} = renderHook(() => useErrorsTree(form));
+    expect(result.current).toEqual({});
+    act(() => {
+      setError(form, 'a', 'first');
+      setError(form, 'items[0].name', ['x', 'y']);
+    });
+    expect(result.current.a.map(e => e.message)).toEqual(['first']);
+    expect(result.current.items).toHaveLength(1);
+    expect(result.current.items[0].name.map(e => e.message)).toEqual([
+      'x',
+      'y'
+    ]);
+    act(() => clearErrors(form));
+    expect(result.current).toEqual({});
+  });
+
+  it('hands back one stable reference while no error write changed content', () => {
+    const form = createForm({initialValues: {a: 'x'}});
+    const {result} = renderHook(() => useErrorsTree(form));
+    const empty = result.current;
+    act(() => setValue(form, 'a', 'y'));
+    expect(result.current).toBe(empty);
+    act(() => setError(form, 'a', 'oops'));
+    const withError = result.current;
+    expect(withError).not.toBe(empty);
+    act(() => setValue(form, 'a', 'z'));
+    expect(result.current).toBe(withError);
+  });
+
+  it('holds form-level errors under the FORM_ERROR slot', () => {
+    const form = createForm({initialValues: {}});
+    const {result} = renderHook(() => useErrorsTree(form));
+    act(() => setError(form, FORM_ERROR, 'boom'));
+    expect(result.current[FORM_ERROR].map(e => e.message)).toEqual(['boom']);
   });
 });
 

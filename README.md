@@ -7,7 +7,7 @@
 
 A headless, event-driven React form library with field-level subscriptions.
 
-**The pitch in one sentence:** a lighter, faster TanStack Form — same field-level-subscription model and headless API, ~33% smaller core, 2.4× faster controlled-field changes — plus react-hook-form's escape hatches (`uncontrolled` mode at `register` parity, declarative `rules`) and one Standard Schema adapter for every validation library.
+**The pitch in one sentence:** a lighter, faster TanStack Form — same field-level-subscription model and headless API, ~25% smaller core, 2.4× faster controlled-field changes — plus react-hook-form's escape hatches (`register` at `{...register('x')}` parity, `uncontrolled` mode, declarative `rules`, nested `formState.errors`-style error reads) and one Standard Schema adapter for every validation library.
 
 - [Docs site](https://wmzy.github.io/react-f0rm/) — guides, API reference, migration
 - [Benchmarks](https://wmzy.github.io/react-f0rm/benchmarks) · [Comparison](https://wmzy.github.io/react-f0rm/comparison) · [Storybook gallery](https://wmzy.github.io/react-f0rm/storybook)
@@ -25,8 +25,13 @@ A headless, event-driven React form library with field-level subscriptions.
 - **Selector primitive.** `useStore(form, selector, isEqual?)` is the TanStack `useStore` counterpart; `useValues(form)` watches the whole tree (RHF `watch()` with no arguments); `useWatch` with the `isEqual` bailout covers single events; `useFormState` is the built-in aggregate. See [Hooks Reference](https://wmzy.github.io/react-f0rm/guides/hooks-reference).
 - **React 19 / Server Actions.** `<Form action>` dispatches validated, schema-coerced values as `FormData`; an action returning `{errors: {field: msg}}` hydrates the fields as server errors; `react-f0rm/server` re-validates payloads without React and parses incoming FormData back with `valuesFromFormData`. See the [Server Actions guide](https://wmzy.github.io/react-f0rm/guides/react19-server-actions).
 - **Accessibility wired in.** `aria-invalid` + `aria-describedby` → `fieldErrorId(name)` on every bound field; `renderError` completes the `role="alert"` chain.
+- **`form.register(name)`** — react-hook-form's `register` contract, no hook required: spread the returned props onto an uncontrolled element (`<input {...form.register('email')} />`), the element never re-renders, and the store still carries every write (`getValues`/submit/validation read it). Works in dynamic lists, conditional fields and non-React adapters; `rules`/`mode`/`valueAsNumber` ride the same pipeline `useField` uses. `useField({uncontrolled: true})` stays the hook-side counterpart.
+- **Spreadable `inputProps`.** `<input {...field.inputProps} />` binds value, event extraction (`eventToValue`/`valueAsNumber`/checkbox/file auto-detection), blur, the focus channel, `disabled` and the `aria-invalid`/`aria-describedby` chain in one spread — while the headless `onChange(value)` keeps serving design-system controls that hand raw values.
+- **Nested error tree.** `useErrorsTree(form)` / `getErrorsTree(form)` read errors as `errors.items?.[0]?.name` — the typed optional-chain shape RHF's `formState.errors` uses — alongside the flat dotted record (`useErrors`). One cache, both views, stable references.
+- **Form-level validation cadence.** `createForm({validateMode: 'onChange' | 'onBlur'})` re-runs the form-level `validate` on every user change/blur — TanStack `validators.onChange/onBlur` parity without enumerating `validateDeps`; rounds own their errors, so a passing re-run clears what the last round wrote.
+- **Disabled subtrees.** A field declared `disabled: true` disables its descendants (RHF subtree semantics); a descendant opts back out with `disabled: false`. The form-level flag still disables everything.
 - **Tombstone unregister, async initial values, declarative `rules`** (store-side errors + native constraint attributes), `validateOnMount`, `validateDeps` cross-field re-runs, `useTransform` async transforms, `createFormContext` typed isolated contexts, `reset`/`resetField` with RHF-parity keep-flags, `<Devtools />` from `react-f0rm/devtools`, `react-f0rm/persist` — see the [docs site](https://wmzy.github.io/react-f0rm/) for the full surface.
-- **13.08 KB gzip core** (11.91 KB brotli, emitter-external measurement); devtools/server/persist/resolvers ship as separate tree-shakeable entries.
+- **14.33 KB gzip core** (13.0 KB brotli, emitter-external measurement); devtools/server/persist/resolvers ship as separate tree-shakeable entries.
 
 ## Install
 
@@ -69,6 +74,33 @@ function CustomField({name}) {
       {error && <span role="alert">{error}</span>}
     </div>
   );
+}
+```
+
+Or one spread — `inputProps` is the DOM-boundary adapter over the same handlers (event extraction, focus channel, a11y chain included):
+
+```jsx
+function CustomField({name}) {
+  const {inputProps, error} = useField({name});
+  return (
+    <div>
+      <input {...inputProps} />
+      {error && <span role="alert" id={fieldErrorId(name)}>{error}</span>}
+    </div>
+  );
+}
+```
+
+Or no hook at all — `form.register` is RHF's `register` contract (the element never re-renders; live state through `useValue`/`useError`):
+
+```jsx
+function DynamicFields({form}) {
+  return form.fields.map(name => (
+    <div key={name}>
+      <input {...form.register(name)} />
+      <FieldError name={name} />
+    </div>
+  ));
 }
 ```
 
@@ -119,7 +151,7 @@ npx vitest bench --run test/bench/scale.bench.ts   # the three scale scenarios a
 
 react-f0rm vs React Hook Form, TanStack Form and Formik — rendering model, schema adapters, path typing, async validation, bundle size, ecosystem maturity — lives on the [Comparison page](https://wmzy.github.io/react-f0rm/comparison) of the docs site.
 
-Short version: **pick react-f0rm** for controlled components with true per-field subscriptions (design systems, editor-like forms), one Standard Schema adapter, compile-time-checked paths and the smallest core of the four — and you are comfortable with a young library. **Pick React Hook Form** for the mature ecosystem today (its performance edge is gone at the rendering level — see the bench notes). **TanStack Form** sits in between: the deepest possible type inference, at a larger core.
+Short version: **pick react-f0rm** for controlled components with true per-field subscriptions (design systems, editor-like forms), one Standard Schema adapter, compile-time-checked paths, `register`-style bindings when you want them, and a core at RHF's size — and you are comfortable with a young library. **Pick React Hook Form** for the mature ecosystem today (its performance edge is gone at the rendering level — see the bench notes). **TanStack Form** sits in between: the deepest possible type inference, at a larger core.
 
 ## Docs Map
 

@@ -21,9 +21,16 @@ import type {Path, PathSegments} from '../path';
 import type {StandardSchemaV1} from '../standardSchema';
 import {hasStandardProps, schemaToFieldValidator} from '../standardSchema';
 import type {FieldPath, PathValueOf} from '../types';
-import {rulesToValidator} from '../rules';
+import {hasRuleConstraints, rulesToValidator} from '../rules';
 import type {FieldRules} from '../rules';
-import {useWatch, useWatchCore} from './form';
+import {errorIdFromKey} from '../errorId';
+import {extractEventValue, isPromise} from '../util';
+import {
+  hasDisabledAncestor,
+  registerFieldDisabled,
+  unregisterFieldDisabled
+} from '../core/disabled';
+import {useWatchCore} from './form';
 import {onKeyEvent, onPathEvent} from '../subscribe';
 import usePath from './path';
 import useValidate from './validate';
@@ -31,7 +38,6 @@ import type {Validator} from './validate';
 import {removeFieldForUnmount, restoreRemovedField} from '../core/unmount';
 import type {RemovedFieldSnapshot} from '../core/unmount';
 import useStage, {useStageFn, useUnmountRestore} from './stage';
-import {isPromise} from '../util';
 
 /** Dev-only flag, replaced at build time (rollup.config.js `replace`);
  * defined for the test environment in vitest.config.ts. */
@@ -117,9 +123,13 @@ export type UseFieldOptions<
    */
   delayError?: number;
   /**
-   * Disable this field: OR-ed with the form-level flag
-   * (`createForm({disabled})` / `setDisabled`) into the result's
-   * `disabled`. A field cannot opt out of a disabled form.
+   * Disable this field: merged into the result's `disabled` as
+   * `form.disabled || own === true || (own !== false && an ancestor
+   * declared disabled)`. `disabled: true` on a parent path disables every
+   * descendant field too (react-hook-form subtree semantics), and a
+   * descendant declares `disabled: false` to opt back out of that
+   * ancestor. The form-level flag (`createForm({disabled})` /
+   * `setDisabled`) cannot be opted out of.
    */
   disabled?: boolean;
   /**
@@ -180,6 +190,32 @@ export type UseFieldOptions<
    * for the resolved baseline; a field unmounted in between never kicks.
    */
   validateOnMount?: boolean;
+  /**
+   * DOM event → value extractor for the result's {@link
+   * UseFieldResult.inputProps} binding. Defaults to the element's own
+   * protocol (files → `target.files`, checkbox → `target.checked`,
+   * `valueAsNumber`/`valueAsDate` under their flags, else
+   * `target.value`); a non-DOM event passes through unchanged, so custom
+   * controls can hand raw values. Only consumed by `inputProps` — the
+   * headless `onChange` keeps taking raw values.
+   */
+  eventToValue?: (e: any) => any;
+  /** `inputProps` stores `e.target.valueAsNumber` instead of the string
+   * value (number inputs, RHF's `register({valueAsNumber})`). An
+   * explicit `eventToValue` takes precedence. */
+  valueAsNumber?: boolean;
+  /** `inputProps` stores `e.target.valueAsDate` instead of the string
+   * value (date/time inputs, RHF's `register({valueAsDate})`). An
+   * explicit `eventToValue` takes precedence; combining with
+   * `valueAsNumber` is a TypeError (`valueAsNumber` wins). */
+  valueAsDate?: boolean;
+  /**
+   * Element type hint for {@link UseFieldResult.inputProps} only:
+   * `'checkbox'` renders `checked` instead of `value`, `'file'` renders
+   * neither (file inputs cannot be value-controlled). The extraction
+   * itself already auto-detects both types from the event's target.
+   */
+  type?: string;
 };
 
 /**
@@ -237,25 +273,42 @@ export type UseFieldResult<
    * whose element is not bound neither throws nor focuses anything.
    */
   focusRef: (el: any) => void;
+  /**
+   * DOM-ready props for an `<input>`: `<input {...field.inputProps} />`
+   * binds the element to the field without hand-wiring value/onChange/
+   * onBlur/ref/a11y. `onChange` takes the DOM event (extraction per
+   * {@link UseFieldOptions}' `eventToValue`/`valueAsNumber`/`valueAsDate`
+   * /`type`), `ref` is the focus channel, `aria-invalid`/`aria-describedby`
+   * complete the {@link errorIdFromKey} chain — render the error element
+   * with `fieldErrorId(name)` to finish it. The headless `value`/
+   * `onChange`/`onBlur`/`focusRef` stay available for custom controls
+   * that hand raw values (design systems) — `inputProps` is the DOM
+   * boundary adapter, never a replacement.
+   */
+  inputProps: UseFieldInputProps;
 };
 
-/** Does `rules` declare any constraint? `messages` alone does not
- * validate anything, and a constraint-free object would otherwise compile
- * into a validator that always passes — which would still open debounce
- * windows and hold the validating mark for nothing. `validate` callbacks
- * count: they are the only constraint a validate-only rules object
- * carries. */
-function hasRuleConstraints(rules: FieldRules): boolean {
-  return (
-    rules.required !== undefined ||
-    rules.min !== undefined ||
-    rules.max !== undefined ||
-    rules.minLength !== undefined ||
-    rules.maxLength !== undefined ||
-    rules.pattern !== undefined ||
-    rules.validate !== undefined
-  );
-}
+/**
+ * The spreadable DOM props {@link UseFieldResult.inputProps} carries:
+ * `name`, `onChange` (event-based), `onBlur`, `ref`, `disabled`, the
+ * error a11y wiring, and exactly one of `value` (controlled),
+ * `defaultValue` (uncontrolled) or `checked` (`type: 'checkbox'`) —
+ * `type: 'file'` carries none. Always spread `inputProps` FIRST, so the
+ * caller's own props (placeholder, className, an explicit `ref` they
+ * merge themselves) win.
+ */
+export type UseFieldInputProps = {
+  name: string;
+  value?: any;
+  defaultValue?: any;
+  checked?: boolean;
+  onChange: (e: any) => void;
+  onBlur: () => void;
+  ref: (el: any) => void;
+  disabled: boolean;
+  'aria-invalid'?: boolean;
+  'aria-describedby'?: string;
+};
 
 /**
  * Compose declarative rules with a user validator: rules run first, then
@@ -452,7 +505,11 @@ export function useFieldCore<
     disabled,
     uncontrolled,
     asyncAlways,
-    mode: modeOption
+    mode: modeOption,
+    eventToValue,
+    valueAsNumber,
+    valueAsDate,
+    type
   }: UseFieldOptions<TValues, TPath>,
   Context: Context<Form<any> | null>
 ): UseFieldResult<TValues, TPath> {
@@ -566,9 +623,52 @@ export function useFieldCore<
     () => form.validating.has(path.key)
   );
 
-  // The form-level disabled flag, subscribed so setDisabled re-renders
-  // this field; the field's own option is OR-ed in on every render.
-  const formDisabled = useWatch(form, 'disabled', () => form.disabled);
+  // The disabled merge — computed INSIDE the watch snapshot, because
+  // useSyncExternalStore bails out of re-rendering when the snapshot is
+  // Object.is-equal: splitting the merge out of the getter would keep the
+  // form-flag snapshot unchanged while an ancestor's option flips, and
+  // the re-render (and with it the fresh registry read) would never run.
+  // Subscribed with branch scope on the 'disabled' event: setDisabled's
+  // payload-less emit wakes every field, while a path-payload emit (this
+  // field's own or an ancestor's `disabled` option registering/flipping)
+  // wakes exactly the affected subtree. The merge rule: the form-level
+  // flag (no opt-out) OR this field's own `true`, OR — while this field
+  // did not opt out with `false` — an ancestor declared disabled
+  // (react-hook-form subtree semantics).
+  const mergedDisabled = useWatchCore(
+    useCallback(
+      (invalidate: () => void) =>
+        onPathEvent(
+          form.emitter,
+          'disabled',
+          createPath(JSON.parse(path.key) as PathSegments),
+          'branch',
+          invalidate
+        ),
+      [form.emitter, path.key]
+    ),
+    () =>
+      form.disabled ||
+      disabled === true ||
+      (disabled !== false && hasDisabledAncestor(form, path))
+  );
+
+  // Publish this field's own `disabled` option into the subtree registry
+  // so descendants merge it in — and re-render when it flips (the
+  // registration emits the path-payload 'disabled' event). A field that
+  // never declares the option registers nothing.
+  const disabledTokenRef = useRef<object | null>(null);
+  useEffect(() => {
+    const spath = createPath(JSON.parse(path.key) as PathSegments);
+    const registration = registerFieldDisabled(form, spath, disabled);
+    if (registration) disabledTokenRef.current = registration.token;
+    return () => {
+      if (disabledTokenRef.current !== null) {
+        unregisterFieldDisabled(form, spath, disabledTokenRef.current);
+        disabledTokenRef.current = null;
+      }
+    };
+  }, [form, path.key, disabled]);
 
   // The user-change pipeline lives in the core: onChange forwards to
   // userChangeByPath (write + mode/reValidateMode-gated validation, the
@@ -705,6 +805,38 @@ export function useFieldCore<
   });
   useUnmountRestore(teardownOnUnmount, restoreAfterStrictMode);
 
+  // inputProps: the DOM-boundary adapter over the same headless handlers.
+  // Its onChange takes the DOM event — extraction per the options above or
+  // the element's own protocol — so `<input {...field.inputProps} />`
+  // behaves exactly like <Field>'s default binding.
+  if (__DEV__ && valueAsNumber && valueAsDate) {
+    // eslint-disable-next-line no-console -- dev-only diagnostics
+    console.warn(
+      'react-f0rm: valueAsNumber and valueAsDate are mutually exclusive — ' +
+        'valueAsNumber wins. Use eventToValue for anything else.'
+    );
+  }
+  const extract =
+    eventToValue ??
+    ((e: any) => extractEventValue(e, {valueAsNumber, valueAsDate}));
+  const inputProps: UseFieldInputProps = {
+    name: path.key,
+    ref: focusRef,
+    onChange: (e: any) => onChange(extract(e)),
+    onBlur,
+    disabled: mergedDisabled,
+    ...(type === 'checkbox'
+      ? {checked: !!value}
+      : type === 'file'
+        ? {}
+        : uncontrolled
+          ? {defaultValue: value}
+          : {value: value ?? ''}),
+    ...(error
+      ? {'aria-invalid': true, 'aria-describedby': errorIdFromKey(path.key)}
+      : {})
+  };
+
   return {
     form,
     value,
@@ -716,8 +848,9 @@ export function useFieldCore<
     onChange,
     onBlur,
     name: path.key,
-    disabled: formDisabled || !!disabled,
-    focusRef
+    disabled: mergedDisabled,
+    focusRef,
+    inputProps
   };
 }
 

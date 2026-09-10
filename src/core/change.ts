@@ -4,7 +4,11 @@ import type {FieldPath, PathValueOf} from '../types';
 import type {Form, ValidationMode} from '../form';
 import {setValueByPath} from './values';
 import type {SetFieldOptions} from './values';
-import {revalidateFormOnChange, revalidateDependentsOnChange} from './validate';
+import {
+  revalidateFormOnChange,
+  revalidateDependentsOnChange,
+  runFormValidate
+} from './validate';
 import {hasTouchedByPath, setTouchedByPath} from './touched';
 import {getFieldErrorsByPath} from './errors';
 import {setDirtyBaseline} from './internals';
@@ -159,6 +163,14 @@ function runUserChangeGate(form: Form, path: Path, mode: ValidationMode): void {
   // (evaluated against the last round's own error footprint). No-op for
   // forms without validateDeps.
   revalidateFormOnChange(form, path, mode);
+  // Form-level validate cadence (Options.validateMode): 'onChange' re-runs
+  // the form-level validate on every user change — no dep list required
+  // (TanStack validators.onChange). The round's own footprint reclaim
+  // still applies, so a passing re-run clears what the previous round
+  // wrote. Fire-and-forget like the dep re-run above.
+  if (form.validateMode === 'onChange' && form.validate) {
+    runFormValidate(form).catch(() => {});
+  }
   // Field-level validate deps: fields that declared this path re-run their
   // own validators under the same gate. No-op when nobody declared it.
   revalidateDependentsOnChange(form, path, mode);
@@ -206,6 +218,13 @@ export function userBlur(form: Form, path: Path): void {
       form.reValidateMode === 'onBlur')
   )
     form.validators.get(path.key)?.();
+  // Form-level validate cadence (Options.validateMode): 'onBlur' re-runs
+  // the form-level validate on every user blur — TanStack
+  // validators.onBlur. Same fire-and-forget contract as the change-side
+  // cadence.
+  if (form.validateMode === 'onBlur' && form.validate) {
+    runFormValidate(form).catch(() => {});
+  }
 }
 
 /**

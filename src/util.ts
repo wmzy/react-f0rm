@@ -227,6 +227,36 @@ export function isPromise(value: any): value is Promise<any> {
   return value && typeof value.then === 'function';
 }
 
+/**
+ * The shared DOM event → value protocol every binding uses (Field's
+ * `eventToValue` default, `useField`'s `inputProps`, `form.register`):
+ * - file inputs store their `FileList` (a value prop can never control
+ *   them, and validation/submit want the files);
+ * - checkbox inputs store `checked` (the value attribute is not the
+ *   control's state);
+ * - `valueAsNumber`/`valueAsDate` store the typed DOM accessors
+ *   (number/date inputs, RHF's `register` options; number wins when both
+ *   are set);
+ * - everything else stores the string `value`;
+ * - a non-DOM first argument (no `target`) passes through unchanged, so
+ *   custom controls can hand raw values.
+ */
+export function extractEventValue(
+  e: any,
+  options?: {
+    valueAsNumber?: boolean;
+    valueAsDate?: boolean;
+  }
+): any {
+  const target = e?.target;
+  if (!target) return e;
+  if (target.type === 'file') return target.files;
+  if (target.type === 'checkbox') return target.checked;
+  if (options?.valueAsNumber) return target.valueAsNumber;
+  if (options?.valueAsDate) return target.valueAsDate;
+  return target.value;
+}
+
 /** Structural equality for form default data (primitives, arrays, plain
  * objects, Dates). Class instances and other exotic objects compare as
  * unequal, which errs on the side of re-seeding when {@link

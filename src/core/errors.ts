@@ -1,7 +1,7 @@
 import {emit} from '../emitter';
 import createPath from '../path';
 import type {Name, Path, PathSegments} from '../path';
-import type {FieldPath} from '../types';
+import type {FieldPath, OpaqueTypes} from '../types';
 import type {FieldError, FieldErrorEntry, Form} from '../form';
 import {
   bumpErrorsVersion,
@@ -134,6 +134,102 @@ export type FieldErrors<T extends Record<string, any> = any> = Partial<
   [FORM_ERROR]?: FieldError[];
 };
 
+/** `true` only for the `any` type (the same probe {@link FieldPath}
+ * uses), so the tree of an untyped form degrades to `any` instead of an
+ * infinite mapped-type expansion. */
+type IsAnyTree<T> = 0 extends 1 & T ? true : false;
+
+type TreePrimitive =
+  null | undefined | string | number | boolean | symbol | bigint;
+
+/** One level of the nested error tree: arrays become arrays of the item's
+ * tree, objects recurse per key, everything else — primitives, functions,
+ * registered {@link OpaqueTypes} leaves, and the common opaque DOM/date
+ * containers (Date, File, FileList, Map, Set) — is a leaf holding the
+ * stored FieldError[] (shared with the form — treat as read-only). */
+type FieldErrorsTreeNode<T> =
+  IsAnyTree<T> extends true
+    ? any
+    : T extends OpaqueTypes[keyof OpaqueTypes]
+      ? FieldError[]
+      : T extends
+            | TreePrimitive
+            | Function
+            | Date
+            | File
+            | FileList
+            | Map<any, any>
+            | Set<any>
+        ? FieldError[]
+        : T extends ReadonlyArray<infer E>
+          ? FieldErrorsTreeNode<E>[]
+          : {[K in keyof T]?: FieldErrorsTreeNode<T[K]>};
+
+/**
+ * Every error as one nested object following the values tree —
+ * react-hook-form's `formState.errors` shape with typed optional chains
+ * (`errors.items?.[0]?.name`), the readable counterpart of
+ * {@link FieldErrors}' flat dotted keys. Array positions become array
+ * indices (holes stay absent), object fields become optional keys,
+ * leaves hold the stored FieldError[] arrays shared with the form — treat
+ * the whole result as read-only. The {@link FORM_ERROR} slot holds
+ * form-level errors at the top level.
+ *
+ * One conflict is resolved by insertion order: a row-level error at
+ * `items[0]` and a field error at `items[0].name` cannot both occupy the
+ * `items[0]` slot, so whichever landed later owns it (react-hook-form's
+ * nested `setError` clobbers the same way). The flat record never
+ * conflicts — read it when both coexist.
+ */
+export type FieldErrorsTree<T = any> = FieldErrorsTreeNode<T> & {
+  [FORM_ERROR]?: FieldError[];
+};
+
+/** Shared rebuild for {@link getErrorsRecord} / {@link getErrorsTree}:
+ * one pass over the errors Map computes both views (the dotted record
+ * and the nested tree), each sharing the stored FieldError[] references.
+ * The version-bump/read pattern (see {@link errorsCaches}) guarantees
+ * consecutive reads hand back stable references until the next error
+ * write. */
+function computeErrorsViews(form: Form): void {
+  const cached = errorsCaches.get(form);
+  if (cached && cached.version === 0) return;
+  const result: Record<string, FieldError[]> = {};
+  const tree: any = {};
+  for (const [key, list] of form.errors) {
+    // The raw key preserves the parser's number-vs-string segment
+    // distinction: 'items[0]' segments carry the number 0 (array index in
+    // the tree) while 'items["0"]' carries the string '0' (object key).
+    const segments = JSON.parse(key) as PathSegments;
+    result[segments.join('.')] = list;
+    let node = tree;
+    for (let i = 0; i < segments.length - 1; i++) {
+      const segment = segments[i];
+      const slot = node[segment];
+      // Descend: a leaf error list already sitting here (a shallower
+      // error inserted earlier) yields to the deeper path — insertion
+      // order owns the conflict, mirroring RHF's nested set.
+      const container =
+        slot &&
+        !(Array.isArray(slot) && slot.length > 0 && isFieldError(slot[0]))
+          ? slot
+          : typeof segments[i + 1] === 'number'
+            ? []
+            : {};
+      node[segment] = container;
+      node = container;
+    }
+    node[segments[segments.length - 1]] = list;
+  }
+  if (cached) {
+    cached.result = result;
+    cached.tree = tree;
+    cached.version = 0;
+  } else {
+    errorsCaches.set(form, {version: 0, result, tree});
+  }
+}
+
 /**
  * Get every error as one record keyed by user-facing dotted path
  * ('a.b', 'list.0') — react-hook-form's `formState.errors` shape. Values
@@ -149,19 +245,27 @@ export type FieldErrors<T extends Record<string, any> = any> = Partial<
 export function getErrorsRecord<T extends Record<string, any> = any>(
   form: Form<T>
 ): FieldErrors<T> {
-  const cached = errorsCaches.get(form);
-  if (cached && cached.version === 0) return cached.result;
-  const result: Record<string, FieldError[]> = {};
-  for (const [key, list] of form.errors) {
-    result[(JSON.parse(key) as PathSegments).join('.')] = list;
-  }
-  if (cached) {
-    cached.result = result;
-    cached.version = 0;
-  } else {
-    errorsCaches.set(form, {version: 0, result});
-  }
-  return result;
+  computeErrorsViews(form);
+  return errorsCaches.get(form)!.result;
+}
+
+/**
+ * Get every error as one nested object following the values tree
+ * (`errors.items[0].name` reads — the shape react-hook-form's
+ * `formState.errors` uses), the optional-chaining counterpart of
+ * {@link getErrorsRecord}'s flat dotted keys. Array positions become
+ * array indices, leaves hold the stored FieldError[] arrays shared with
+ * the form — treat the whole result as read-only. Memoized alongside the
+ * record through the same version-bump/read pattern, so {@link
+ * useErrorsTree} only re-renders when an error actually changed.
+ *
+ * @param form
+ */
+export function getErrorsTree<T extends Record<string, any> = any>(
+  form: Form<T>
+): FieldErrorsTree<T> {
+  computeErrorsViews(form);
+  return errorsCaches.get(form)!.tree;
 }
 
 /**
