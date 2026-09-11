@@ -14,12 +14,12 @@ import {
   updateValueByPath
 } from '../core/array';
 import {rulesToValidator} from '../rules';
-import type {FieldRules} from '../rules';
 import {onPathEvent} from '../subscribe';
 import {useFieldErrorsByPath} from './form';
 import usePath from './path';
 import useStage, {useStageFn, useUnmountFieldRemoval} from './stage';
 import useValidate from './validate';
+import type {FieldOptionBase} from './validate';
 
 /** Per-form row-id counter. A module-level counter would grow across
  * every form on the page — and, on the server, across requests (ids like
@@ -67,7 +67,10 @@ type FieldArrayItem<K extends string> = {id: string; index: number} & Record<
 
 /** Options accepted by {@link useFieldArray} and the per-instance hook
  * returned by `createFormContext()`. */
-export type UseFieldArrayOptions<K extends string = 'id'> = {
+export type UseFieldArrayOptions<K extends string = 'id'> = Pick<
+  FieldOptionBase,
+  'rules' | 'shouldUnregister'
+> & {
   name: Name;
   form?: Form;
   /**
@@ -77,19 +80,6 @@ export type UseFieldArrayOptions<K extends string = 'id'> = {
    * same name. The underlying id is unchanged.
    */
   keyName?: K;
-  /**
-   * Declarative rules validated against the whole array value
-   * (react-hook-form's `useFieldArray` `rules`): `required` fails on an
-   * empty array, `minLength`/`maxLength` read the array's length. Checked
-   * on submit and `trigger`, like every registered validator.
-   */
-  rules?: FieldRules;
-  /**
-   * Whether unmounting this array removes its branch. Defaults to the
-   * form-level `shouldUnregister` — tombstone (drop values) like a bound
-   * field's unmount; pass `false` to keep the values.
-   */
-  shouldUnregister?: boolean;
 };
 
 export type UseFieldArrayResult<TItem = any, K extends string = 'id'> = {
@@ -183,10 +173,11 @@ export function useFieldArrayCore<TItem = any, K extends string = 'id'>(
   // registration in useField.
   registerArrayIds(form, path.key, idsRef.current);
   useEffect(() => {
-    registerArrayIds(form, path.key, idsRef.current);
+    const ids = idsRef.current;
+    registerArrayIds(form, path.key, ids);
     return () => {
       const registry = arrayIdsRegistry.get(form);
-      if (registry?.get(path.key) === idsRef.current) registry.delete(path.key);
+      if (registry?.get(path.key) === ids) registry.delete(path.key);
     };
   }, [form, path.key]);
 

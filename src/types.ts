@@ -1,44 +1,22 @@
-/**
- * Compile-time field path utilities: `FieldPath<T>` enumerates the valid
- * path strings for a values shape `T` ('a', 'a.b', 'a[0]', 'a[b]', ...),
- * and `PathValue<T, P>` resolves the leaf type a path points at.
- * The grammar mirrors the paths accepted at runtime by `normalizePath`:
- * numeric segments are bracket-only ('a[0]', never 'a.0' — dotted
- * numerics throw a TypeError at runtime).
- */
+/** Compile-time field path utilities: `FieldPath<T>` enumerates valid
+ * path strings, `PathValue<T, P>` resolves the leaf type. Grammar mirrors
+ * `normalizePath`: numeric segments are bracket-only ('a[0]', never
+ * 'a.0' — dotted numerics throw at runtime). */
 
 /** `true` only for the `any` type (`0 extends 1 & any`). */
 type IsAny<T> = 0 extends 1 & T ? true : false;
 
 type Primitive = null | undefined | string | number | boolean | symbol | bigint;
 
-/**
- * Opt-in registry of value types the path types treat as opaque leaves.
- * `FieldPath<T>` stops descending into a registered type — a `Date`,
- * `Dayjs` or class instance in the values shape is a value, not a field
- * tree — and `PathValue` resolves the field itself to that type. Merge
- * entries in via declaration merging:
- *
- * ```ts
- * // app.d.ts
- * declare module 'react-f0rm' {
- *   interface OpaqueTypes {
- *     dayjs: Dayjs;
- *     date: Date;
- *   }
- * }
- * ```
- *
- * Empty by default: every object-typed leaf keeps its historical,
- * navigable behavior (react-hook-form's same-named registry is opt-in
- * too). `keyof` of an empty interface is `never`, so the registry reads
- * as a no-op until an entry lands.
- */
+/** Opt-in registry of value types the path types treat as opaque leaves:
+ * `FieldPath<T>` stops descending into them, `PathValue` resolves the
+ * field itself to that type. Merge via declaration merging
+ * (`interface OpaqueTypes { date: Date }`). Empty by default, so every
+ * object leaf stays navigable. */
 
 export interface OpaqueTypes {}
 
-/** The union of every leaf type registered in {@link OpaqueTypes} —
- * `never` until an application merges entries in. */
+/** Union of every registered leaf type — `never` until an app merges entries. */
 type OpaqueLeaf = OpaqueTypes[keyof OpaqueTypes];
 
 /** Depth countdown: Prev[9] = 8 ... Prev[1] = 0, Prev[0] = never stops recursion. */
@@ -47,13 +25,9 @@ type Prev = [never, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 /** Paths are capped at 10 segments to keep instantiation depth bounded. */
 type MaxDepth = 9;
 
-/**
- * Valid path continuations after a segment: `.k` / `[k]` / `[0]`,
- * optionally followed by deeper continuations into the child node.
- * Numeric segments are bracket-only (`.0` throws at runtime); object
- * keys that are themselves numeric strings likewise enumerate just the
- * bracket subscript.
- */
+/** Valid path continuations after a segment: `.k` / `[k]` / `[0]`, then
+ * deeper continuations. Numeric segments are bracket-only; numeric-string
+ * keys likewise enumerate just the bracket subscript. */
 type Continue<T, D extends number> = [D] extends [never]
   ? never
   : IsAny<T> extends true
@@ -74,18 +48,10 @@ type Continue<T, D extends number> = [D] extends [never]
                 | `[${K}]${Continue<T[K], Prev[D]>}`;
             }[Extract<keyof T, string>];
 
-/**
- * Every valid field path string for a values shape `T`.
- *
- * Enumeration is capped at 10 segments ({@link MaxDepth}) to keep
- * instantiation depth bounded: paths below the cap are not part of this
- * type, so their call sites fall back to `any` through
- * {@link PathValueOf} instead of erroring. Types registered in
- * {@link OpaqueTypes} stop recursion entirely — register deep object
- * leaves (Date, Dayjs, class instances) there instead of relying on the
- * cap.
- * @example FieldPath<{a: {b: string}}> // 'a' | 'a.b' | 'a[b]'
- */
+/** Every valid field path string for a values shape `T`. Capped at 10
+ * segments ({@link MaxDepth}); beyond the cap call sites fall back to
+ * `any`. {@link OpaqueTypes} entries stop recursion entirely.
+ * @example FieldPath<{a: {b: string}}> // 'a' | 'a.b' | 'a[b]' */
 export type FieldPath<T> =
   IsAny<T> extends true
     ? string
@@ -134,31 +100,24 @@ type PathOf<T, P extends string> = P extends ''
         ? PathOf<ChunkValue<T, Chunk>, Rest>
         : ChunkValue<T, P>;
 
-/**
- * The value type at path `P` of a values shape `T`.
- * @example PathValue<{a: {b: string}}, 'a.b'> // string
- */
+/** The value type at path `P` of a values shape `T`.
+ * @example PathValue<{a: {b: string}}, 'a.b'> // string */
 export type PathValue<T, P extends FieldPath<T>> = PathOf<T, P & string>;
 
-/**
- * The value type at path `P` of `T`, or `any` when `P` is not a known
- * field path (plain `string` / segment-array calls keep their old behavior).
- */
-export type PathValueOf<T, P> =
-  P extends FieldPath<T> ? PathValue<T, Extract<P, FieldPath<T>>> : any;
+type ResolvedPathValue<T, P> = PathValue<T, Extract<P, FieldPath<T>>>;
 
-/**
- * The element type of the array a path points at inside a values shape:
- * `ArrayItemOf<{tags: Item[]}, 'tags'>` is `Item`. Non-array leaves
- * resolve to the leaf type itself; unknown paths (plain `string`,
- * segment arrays) fall back to `any` — the same wide-name escape hatch
- * {@link PathValueOf} keeps.
- */
+/** The value type at `P`, or `any` when `P` is not a known field path
+ * (plain `string` / segment-array calls keep their old behavior). */
+export type PathValueOf<T, P> =
+  P extends FieldPath<T> ? ResolvedPathValue<T, P> : any;
+
+/** Element type of the array a path points at; non-array leaves resolve
+ * to themselves, unknown paths fall back to `any`. */
 export type ArrayItemOf<T, P> =
   P extends FieldPath<T>
-    ? PathValue<T, Extract<P, FieldPath<T>>> extends readonly (infer U)[]
+    ? ResolvedPathValue<T, P> extends readonly (infer U)[]
       ? U
-      : PathValue<T, Extract<P, FieldPath<T>>>
+      : ResolvedPathValue<T, P>
     : any;
 
 // ---- compile-time self-checks (enforced by `tsc --noEmit`, zero runtime cost) ----

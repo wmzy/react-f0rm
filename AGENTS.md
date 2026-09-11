@@ -26,6 +26,16 @@ npm run lint:fix      # ESLint auto-fix
 npm run storybook     # Storybook dev server
 ```
 
+## Comment Discipline
+
+Comments are a maintenance cost — the codebase is kept deliberately lean, and any change that grows them back is a defect. New code and reviews follow these rules:
+
+- Public API JSDoc: 1–3 lines of essentials (what it does / the contract). No narrative paragraphs, no obvious `@param`/`@return` — only non-obvious parameter semantics (defaults, interactions, edge behavior).
+- Inline comments: only non-obvious invariants and "why", never "what" — a comment that restates the code is deleted, not kept. What survives: emit-ordering requirements (e.g. "errors land before the validating mark releases"), StrictMode snapshot/restore rationale, tombstone semantics, path-key trailing-comma prefix matching, key-pinned subscriptions (react-compiler constraint), cache version-bump rationale.
+- No orphaned doc blocks (doc with no attached symbol) and no duplicate docs — a concept is documented once; facade re-exports never re-document.
+- When code moves or changes, its comments move or get deleted with it — never leave a drifting doc.
+- Density bar: `src/core/validate.ts` is the reference for internal modules; a PR adding comment lines beyond this bar gets flagged in review.
+
 ## Architecture
 
 ### Core Layer (`src/form.ts`, `src/core/`)

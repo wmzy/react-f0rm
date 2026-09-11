@@ -22,10 +22,7 @@ export type DevtoolsPosition =
 
 /** Props for {@link Devtools}. */
 export type DevtoolsProps<T extends Record<string, any> = any> = {
-  /**
-   * Form instance to inspect. When omitted, the panel reads the closest
-   * `<Form>` / FormProvider ancestor and throws if there is none.
-   */
+  /** Form to inspect; omitted, reads the closest <Form>/FormProvider and throws if none. */
   form?: Form<T>;
   /** Corner to dock the panel in. Defaults to `'top-right'`. */
   position?: DevtoolsPosition;
@@ -51,8 +48,7 @@ type EventTrace = {
 };
 
 /** One completed submit attempt, snapshotted when `isSubmitting` flips
- * back to false — the outcome, final (schema-coerced) values and errors
- * are all settled by then (submit.ts lands them before the flip). */
+ * false — outcome/values/errors are settled by then. */
 type SubmitTrace = {
   n: number;
   ok: boolean | undefined;
@@ -72,35 +68,251 @@ function submitStatusClass(
 /** Count primitive leaves of an inspected value tree. */
 function countLeaves(value: unknown): number {
   if (value === null || typeof value !== 'object') return 1;
-  let count = 0;
-  for (const v of Object.values(value as Record<string, unknown>)) {
-    count += countLeaves(v);
-  }
-  return count;
+  return Object.values(value as Record<string, unknown>).reduce<number>(
+    (sum, child) => sum + countLeaves(child),
+    0
+  );
 }
 
-/**
- * Live form inspector — a floating instrument panel for development.
- *
- * Renders five tabs (values / errors / touched / dirty / submits — the
- * last a per-attempt trace of outcome, final values and errors), a submit
- * status strip (isSubmitting, submitCount, isSubmitSuccessful) and two actions:
- * Reset and Validate (full `trigger`). All state is read through the
- * library's own watch hooks, so the panel updates in real time without
- * participating in validation or submit flows. Docked at a corner,
- * collapsible to a small badge; fully keyboard operable.
- *
- * Ship it from the dedicated `react-f0rm/devtools` entry — it is never
- * re-exported by the main entry, so production bundles stay untouched.
- */
+// Arrow-key tab navigation — buttons stay click/Enter/Space operable.
+const ARROW_DELTAS: Record<string, number> = {ArrowRight: 1, ArrowLeft: -1};
+
+/** Status label for the submit-successful indicator. */
+function submitStatusLabel(ok: boolean | undefined): string {
+  if (ok === undefined) return '–';
+  return ok ? 'ok' : 'failed';
+}
+
+type TabListProps = {
+  tab: TabId;
+  idPrefix: string;
+  counts: Record<TabId, number>;
+  onSelect: (tab: TabId) => void;
+};
+
+/** Tab strip; buttons stay click/Enter/Space operable, arrows move focus. */
+function TabList({
+  tab,
+  idPrefix,
+  counts,
+  onSelect
+}: TabListProps): React.JSX.Element {
+  const onKeyDown = (e: KeyboardEvent) => {
+    const delta = ARROW_DELTAS[e.key];
+    if (!delta) return;
+    e.preventDefault();
+    const next = TABS[(TABS.indexOf(tab) + delta + TABS.length) % TABS.length];
+    onSelect(next);
+    document.getElementById(`${idPrefix}-tab-${next}`)?.focus();
+  };
+
+  return (
+    <div
+      className="rf0-dt-tablist"
+      role="tablist"
+      aria-label="Form state"
+      tabIndex={-1}
+      onKeyDown={onKeyDown}
+    >
+      {TABS.map(id => (
+        <button
+          key={id}
+          id={`${idPrefix}-tab-${id}`}
+          type="button"
+          role="tab"
+          className={`rf0-dt-tab${id === 'errors' ? ' rf0-dt-tab--danger' : ''}`}
+          aria-selected={tab === id}
+          aria-controls={`${idPrefix}-panel-${id}`}
+          tabIndex={tab === id ? 0 : -1}
+          onClick={() => onSelect(id)}
+        >
+          {id}
+          <span className="rf0-dt-tab-count">{counts[id]}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+type ErrorItemProps = {path: string; type: string; message: string};
+
+/** One flattened error row (shared by the errors tab and submit traces). */
+function ErrorItem({path, type, message}: ErrorItemProps): React.JSX.Element {
+  return (
+    <div className="rf0-dt-item">
+      <span className="rf0-dt-item-path">{path}</span>
+      <span className="rf0-dt-item-msg">{message}</span>
+      <span className="rf0-dt-item-tag">{type}</span>
+    </div>
+  );
+}
+
+function ErrorList({errors}: {errors: FieldErrorEntry[]}): React.JSX.Element {
+  if (errors.length === 0) return <p className="rf0-dt-empty">no errors</p>;
+  return (
+    <>
+      {/* Same path can hold several errors; index keeps keys unique. */}
+      {errors.map(({path, type, message}, index) => (
+        <ErrorItem
+          key={`${path}:${index}`}
+          path={path}
+          type={type}
+          message={message}
+        />
+      ))}
+    </>
+  );
+}
+
+function TouchedList({touched}: {touched: string[]}): React.JSX.Element {
+  if (touched.length === 0)
+    return <p className="rf0-dt-empty">no touched fields</p>;
+  return (
+    <>
+      {touched.map(path => (
+        <div key={path} className="rf0-dt-item rf0-dt-item--touched">
+          <span className="rf0-dt-item-path">{path}</span>
+        </div>
+      ))}
+    </>
+  );
+}
+
+function DirtyList({
+  dirty
+}: {
+  dirty: Record<string, boolean>;
+}): React.JSX.Element {
+  const paths = Object.keys(dirty);
+  if (paths.length === 0)
+    return <p className="rf0-dt-empty">no dirty fields</p>;
+  return (
+    <>
+      {paths.map(path => (
+        <div key={path} className="rf0-dt-item rf0-dt-item--dirty">
+          <span className="rf0-dt-item-path">{path}</span>
+          <span className="rf0-dt-item-msg rf0-dt-item-msg--ok">changed</span>
+        </div>
+      ))}
+    </>
+  );
+}
+
+function SubmitTraceList({
+  submits
+}: {
+  submits: SubmitTrace[];
+}): React.JSX.Element {
+  if (submits.length === 0)
+    return <p className="rf0-dt-empty">no submits yet</p>;
+  return (
+    <>
+      {submits.map(trace => (
+        <SubmitTraceItem key={`${trace.n}-${trace.at}`} trace={trace} />
+      ))}
+    </>
+  );
+}
+
+function SubmitTraceItem({trace}: {trace: SubmitTrace}): React.JSX.Element {
+  return (
+    <details className="rf0-dt-submit">
+      <summary className="rf0-dt-submit-summary">
+        <span className="rf0-dt-submit-n">#{trace.n}</span>
+        <span className={submitStatusClass(trace.ok)}>
+          {submitStatusLabel(trace.ok)}
+        </span>
+        <span className="rf0-dt-submit-time">
+          {new Date(trace.at).toLocaleTimeString()}
+        </span>
+      </summary>
+      {trace.errors.length > 0 && (
+        <div className="rf0-dt-submit-errors">
+          {trace.errors.map(({path, type, message}, index) => (
+            <ErrorItem
+              key={`${path}:${index}`}
+              path={path}
+              type={type}
+              message={message}
+            />
+          ))}
+        </div>
+      )}
+      <JsonTree value={trace.values} />
+    </details>
+  );
+}
+
+function EventStream({
+  events,
+  onClear
+}: {
+  events: EventTrace[];
+  onClear: () => void;
+}): React.JSX.Element {
+  if (events.length === 0) return <p className="rf0-dt-empty">no events yet</p>;
+  return (
+    <>
+      <div>
+        <button type="button" className="rf0-dt-action" onClick={onClear}>
+          Clear
+        </button>
+      </div>
+      {events.map(trace => (
+        <div key={`${trace.n}:${trace.at}`} className="rf0-dt-item">
+          <span className="rf0-dt-item-tag">{trace.event}</span>
+          <span className="rf0-dt-item-path">{trace.path ?? '—'}</span>
+          <span className="rf0-dt-item-msg rf0-dt-item-msg--ok">
+            {new Date(trace.at).toLocaleTimeString()}
+          </span>
+        </div>
+      ))}
+    </>
+  );
+}
+
+type PanelProps = {
+  tab: TabId;
+  values: unknown;
+  errors: FieldErrorEntry[];
+  touched: string[];
+  dirty: Record<string, boolean>;
+  submits: SubmitTrace[];
+  events: EventTrace[];
+  onClearEvents: () => void;
+};
+
+/** Content for the active tab. */
+function Panel({
+  tab,
+  values,
+  errors,
+  touched,
+  dirty,
+  submits,
+  events,
+  onClearEvents
+}: PanelProps): React.JSX.Element {
+  if (tab === 'values') return <JsonTree value={values} />;
+  if (tab === 'errors') return <ErrorList errors={errors} />;
+  if (tab === 'touched') return <TouchedList touched={touched} />;
+  if (tab === 'dirty') return <DirtyList dirty={dirty} />;
+  if (tab === 'submits') return <SubmitTraceList submits={submits} />;
+  return <EventStream events={events} onClear={onClearEvents} />;
+}
+
+/** Live form inspector — a floating dev panel. Tabs for values / errors /
+ * touched / dirty / submits (per-attempt traces) plus a status strip and
+ * Reset/Validate actions. Reads state through the library's watch hooks,
+ * so it updates live without participating in validation/submit. Docked
+ * at a corner, collapsible; keyboard operable. Not re-exported by the
+ * main entry. */
 export default function Devtools<T extends Record<string, any> = any>({
   form,
   position = 'top-right'
 }: DevtoolsProps<T>): React.JSX.Element {
-  // Idempotent + SSR-guarded; moving it off module scope keeps the
-  // devtools entry free of import-time side effects (package.json
-  // declares `sideEffects: false`, so bundlers may drop a bare
-  // `import './styles'` in production builds).
+  // Module-scope call keeps the entry free of import-time side effects
+  // (sideEffects: false lets bundlers drop bare imports).
   injectDevtoolsStyles();
   const contextForm = useContext(FormContext);
   const f: Form<any> | null = form ?? contextForm;
@@ -114,7 +326,6 @@ export default function Devtools<T extends Record<string, any> = any>({
   const [tab, setTab] = useState<TabId>('values');
   const idPrefix = useId().replace(/[^a-zA-Z0-9-]/g, '');
 
-  // Live snapshots, straight through the public watch surface.
   const values = useWatch(f, 'change', getValues.bind(null, f));
   const errors = useWatch<FieldErrorEntry[]>(
     f,
@@ -131,13 +342,11 @@ export default function Devtools<T extends Record<string, any> = any>({
     () => f.isSubmitSuccessful
   );
 
-  // Submit traces: each completed attempt (the 'submitting' emit carrying
-  // isSubmitting=false) is snapshotted once — outcome, values and errors,
-  // kept capped at the 10 most recent attempts, newest first. The push is
-  // deferred one microtask because the failed path flips isSubmitting
-  // before isSubmitSuccessful; by microtask time the attempt's state is
-  // final. setState from an event-driven callback, never from the effect
-  // body or during render.
+  // Submit traces: snapshot each completed attempt ('submitting' emit with
+  // isSubmitting=false), capped at 10 newest-first. The push is deferred
+  // one microtask — the failed path flips isSubmitting before
+  // isSubmitSuccessful — so by microtask time the attempt is final.
+  // setState from an event callback, never the effect body or render.
   const [submits, setSubmits] = useState<SubmitTrace[]>([]);
   useEffect(() => {
     return on(f.emitter, 'submitting', () => {
@@ -160,11 +369,8 @@ export default function Devtools<T extends Record<string, any> = any>({
     });
   }, [f]);
 
-  // Event timeline: every form event lands here, newest first, capped at
-  // the 50 most recent. State writes ride the event callback (set-state
-  // from an event-driven subscription, never from the effect body or
-  // render). Payloads are summarized: path events carry their segments,
-  // focusError its key (pretty-printed), payload-less events nothing.
+  // Event timeline: every event lands here, newest first, capped at 50.
+  // State writes ride the event callback (never the effect body/render).
   const [events, setEvents] = useState<EventTrace[]>([]);
   useEffect(() => {
     let seq = 0;
@@ -189,8 +395,8 @@ export default function Devtools<T extends Record<string, any> = any>({
     }
     disposers.push(
       on(f.emitter, 'focusError', (key: string) => {
-        // The key is JSON-serialized segments — pretty-print it like the
-        // other path events; malformed input falls back to the raw key.
+        // The key is JSON-serialized segments — pretty-print it; malformed
+        // input falls back to the raw key.
         try {
           push('focusError', (JSON.parse(key) as string[]).join('.'));
         } catch {
@@ -238,20 +444,6 @@ export default function Devtools<T extends Record<string, any> = any>({
     events: events.length
   };
 
-  /** Arrow-key tab navigation (buttons stay click/Enter/Space operable). */
-  const onTabKeyDown = (e: KeyboardEvent) => {
-    const deltas: Record<string, number> = {
-      ArrowRight: 1,
-      ArrowLeft: -1
-    };
-    const delta = deltas[e.key];
-    if (!delta) return;
-    e.preventDefault();
-    const next = TABS[(TABS.indexOf(tab) + delta + TABS.length) % TABS.length];
-    setTab(next);
-    document.getElementById(`${idPrefix}-tab-${next}`)?.focus();
-  };
-
   return (
     <section
       className={`rf0-dt rf0-dt--${position}`}
@@ -269,30 +461,12 @@ export default function Devtools<T extends Record<string, any> = any>({
         </button>
       </header>
 
-      <div
-        className="rf0-dt-tablist"
-        role="tablist"
-        aria-label="Form state"
-        tabIndex={-1}
-        onKeyDown={onTabKeyDown}
-      >
-        {TABS.map(id => (
-          <button
-            key={id}
-            id={`${idPrefix}-tab-${id}`}
-            type="button"
-            role="tab"
-            className={`rf0-dt-tab${id === 'errors' ? ' rf0-dt-tab--danger' : ''}`}
-            aria-selected={tab === id}
-            aria-controls={`${idPrefix}-panel-${id}`}
-            tabIndex={tab === id ? 0 : -1}
-            onClick={() => setTab(id)}
-          >
-            {id}
-            <span className="rf0-dt-tab-count">{counts[id]}</span>
-          </button>
-        ))}
-      </div>
+      <TabList
+        tab={tab}
+        idPrefix={idPrefix}
+        counts={counts}
+        onSelect={setTab}
+      />
 
       <div
         id={`${idPrefix}-panel-${tab}`}
@@ -300,105 +474,16 @@ export default function Devtools<T extends Record<string, any> = any>({
         aria-labelledby={`${idPrefix}-tab-${tab}`}
         className="rf0-dt-panel"
       >
-        {tab === 'values' && <JsonTree value={values} />}
-        {tab === 'errors' &&
-          (errors.length === 0 ? (
-            <p className="rf0-dt-empty">no errors</p>
-          ) : (
-            errors.map(({path, type, message}, index) => (
-              // Same path can hold several errors now; index keeps keys
-              // unique without changing what is rendered (messages may
-              // legitimately repeat for one path).
-
-              <div key={`${path}:${index}`} className="rf0-dt-item">
-                <span className="rf0-dt-item-path">{path}</span>
-                <span className="rf0-dt-item-msg">{message}</span>
-                <span className="rf0-dt-item-tag">{type}</span>
-              </div>
-            ))
-          ))}
-        {tab === 'touched' &&
-          (touched.length === 0 ? (
-            <p className="rf0-dt-empty">no touched fields</p>
-          ) : (
-            touched.map(path => (
-              <div key={path} className="rf0-dt-item rf0-dt-item--touched">
-                <span className="rf0-dt-item-path">{path}</span>
-              </div>
-            ))
-          ))}
-        {tab === 'dirty' &&
-          (Object.keys(dirty).length === 0 ? (
-            <p className="rf0-dt-empty">no dirty fields</p>
-          ) : (
-            Object.keys(dirty).map(path => (
-              <div key={path} className="rf0-dt-item rf0-dt-item--dirty">
-                <span className="rf0-dt-item-path">{path}</span>
-                <span className="rf0-dt-item-msg rf0-dt-item-msg--ok">
-                  changed
-                </span>
-              </div>
-            ))
-          ))}
-        {tab === 'submits' &&
-          (submits.length === 0 ? (
-            <p className="rf0-dt-empty">no submits yet</p>
-          ) : (
-            submits.map(trace => (
-              <details key={`${trace.n}-${trace.at}`} className="rf0-dt-submit">
-                <summary className="rf0-dt-submit-summary">
-                  <span className="rf0-dt-submit-n">#{trace.n}</span>
-                  <span className={submitStatusClass(trace.ok)}>
-                    {trace.ok === true
-                      ? 'ok'
-                      : trace.ok === false
-                        ? 'failed'
-                        : '–'}
-                  </span>
-                  <span className="rf0-dt-submit-time">
-                    {new Date(trace.at).toLocaleTimeString()}
-                  </span>
-                </summary>
-                {trace.errors.length > 0 && (
-                  <div className="rf0-dt-submit-errors">
-                    {trace.errors.map(({path, type, message}, index) => (
-                      <div key={`${path}:${index}`} className="rf0-dt-item">
-                        <span className="rf0-dt-item-path">{path}</span>
-                        <span className="rf0-dt-item-msg">{message}</span>
-                        <span className="rf0-dt-item-tag">{type}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <JsonTree value={trace.values} />
-              </details>
-            ))
-          ))}
-        {tab === 'events' &&
-          (events.length === 0 ? (
-            <p className="rf0-dt-empty">no events yet</p>
-          ) : (
-            <>
-              <div>
-                <button
-                  type="button"
-                  className="rf0-dt-action"
-                  onClick={() => setEvents([])}
-                >
-                  Clear
-                </button>
-              </div>
-              {events.map(trace => (
-                <div key={`${trace.n}:${trace.at}`} className="rf0-dt-item">
-                  <span className="rf0-dt-item-tag">{trace.event}</span>
-                  <span className="rf0-dt-item-path">{trace.path ?? '—'}</span>
-                  <span className="rf0-dt-item-msg rf0-dt-item-msg--ok">
-                    {new Date(trace.at).toLocaleTimeString()}
-                  </span>
-                </div>
-              ))}
-            </>
-          ))}
+        <Panel
+          tab={tab}
+          values={values}
+          errors={errors}
+          touched={touched}
+          dirty={dirty}
+          submits={submits}
+          events={events}
+          onClearEvents={() => setEvents([])}
+        />
       </div>
 
       <p className="rf0-dt-status" aria-live="polite">

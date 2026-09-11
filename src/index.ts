@@ -1,14 +1,12 @@
 export {default as createForm} from './form';
 export * from './form';
-// `Form` itself cannot be exported as a type here: the component value of
-// the same name (components/Form) shadows it in the entry's namespace, so
-// consumers get the component where they asked for the interface. Ship the
-// interface under its ecosystem-standard alias instead (antd precedent).
+// `Form` can't be exported as a type here: the component of the same name
+// shadows it, so consumers would get the component. Ship the interface
+// under the ecosystem-standard alias (antd precedent).
 export type {Form as FormInstance} from './form';
-// Form.emitter is part of the public API, so the emitter dependency's
-// handle type must be publicly re-exported — otherwise rollup-plugin-dts
-// leaves it in a private chunk and downstream isolatedDeclarations builds
-// fail (TS2742).
+// Form.emitter is public API, so its handle type must be re-exported —
+// otherwise rollup-plugin-dts leaves it private and isolatedDeclarations
+// builds fail (TS2742).
 export type {EventEmitter} from './emitter';
 export type {
   FieldPath,
@@ -17,8 +15,7 @@ export type {
   ArrayItemOf,
   OpaqueTypes
 } from './types';
-// Type-only: the values type a Standard Schema produces — zero runtime
-// bytes in the main entry, resolvers entry re-exports it too.
+// Type-only: zero runtime bytes; the resolvers entry re-exports it too.
 export type {InferSchemaValues, StandardSchemaV1} from './standardSchema';
 // 入口 d.ts 引用了 Path/PathSegments（UseFieldOptions 的验证相关类型经
 // hooks/form 暴露，core 模块的泛型约束直接引用 PathSegments），

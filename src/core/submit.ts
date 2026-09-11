@@ -19,36 +19,25 @@ export function setSubmitSuccessful(form: Form, value: boolean): void {
   emit(form.emitter, 'submitSuccessful');
 }
 
-/**
- * Set the form-level disabled flag and emit a payload-less 'disabled'
- * event — subscribed fields (useField and the components built on it)
- * re-render with the merged disabled state: form flag || their own
- * `disabled` option.
- * @param form
- * @param value
- */
+/** Set the form-level disabled flag and emit a payload-less 'disabled'
+ * event — subscribed fields re-render with the merged state (form flag ||
+ * their own `disabled` option). */
 export function setDisabled(form: Form, value: boolean): void {
   form.disabled = value;
   emit(form.emitter, 'disabled');
 }
 
-/**
- * Set the form's user-owned metadata slot (Formik's `status` role): the
- * payload-less 'status' event wakes {@link useStatus} and any imperative
- * `subscribe(form, {event: 'status'})` listeners. Nothing else reads or
- * interprets the value — server session flags, step state, non-field
- * errors of any shape are all fair game. Starts `undefined`.
- * @param form
- * @param value
- */
+/** Set the form's user-owned metadata slot (Formik's `status` role): the
+ * payload-less 'status' event wakes {@link useStatus} and imperative
+ * `subscribe` listeners. Nothing else interprets the value. */
 export function setStatus(form: Form, value: any): void {
   form.status = value;
   emit(form.emitter, 'status');
 }
 
-/** Structural slice of a <form>-like element: an elements collection whose
- * controls expose the constraint-validation members we read. Matches the
- * DOM HTMLFormElement shape without coupling the core to DOM types. */
+/** Structural slice of a <form>-like element: controls exposing the
+ * constraint-validation members we read, without coupling core to DOM
+ * types. */
 type NativeFormElement = {
   elements: ArrayLike<{
     name: string;
@@ -57,12 +46,10 @@ type NativeFormElement = {
   }>;
 };
 
-/**
- * Converts a control's DOM name to the user-visible dotted path. Field
- * components render the path key (JSON.stringify'd segments, '["a","0"]')
- * as the name attribute, so JSON keys are parsed back and joined with
- * dots; any other name value is returned as-is.
- */
+/** Converts a control's DOM name to the user-visible dotted path. Field
+ * components render the path key (JSON segments, '["a","0"]') as the name
+ * attribute, so JSON keys are parsed back and joined with dots; any other
+ * name is returned as-is. */
 function nameToPath(name: string): string {
   if (name.startsWith('[')) {
     try {
@@ -75,15 +62,10 @@ function nameToPath(name: string): string {
   return name;
 }
 
-/**
- * Collects the constraints failing native validation on a <form> as
- * {@link FieldErrorEntry} entries, in DOM order.
- *
- * Design note: native errors are deliberately NOT written into the form's
- * errors Map. That Map tracks custom validator state, while native
- * validity is transient DOM state owned by the browser (surfaced through
- * reportValidity); onInvalidSubmit receives this snapshot directly.
- */
+/** Collect the constraints failing native validation on a <form> as
+ * {@link FieldErrorEntry} entries, in DOM order. Native errors are NOT
+ * written into the errors Map — it tracks custom validator state, while
+ * native validity is transient browser-owned DOM state. */
 function getNativeErrors(formEl: NativeFormElement): FieldErrorEntry[] {
   const errors: FieldErrorEntry[] = [];
   const {elements} = formEl;
@@ -111,77 +93,36 @@ export type HandleSubmitOptions<T extends Record<string, any> = any> = {
   onSubmit?: (values: T, e?: any) => void | Promise<void>;
   /** Called after validation passes, following a successful onSubmit. */
   onValidSubmit?: (values: T, e?: any) => void | Promise<void>;
-  /**
-   * Called when validation fails.
-   * @param errors array of {path, type, message} entries in insertion
-   *        order; path is the dotted field path ('a.b', 'list.0'), type is
-   *        the error kind ('custom' for plain string errors, 'native' for
-   *        failed DOM constraint validation), message is the display text
-   * @param values current form values
-   */
+  /** Called when validation fails, with the flattened error entries and
+   * current values. */
   onInvalidSubmit?: (errors: FieldErrorEntry[], values: T) => void;
-  /**
-   * Called after validation passes and the submit callbacks ran, with the
-   * final (schema-coerced) values — the slot <Form>'s `action` prop uses
-   * to dispatch React 19 server actions with FormData. Runs inside the
-   * same isSubmitting window and is awaited like onSubmit/onValidSubmit.
-   *
-   * The callback may return an {@link ActionErrorResult}: its `errors`
-   * record (field path → message or messages) lands on the form through
-   * {@link setServerErrors} (`type: 'server'`, cleared existing server
-   * errors replaced), and the submit counts as unsuccessful — a rejected
-   * server round trip is an invalid submit, exactly like failed client
-   * validation. Any other return value (including `undefined`) means the
-   * submit succeeded.
-   */
+  /** Called after validation passes with the final (schema-coerced)
+   * values — the slot <Form>'s `action` prop uses to dispatch React 19
+   * server actions. May return an {@link ActionErrorResult}: its `errors`
+   * record lands as `type: 'server'` errors and the submit counts
+   * unsuccessful; any other return means success. */
   onAction?: (values: T, e?: any) => void | Promise<void | ActionErrorResult>;
-  /**
-   * Focus the first error field after a failed submit. Defaults to true —
-   * only an explicit `false` disables it. When custom validation fails,
-   * a 'focusError' event carrying the first error's path key is emitted
-   * on the form (bound fields such as <Field> subscribe and focus their
-   * input); when native constraint validation fails, the submitted
-   * form's first ':invalid' control is focused directly.
-   */
+  /** Focus the first error field after a failed submit. Defaults to true. */
   shouldFocusError?: boolean;
-  /**
-   * Whether native constraint validation (the submitted element's
-   * checkValidity) gates this attempt. Defaults to the form's
-   * {@link Form.shouldUseNativeValidation} flag — pass `false` to skip
-   * the native gate for one submit (a save-draft button, say) while
-   * custom validators still run; pass `true` to reinstate it on a form
-   * that disabled it. Targets without checkValidity never gate.
-   */
+  /** Whether native constraint validation gates this attempt. Defaults to
+   * the form's {@link Form.shouldUseNativeValidation} flag. Targets
+   * without checkValidity never gate. */
   shouldUseNativeValidation?: boolean;
 };
 
 /** What a server action / onAction callback returns when the server
- * rejected the payload: a field-path → message(s) record, landed on the
- * form as `type: 'server'` errors. Undefined (or anything else) means
- * success. */
+ * rejected the payload: a field-path → message(s) record, landed as
+ * `type: 'server'` errors. Undefined (or anything else) means success. */
 export type ActionErrorResult = {
   errors?: Record<string, string | string[]>;
 };
 
-/**
- * Create an async submit handler for `form` — the headless counterpart of
- * the <Form> component's onSubmit wiring.
- *
- * Behavior mirrors <Form> exactly: preventDefault when present, then the
- * submit state machine (isSubmitting/submitCount/isSubmitSuccessful) runs
- * around native constraint validation (via `e.currentTarget.checkValidity`,
- * skipped when the target has no checkValidity — e.g. React Native or
- * toolbar-button submits) and custom validators. Failed validation fires
- * onInvalidSubmit with the flattened error entries; a passing submit runs
- * onSubmit then onValidSubmit. Errors thrown by either are swallowed into
- * isSubmitSuccessful=false rather than rejecting the returned promise.
- * Failed validation also focuses the offending field (see
- * {@link HandleSubmitOptions.shouldFocusError}).
- *
- * @param form form instance
- * @param options submit callbacks
- * @return async event handler, callable without an event object
- */
+/** Create an async submit handler for `form` — the headless counterpart of
+ * the <Form> component's onSubmit wiring. Runs the submit state machine
+ * around native constraint validation (skipped for targets without
+ * checkValidity) and custom validators; failed validation fires
+ * onInvalidSubmit, a passing submit runs onSubmit then onValidSubmit.
+ * Errors thrown by either are swallowed into isSubmitSuccessful=false. */
 export function handleSubmit<T extends Record<string, any> = any>(
   form: Form<T>,
   options?: HandleSubmitOptions<T>
@@ -194,19 +135,18 @@ export function handleSubmit<T extends Record<string, any> = any>(
     shouldFocusError = true,
     shouldUseNativeValidation = form.shouldUseNativeValidation
   } = options ?? {};
+
   return async e => {
     if (e && typeof e.preventDefault === 'function') {
       e.preventDefault();
     }
     const formEl = e?.currentTarget;
-    // A fresh attempt supersedes the previous round trip's verdict:
-    // server errors from the last submit must not veto this one (the
-    // server is being asked again). Client errors stay — they describe
-    // the current form state, not a stale response.
+    // A fresh attempt supersedes the previous round trip's verdict: server
+    // errors from the last submit must not veto this one (the server is
+    // being asked again). Client errors stay.
     clearServerErrors(form);
     // Land the submitted flag before the isSubmitting flip: the single
-    // 'submitting' emit setIsSubmitting fires carries both state changes
-    // to FormState subscribers.
+    // 'submitting' emit carries both state changes to subscribers.
     form.isSubmitted = true;
     setIsSubmitting(form, true);
     incrementSubmitCount(form);
@@ -220,7 +160,7 @@ export function handleSubmit<T extends Record<string, any> = any>(
     ) {
       formEl.reportValidity();
       // Focus the first natively-invalid control directly off the DOM;
-      // native failures never enter the errors Map (see below).
+      // native failures never enter the errors Map (see getNativeErrors).
       if (shouldFocusError && typeof formEl.querySelector === 'function') {
         const invalid = formEl.querySelector(':invalid') as HTMLElement | null;
         if (invalid && typeof invalid.focus === 'function') invalid.focus();
@@ -228,18 +168,17 @@ export function handleSubmit<T extends Record<string, any> = any>(
       setIsSubmitting(form, false);
       setSubmitSuccessful(form, false);
       // Native constraint failures are read from the DOM (not the errors
-      // Map, which only holds custom validation state — see getNativeErrors).
+      // Map, which only holds custom validation state).
       if (onInvalidSubmit) onInvalidSubmit(getNativeErrors(formEl), values);
       return;
     }
 
     const error = await validate(form);
-
     if (error) {
       setIsSubmitting(form, false);
       setSubmitSuccessful(form, false);
-      // Notify bound fields (e.g. <Field>) so the first errored one can
-      // focus its input; the payload is the errors Map's first key.
+      // Notify bound fields so the first errored one can focus its input;
+      // the payload is the errors Map's first key.
       if (shouldFocusError) {
         const firstKey = form.errors.keys().next().value;
         if (firstKey !== undefined) emit(form.emitter, 'focusError', firstKey);
@@ -250,9 +189,9 @@ export function handleSubmit<T extends Record<string, any> = any>(
 
     try {
       // Re-read after validation: a schema validator's parsed output
-      // (ValidationOutcome.values) landed in parsedValues during
-      // validate(), and the submit callbacks must see the coerced /
-      // transformed values, not the raw pre-validation snapshot.
+      // landed in parsedValues during validate(), and the submit
+      // callbacks must see the coerced values, not the raw
+      // pre-validation snapshot.
       const submitted = getValues(form);
       if (onSubmit) await onSubmit(submitted, e);
       if (onValidSubmit) await onValidSubmit(submitted, e);
@@ -260,8 +199,7 @@ export function handleSubmit<T extends Record<string, any> = any>(
         const result = await onAction(submitted, e);
         // A server round trip that returns errors is an invalid submit:
         // land them as per-field 'server' errors and mark the attempt
-        // unsuccessful (Conform's server-error hydration, RHF's
-        // setError-after-submit pattern — both folded into one contract).
+        // unsuccessful.
         if (
           result &&
           typeof result === 'object' &&

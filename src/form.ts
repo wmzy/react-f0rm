@@ -12,12 +12,10 @@ import {registerField} from './core/register';
 import type {SetFocusOptions} from './core/focus';
 import type {VALIDATION_OUTCOME} from './core/errors';
 
-// The implementation is split by concern under ./core (values, errors,
-// touched, dirty, validate, change, submit, focus; module-private shared
-// state lives in ./core/internals, which is deliberately not re-exported).
-// This file keeps the public types and the create factory, and re-exports
-// every public function — the single import surface the rest of the
-// package (hooks, components, server, persist, resolvers) consumes.
+// Implementation is split by concern under ./core; module-private shared
+// state lives in ./core/internals (deliberately not re-exported). This
+// file keeps the public types + create factory and re-exports every
+// public function — the single import surface the package consumes.
 export type {Name};
 export type {
   FieldPath,
@@ -31,8 +29,7 @@ export type {
  * defined for the test environment in vitest.config.ts. */
 declare const __DEV__: boolean;
 
-/** A field error: `type` identifies the error kind ('custom' for plain
- * string errors), `message` is the display text. */
+/** A field error: `type` is the error kind, `message` the display text. */
 export type FieldError = {type: string; message: string};
 
 /** A flattened entry from {@link getErrors}. */
@@ -57,17 +54,10 @@ export type ReValidateMode = 'onChange' | 'onBlur' | 'onSubmit';
 
 /** When the form-level {@link Options.validate} re-runs outside
  * submit/`trigger`/`validateOnMount`:
- * - `'onSubmit'` (default): only on submit/trigger — cross-field linkage
- *   goes through {@link Options.validateDeps} instead
- * - `'onChange'`: every user change to a bound field re-runs it
- * - `'onBlur'`: every user blur of a bound field re-runs it
- *
- * TanStack Form's `validators.onChange`/`validators.onBlur` counterpart:
- * a cadence declaration instead of enumerating deps. The re-run rides the
- * changed field's own user-change pipeline (typing and `changeValue`
- * alike, never programmatic `setValue`), honors {@link
- * Options.validateDebounce}, and reuses the round-scoped error footprint —
- * a passing re-run clears what the previous round wrote.
+ * - `'onSubmit'` (default): submit/trigger only — cross-field linkage via
+ *   {@link Options.validateDeps}
+ * - `'onChange'`: every user change to a bound field
+ * - `'onBlur'`: every user blur of a bound field
  */
 export type FormValidateMode = 'onSubmit' | 'onChange' | 'onBlur';
 
@@ -77,57 +67,38 @@ export type FormValidateMode = 'onSubmit' | 'onChange' | 'onBlur';
  * element never re-renders; the store carries every write).
  */
 export type RegisterOptions = {
-  /**
-   * Field-level validation mode for this binding (see {@link
-   * ValidationMode}): typing gates on it exactly like a mounted
-   * `useField`. Defaults to the form's `mode`.
-   */
+  /** Field-level validation mode for this binding; defaults to the form's
+   * `mode`. */
   mode?: ValidationMode;
-  /**
-   * Unmount behavior: `true` (the default, this library's historical
-   * default) tombstones the path when the element unmounts, `false` keeps
-   * the value. Falls back to the form-level
-   * `createForm({shouldUnregister})` when omitted.
-   */
+  /** Unmount behavior: `true` (the library's historical default) tombstones
+   * the path, `false` keeps the value. Falls back to the form-level
+   * `createForm({shouldUnregister})` when omitted. */
   shouldUnregister?: boolean;
-  /**
-   * DOM event → value extractor for the returned `onChange`. Defaults to
-   * the element's own protocol: `target.files` for file inputs,
-   * `target.checked` for checkboxes, `target.valueAsNumber` /
-   * `target.valueAsDate` under those flags, `target.value` otherwise —
-   * the same extraction `<Field>` performs.
-   */
+  /** DOM event → value extractor for the returned `onChange`. Defaults to
+   * the element's protocol (`target.files`/`target.checked`/
+   * `target.valueAsNumber`/`target.valueAsDate`, else `target.value`) —
+   * the same extraction `<Field>` performs. */
   eventToValue?: (e: any) => any;
-  /** Store `e.target.valueAsNumber` instead of the string value
-   * (`<input type="number">`, RHF's `register({valueAsNumber})`). An
+  /** Store `e.target.valueAsNumber` instead of the string value. An
    * explicit `eventToValue` takes precedence. */
   valueAsNumber?: boolean;
-  /** Store `e.target.valueAsDate` instead of the string value (RHF's
-   * `register({valueAsDate})`). An explicit `eventToValue` takes
-   * precedence; combining with `valueAsNumber` is a TypeError. */
+  /** Store `e.target.valueAsDate` instead of the string value. An explicit
+   * `eventToValue` takes precedence; combining with `valueAsNumber` is a
+   * TypeError. */
   valueAsDate?: boolean;
-  /**
-   * Declarative rules for this binding — the same {@link FieldRules}
-   * `useField`/`<Field>` take (`required` runs as the synchronous gate,
-   * `validate` callbacks included). Wired through the framework-free
-   * `registerValidatorByPath`, so `trigger`/submit/`mode` gating see it
-   * exactly like a hook-registered validator. `validateDebounce` is
-   * fixed at 0 — the rules run immediately on every kick.
-   */
+  /** Declarative rules for this binding — the same {@link FieldRules}
+   * `useField`/`<Field>` take (`required` runs as the synchronous gate).
+   * Wired through `registerValidatorByPath`, so `trigger`/submit/`mode`
+   * gating see it like a hook-registered validator; `validateDebounce` is
+   * fixed at 0. */
   rules?: FieldRules;
 };
 
-/**
- * What {@link Form.register} returns: spread these props onto an
- * uncontrolled DOM element (`<input {...form.register('name')} />`).
- * The bound element never re-renders — read live state through
- * `useValue`/`useError`/`getValues`, exactly like react-hook-form's
- * `register` contract. `name` is the store's path key; `onChange` writes
- * the extracted value through the gated user-change pipeline; `ref`
- * attaches the element (seeds its initial DOM content into the store,
- * wires the 'focusError' channel and bulk-reset DOM sync) and detaches it
- * on unmount (tombstone unless `shouldUnregister: false`).
- */
+/** What {@link Form.register} returns: spread these onto an uncontrolled
+ * DOM element (`<input {...form.register('name')} />`). `name` is the
+ * store's path key; `onChange` writes through the gated user-change
+ * pipeline; `ref` attach seeds the element's DOM content and detach
+ * tombstones unless `shouldUnregister: false`. */
 export type RegisterProps = {
   name: string;
   onChange: (e: any) => void;
@@ -137,11 +108,8 @@ export type RegisterProps = {
 
 /** Structured form-level validate result: `errors` uses the same nested
  * shape a plain error record uses, `values` is the schema's parsed output
- * (coerce/transform results included). Either side may be omitted.
- *
- * The brand constant itself lives in the errors module (the leaf module of
- * the core dependency graph — every consumer imports it from there) and is
- * re-exported below with `export *`. */
+ * (coerce/transform included). Either side may be omitted. The brand
+ * constant lives in the errors module and is re-exported below. */
 export type ValidationOutcome<T> = {
   [VALIDATION_OUTCOME]: true;
   errors?: Record<string, any>;
@@ -157,37 +125,27 @@ export type ValidateResult<T> =
   | ValidationOutcome<T>
   | Promise<Record<string, any> | ValidationOutcome<T>>;
 
-/** Context passed to a form-level `validate` function's second argument.
- * `signal` aborts as soon as the round is superseded — a newer round
- * started (which only happens under a positive `validateDebounce`, where
- * kicks merge into windows) — so async validators can cancel their
- * underlying work instead of racing a stale result home. Stale results
- * are dropped independently by the round gate, so validators that ignore
- * the signal stay correct too; the same contract field-level validators
- * get through their own `meta`. */
+/** Context passed to a form-level `validate`'s second argument. `signal`
+ * aborts when the round is superseded (only under a positive
+ * `validateDebounce`, where kicks merge), so async work can be cancelled;
+ * stale results are dropped by the round gate either way. */
 export type FormValidateMeta<T extends Record<string, any> = any> = {
   form: Form<T>;
   signal: AbortSignal;
 };
 
-/** Form-level validator: receives all values (plus {@link
- * FormValidateMeta} as an optional second argument) and returns a
- * {@link ValidateResult} — sync or async — or `undefined`/nothing when
- * valid (the runtime skips falsy results, so implicit-return callbacks
- * type-check). */
+/** Form-level validator: receives all values (plus an optional {@link
+ * FormValidateMeta}) and returns a {@link ValidateResult} — sync or async
+ * — or `undefined` when valid (falsy results are skipped). */
 export type FormValidateFn<T extends Record<string, any> = any> = (
   values: T,
   meta: FormValidateMeta<T>
 ) => ValidateResult<T> | undefined;
 
-/**
- * The emitter event table for {@link Form.emitter}: each event's payload
- * tuple. Path-carrying events declare an optional single `Path` payload —
- * emit sites send it for single-field mutations and omit it for bulk
- * payload-less broadcasts (reset, setInitialValues, clear-all), both of
- * which subscribers handle. `focusError` carries the target's path key
- * plus optional {@link SetFocusOptions}.
- */
+/** The emitter event table for {@link Form.emitter}: path-carrying events
+ * declare an optional single `Path` payload (sent for single-field
+ * mutations, omitted for bulk payload-less broadcasts); `focusError`
+ * carries the path key plus optional {@link SetFocusOptions}. */
 export type FormEvents =
   | ['change', [path?: Path]]
   | ['errors', [path?: Path]]
@@ -212,271 +170,197 @@ export type Form<T extends Record<string, any> = any> = {
    * merging values must not fall back to initialValues for these paths. */
   deleted: Set<string>;
   /** Every error registered for a field, as a non-empty array (the
-   * write-side {@link setErrorByPath} normalizes to this invariant, so
-   * readers never need to guard against an empty list). Readers wanting
-   * the display error take the first entry ({@link getError}); readers
-   * wanting all of them use {@link getFieldErrors}. */
+   * write-side {@link setErrorByPath} normalizes to this invariant).
+   * First entry via {@link getError}, all of them via
+   * {@link getFieldErrors}. */
   errors: Map<string, FieldError[]>;
   touched: Set<string>;
-  /** Per-field validation kicks, registered by {@link
-   * registerValidatorByPath} (`useValidate` is the React-side
-   * registration): each is the field's debounce/lock-aware kick —
-   * invoking it validates the field's current value. `trigger` /
-   * `ensureValidate` run every entry; the user-change gate ({@link
-   * userChangeByPath}) runs the entry at the changed path. */
+  /** Per-field validation kicks registered by {@link
+   * registerValidatorByPath}: invoking one validates the field's current
+   * value. `trigger`/`ensureValidate` run every entry; the user-change
+   * gate runs the entry at the changed path. */
   validators: Map<string, () => void>;
   validating: Set<string>;
-  /** Parsed values from the last successful schema validation: the
-   * schema's complete output tree (coerced/transformed values included).
-   * Sits between initialValues and the values Map in {@link getValues}
-   * until `reset`/`setInitialValues` clears it. Never affects dirty
-   * state — that compares live edits against initialValues only. */
+  /** Parsed values from the last successful schema validation: layered
+   * between initialValues and the values Map in {@link getValues}, cleared
+   * by `reset`/`setInitialValues`. Never affects dirty state. */
   parsedValues: T | undefined;
-  /** Form-level validator, seeded from {@link Options.validate}. May
-   * receive a second {@link FormValidateMeta} argument. */
+  /** Form-level validator, seeded from {@link Options.validate}. */
   validate?: FormValidateFn<T>;
-  /** Delay in milliseconds before the form-level `validate` runs; seeded
-   * from {@link Options.validateDebounce} and fixed at create time. */
+  /** Delay in ms before the form-level `validate` runs; seeded from
+   * {@link Options.validateDebounce} and fixed at create time. */
   validateDebounce?: number;
-  /** Path keys (JSON-stringified segments) of the fields whose user
-   * changes re-run the form-level `validate`; normalized from {@link
-   * Options.validateDeps} at create time and fixed thereafter. */
+  /** Path keys whose user changes re-run the form-level `validate`;
+   * normalized from {@link Options.validateDeps} at create time. */
   validateDeps?: ReadonlySet<string>;
-  /** When the form-level `validate` re-runs outside submit/trigger —
-   * the cadence declared by {@link Options.validateMode}, seeded at
-   * create time and fixed thereafter ('onSubmit' by default; with
-   * 'onChange'/'onBlur' every user change/blur to a bound field re-runs
-   * it, no dep list required). */
+  /** When the form-level `validate` re-runs outside submit/trigger — the
+   * cadence from {@link Options.validateMode}, seeded at create time. */
   validateMode: FormValidateMode;
   isSubmitting: boolean;
   /** Whether a submit has been attempted — set by `handleSubmit` on every
-   * attempt (validation outcome aside), cleared by `reset`.
-   * `useFormState().isSubmitted` reads it (react-hook-form's
-   * `formState.isSubmitted` semantics). */
+   * attempt, cleared by `reset` (react-hook-form's `isSubmitted`). */
   isSubmitted: boolean;
   submitCount: number;
   isSubmitSuccessful: boolean | undefined;
-  /** True while an async {@link Options.initialValues} source (a Promise,
-   * or a thunk returning one) is still pending — the form starts empty
-   * and the resolved values become the baseline via setInitialValues when
-   * it lands. Flips through the payload-less 'loading' event
-   * (`useIsLoading` / `useFormState().isLoading`). */
+  /** True while an async {@link Options.initialValues} source is pending —
+   * the form starts empty and the resolved values land as the baseline.
+   * Flips through the payload-less 'loading' event. */
   isLoading: boolean;
-  /** Form-level default for a bound field's unmount behavior, seeded from
-   * {@link Options.shouldUnregister}: `true` (the default) tombstones an
-   * unmounted field, `false` keeps its value (react-hook-form's
-   * `shouldUnregister` semantics). A field's own `shouldUnregister` option
-   * overrides this. */
+  /** Form-level default for a bound field's unmount behavior: `true` (the
+   * default) tombstones an unmounted field, `false` keeps its value. A
+   * field's own `shouldUnregister` option overrides this. */
   shouldUnregister?: boolean;
   /** Form-level disabled flag, OR-ed into every bound field's `disabled`
-   * (form flag || the field's own option). Seeded from
-   * {@link Options}.disabled at create time and toggled at runtime with
-   * {@link setDisabled}, which emits a payload-less 'disabled' event so
-   * subscribed fields re-render. */
+   * (form flag || the field's own option). Toggled at runtime with
+   * {@link setDisabled}, which emits a payload-less 'disabled' event. */
   disabled: boolean;
-  /** Form-level default for mount validation, seeded from
-   * {@link Options.validateOnMount}: `true` makes every mounted field
-   * with a validator kick once after mount (deferred until an async
-   * {@link Options.initialValues} source lands), and makes `useForm` run
-   * the form-level `validate` once. A field's own `validateOnMount`
-   * option overrides this flag in either direction. */
+  /** Form-level default for mount validation: `true` kicks every mounted
+   * field's validator once after mount (deferred until an async
+   * {@link Options.initialValues} source lands) and runs the form-level
+   * `validate` once. A field's own option overrides this. */
   validateOnMount: boolean;
-  /** Form-level default for {@link UseValidateOptions.asyncAlways}:
-   * whether a field's debounced validator still runs when its `required`
-   * gate failed. A field's own `asyncAlways` option overrides this flag
-   * in either direction. Seeded from {@link Options.asyncAlways}. */
+  /** Form-level default for `asyncAlways`: whether a field's debounced
+   * validator still runs when its `required` gate failed. A field's own
+   * option overrides this flag. */
   asyncAlways: boolean;
-  /**
-   * Whether native constraint validation gates submission (the submitted
-   * element's checkValidity, skipped for targets without it — React
-   * Native, toolbar buttons) and skips a bound `<Field>`'s custom
-   * validators on a native-failing kick. Seeded from
-   * {@link Options.shouldUseNativeValidation} — default `true`; a submit
-   * may override per attempt via
-   * {@link HandleSubmitOptions.shouldUseNativeValidation}.
-   */
+  /** Whether native constraint validation gates submission and skips a
+   * bound `<Field>`'s custom validators on a native-failing kick. Seeded
+   * from {@link Options.shouldUseNativeValidation} (default `true`); a
+   * submit may override per attempt. */
   shouldUseNativeValidation: boolean;
-  /**
-   * User-owned metadata slot for non-field state — session flags, server
-   * backfill that belongs to no field, step indices (Formik's `status`
+  /** User-owned metadata slot for non-field state (Formik's `status`
    * role). Written with {@link setStatus}, which emits the payload-less
-   * 'status' event; read directly or reactively through {@link useStatus}.
-   * Starts `undefined`.
-   */
+   * 'status' event; read via {@link useStatus}. Starts `undefined`. */
   status: any;
-  /**
-   * Non-hook field binding — react-hook-form's `register` contract:
-   * spread the returned props onto an uncontrolled DOM element
-   * (`<input {...form.register('name')} />`) and the element never
-   * re-renders, while the store carries every write and `trigger`/submit
-   * validate it. Seeding, the 'focusError' channel, bulk-reset DOM sync
-   * and unmount tombstoning ride the `ref` callback's attach/detach —
-   * no React state involved, so `register` works anywhere (dynamic
-   * lists, conditional fields, non-React adapters). See {@link
-   * RegisterOptions} / {@link RegisterProps}.
-   */
+  /** Non-hook field binding — react-hook-form's `register` contract:
+   * spread the returned props onto an uncontrolled DOM element and the
+   * element never re-renders while the store carries every write. No
+   * React state involved, so it works anywhere. See {@link
+   * RegisterOptions} / {@link RegisterProps}. */
   register: (name: Name, options?: RegisterOptions) => RegisterProps;
 };
 
 export type Options<T extends Record<string, any> = any> = {
-  /**
-   * The values baseline. Sync objects seed immediately (SSR renders
-   * them). Async sources — a Promise, or a thunk returning a value or
-   * Promise (react-hook-form's async `defaultValues` shape) — start the
-   * form empty with `isLoading: true` and land the resolved values as
-   * the baseline via setInitialValues once they resolve: value
-   * subscribers re-sync, dirty/touched state starts clean, and a later
-   * `reset()` returns to the resolved baseline. A rejected source flips
-   * isLoading back to false, keeps the form empty, and logs the error in
-   * DEV — attach a `.catch` on the source itself to handle it. The thunk
-   * runs at create time: keep its identity stable (module scope or
-   * useMemo) when passing it inline, and note StrictMode double-invokes
-   * it in development, like every render-phase call.
-   */
+  /** The values baseline. Sync objects seed immediately; async sources (a
+   * Promise, or a thunk returning a value/Promise) start the form empty
+   * with `isLoading: true` and land the resolved values as the baseline
+   * via setInitialValues. A rejected source keeps the form empty and logs
+   * in DEV. The thunk runs at create time. */
   initialValues?: T | Promise<T> | (() => T | Promise<T>);
   /** When fields are validated. Defaults to `'onSubmit'`. See
    * {@link ValidationMode}. */
   mode?: ValidationMode;
-  /** When a field is re-validated after it already has an error — it only
-   * takes effect once the field has an error. Defaults to `'onChange'`. See
-   * {@link ReValidateMode}. */
+  /** When a field is re-validated after it already has an error. Defaults
+   * to `'onChange'`. See {@link ReValidateMode}. */
   reValidateMode?: ReValidateMode;
-  /**
-   * Form-level validator. Returns a record of errors keyed by field path;
-   * nested objects are flattened ('a.b' style) and array values contribute
-   * every non-empty string they hold as separate errors (zod `flatten()`
-   * formErrors style). Schema adapters instead return a branded
-   * {@link ValidationOutcome}: `errors` flattens the same way, `values`
-   * (the schema's parsed output) becomes the form's parsedValues baseline
-   * that {@link getValues} layers over initialValues.
-   *
-   * Alternatively pass a Standard Schema v1 object directly (zod
-   * v3.24+/v4, valibot v1, arktype, …) — it is wrapped into a form-level
-   * validator automatically, no resolver import needed, and `TValues`
-   * infers from the schema's output type:
-   * `createForm({validate: schema})` → `Form<InferSchemaValues<typeof
-   * schema>>`.
-   */
+  /** Form-level validator: returns a record of errors keyed by field path
+   * (nested objects flattened 'a.b' style, array values contribute each
+   * non-empty string). A branded {@link ValidationOutcome} adds parsed
+   * `values` as the parsedValues baseline. Alternatively pass a Standard
+   * Schema v1 object directly — it is wrapped into a validator
+   * automatically. */
   validate?: FormValidateFn<T> | StandardSchemaV1<unknown, T>;
-  /**
-   * Milliseconds to debounce the form-level `validate`: kicks from
-   * `trigger`/`ensureValidate`/submit inside the window merge into one
-   * run, and while the timer is pending the form counts as validating,
-   * so `trigger` and submit wait the window out — the same contract the
-   * per-field `validateDebounce` gives field validators. The merged run
-   * reads the values current when its timer fires. Defaults to `0`
-   * (validate runs immediately, exactly as before this option existed).
-   */
+  /** Milliseconds to debounce the form-level `validate`: kicks inside the
+   * window merge into one run, and while the timer is pending the form
+   * counts as validating. Defaults to `0` (runs immediately). */
   validateDebounce?: number;
   /** Fields whose user changes re-run the form-level `validate` — the
-   * cross-field dependency list (password-confirm mismatch and friends).
-   * Each entry is a field path ('password', 'user.email', 'items.0.qty');
-   * a user change to a listed field re-runs the form-level `validate`
-   * under the same mode/`reValidateMode` gating the field's own
-   * validator gets. Omit it and the form-level `validate` only runs on
-   * `trigger`/submit, exactly as before this option existed.
-   *
-   * Opting in also changes what a re-run may clear: each round first
-   * drops the errors the previous round wrote (paths it flattened onto),
-   * so a dep change that fixes the cross-field error makes it disappear.
-   * Errors the round never wrote — field validators', `setServerErrors`,
-   * manual `setError` — are never touched. TanStack Form's counterpart is
-   * `onChangeListenTo` (v1) / validator `triggers` (v2 alpha). */
+   * cross-field dependency list. A re-run only clears errors the previous
+   * round wrote; errors the round never wrote are untouched. Omit it and
+   * the form-level `validate` only runs on `trigger`/submit. */
   validateDeps?: FieldPath<T>[];
-  /**
-   * When the form-level `validate` re-runs outside submit/`trigger`/
+  /** When the form-level `validate` re-runs outside submit/`trigger`/
    * `validateOnMount` — a cadence declaration instead of enumerating
-   * {@link Options.validateDeps}. `'onSubmit'` (the default) keeps the
-   * historical behavior (submit/trigger only, deps for cross-field
-   * linkage). `'onChange'` re-runs the form-level validate on every user
-   * change to a bound field; `'onBlur'` on every user blur. The re-run
-   * rides the changed field's own user-change pipeline (typing and
-   * `changeValue` alike, never programmatic `setValue`), honors
-   * {@link Options.validateDebounce}, and clears what the previous round
-   * wrote — TanStack Form's `validators.onChange`/`validators.onBlur`
-   * counterpart. See {@link FormValidateMode}.
-   */
+   * {@link Options.validateDeps}. See {@link FormValidateMode}. */
   validateMode?: FormValidateMode;
-  /**
-   * Form-level default for a bound field's unmount behavior. `true` (the
-   * default) tombstones an unmounted field — it drops out of
-   * `getValues()` instead of reviving its initial value (this library's
-   * historical default); `false` keeps the value, matching
-   * react-hook-form's `shouldUnregister`. A field's own
-   * `useField({shouldUnregister})` option overrides the form-level flag
-   * in either direction.
-   */
+  /** Form-level default for a bound field's unmount behavior. `true` (the
+   * default) tombstones an unmounted field; `false` keeps the value
+   * (react-hook-form's `shouldUnregister`). A field's own option
+   * overrides this. */
   shouldUnregister?: boolean;
-  /** Start the form with every bound field disabled — the flag bound
-   * fields OR with their own `disabled` option (a field cannot opt out
-   * of a disabled form). Toggle later with {@link setDisabled}.
-   * Defaults to `false`. */
+  /** Start the form with every bound field disabled — bound fields OR this
+   * flag with their own `disabled` option (a field cannot opt out).
+   * Toggle later with {@link setDisabled}. Defaults to `false`. */
   disabled?: boolean;
-  /**
-   * Form-level default for field validation's `asyncAlways`: when true,
-   * a field whose `required` gate failed still runs its debounced
-   * validator (the gate's errors land immediately, the validator's own
-   * result lands alongside them per-source). TanStack Form's
-   * `asyncAlways` counterpart. A field's own
-   * `useField({asyncAlways})` option overrides the form-level flag in
-   * either direction. Defaults to `false`.
-   */
+  /** Form-level default for `asyncAlways`: when true, a field whose
+   * `required` gate failed still runs its debounced validator (the gate's
+   * errors land immediately, the validator's result lands alongside
+   * them per-source). A field's own option overrides this. Defaults to
+   * `false`. */
   asyncAlways?: boolean;
-  /**
-   * Whether native constraint validation gates submission and skips a
-   * bound `<Field>`'s custom validators when its native constraints fail
-   * that kick (react-hook-form's `shouldUseNativeValidation`): pass
-   * `false` for forms where custom validators are the only source of
-   * truth — the browser's checkValidity/reportValidity gate (and the
-   * per-kick native gate in `<Field>`) stop running, while declarative
-   * `rules` keep producing store-side errors and native constraint
-   * attributes keep rendering for a11y. Defaults to `true`. Fixed at
-   * create time; a single submit may override it through
-   * {@link HandleSubmitOptions.shouldUseNativeValidation}.
-   */
+  /** Whether native constraint validation gates submission and skips a
+   * bound `<Field>`'s custom validators on a native-failing kick
+   * (react-hook-form's `shouldUseNativeValidation`). Defaults to `true`.
+   * Fixed at create time; a single submit may override it. */
   shouldUseNativeValidation?: boolean;
-  /**
-   * Validate on mount: `true` makes every mounted field with a validator
-   * (declarative `rules` or a `validate` callback) run it once after
-   * mount, instead of waiting for the first submit/change — errors show
-   * immediately for an untouched form (Formik's `validateOnMount` /
-   * TanStack Form's per-field `validateOnMount`). The form-level
-   * `validate` also runs once after mount. Mount kicks are deferred
-   * while an async `initialValues` source is still pending: validating
-   * the empty shell would land spurious required errors, so the kicks
-   * fire after the resolved baseline lands instead. A field's own
-   * `useField({validateOnMount})` option overrides the form-level flag
-   * in either direction. Defaults to `false`.
-   */
+  /** Validate on mount: `true` makes every mounted field's validator run
+   * once after mount (errors show for an untouched form) and runs the
+   * form-level `validate` once. Mount kicks are deferred while an async
+   * `initialValues` source is pending. A field's own option overrides
+   * this. Defaults to `false`. */
   validateOnMount?: boolean;
 };
 
-/**
- * Create form instance
- * @param options
- * @return form instance
- */
+/** Seed the baseline: a sync value becomes initialValues immediately; an
+ * async source starts the form empty and lands the resolved values via
+ * setInitialValues, flipping isLoading and the 'loading' event around it. */
+function seedInitialValues<T extends Record<string, any>>(
+  form: Form<T>,
+  emitter: EventEmitter<FormEvents>,
+  source: unknown
+): void {
+  if (!isPromise(source)) {
+    form.initialValues = source as T;
+    return;
+  }
+  // The form starts empty; the resolved values become the baseline
+  // through setInitialValues. No subscriber exists during the first
+  // render, so the synchronous first 'loading' emit is a safe no-op.
+  form.isLoading = true;
+  emit(emitter, 'loading');
+  Promise.resolve(source).then(
+    resolved => {
+      // Values land first, then the flag flips and 'loading' fires — so
+      // subscribers waking on the event read the resolved baseline, not
+      // the empty shell (mount-validation deferral among them).
+      setInitialValues(form, resolved ?? {});
+      form.isLoading = false;
+      emit(emitter, 'loading');
+    },
+    error => {
+      form.isLoading = false;
+      emit(emitter, 'loading');
+      // The caller's own catch sees the rejection; rethrowing would
+      // duplicate it as an unhandled rejection. Surface it in DEV.
+      if (__DEV__) {
+        // eslint-disable-next-line no-console -- dev-only diagnostics
+        console.error('react-f0rm: async initialValues rejected', error);
+      }
+    }
+  );
+}
+
+/** Create a form instance. */
 export default function create<T extends Record<string, any> = any>(
   options?: Options<T>
 ): Form<T> {
   const emitter = createEmitter<FormEvents>();
-  // A form legitimately accumulates one listener per mounted field per
-  // event (useField subscribes change/errors/disabled/focusError…), so
-  // the emitter's default max-listener warning would fire in DEV for any
-  // form over ~10 fields. Field subscriptions are removed on unmount —
-  // there is nothing to leak — so the warning would only be noise: raise
-  // the cap to unlimited for form emitters.
+  // A form accumulates one listener per mounted field per event, so the
+  // emitter's default max-listener warning would fire in DEV for any form
+  // over ~10 fields. Subscriptions are removed on unmount — nothing leaks
+  // — so the warning is noise: raise the cap to unlimited.
   setMaxListeners(emitter, 0);
-  // Async initialValues: a thunk is invoked here (create-time, like every
-  // other option resolution); a promise-typed result starts the loading
-  // cycle below instead of seeding.
-  let source: any = options?.initialValues ?? {};
-  if (typeof source === 'function') source = (source as () => unknown)();
+  // A thunk is invoked at create time; a promise result starts the
+  // loading cycle in seedInitialValues instead of seeding here.
+  const initialSource: any = options?.initialValues ?? {};
+  const source =
+    typeof initialSource === 'function'
+      ? (initialSource as () => unknown)()
+      : initialSource;
   const validateOption = options?.validate;
-  // A Standard Schema passed straight to `validate` is wrapped into a
-  // form-level validator (issues land per-path, parsed output becomes
-  // the parsedValues baseline) — no resolver import needed. The casts
-  // split the union the guard can't narrow (see hasStandardProps).
+  // A Standard Schema passed to `validate` is wrapped into a form-level
+  // validator — no resolver import needed. The casts split the union the
+  // guard can't narrow (see hasStandardProps).
   const wrappedValidate: FormValidateFn<T> | undefined =
     validateOption && hasStandardProps(validateOption)
       ? (schemaToFormValidator(
@@ -514,38 +398,7 @@ export default function create<T extends Record<string, any> = any>(
     register: (name, registerOptions) =>
       registerField(form, name, registerOptions)
   };
-  if (isPromise(source)) {
-    // The form starts empty; when the source resolves, its values become
-    // the baseline through setInitialValues (payload-less 'change', so
-    // every value subscriber re-syncs). The loading flag flips through
-    // the 'loading' event before and after — no subscriber exists during
-    // the first render, so the synchronous first emit is a safe no-op.
-    form.isLoading = true;
-    emit(emitter, 'loading');
-    Promise.resolve(source).then(
-      resolved => {
-        // Values land first, then the flag flips and 'loading' fires —
-        // subscribers waking on the event read the resolved baseline, not
-        // the empty shell (mount-validation deferral among them).
-        setInitialValues(form, resolved ?? {});
-        form.isLoading = false;
-        emit(emitter, 'loading');
-      },
-      error => {
-        form.isLoading = false;
-        emit(emitter, 'loading');
-        // The caller's own catch on the source sees the rejection;
-        // rethrowing here would only duplicate it as an unhandled
-        // promise rejection. Surface it in DEV instead.
-        if (__DEV__) {
-          // eslint-disable-next-line no-console -- dev-only diagnostics
-          console.error('react-f0rm: async initialValues rejected', error);
-        }
-      }
-    );
-  } else {
-    form.initialValues = source as T;
-  }
+  seedInitialValues(form, emitter, source);
   return form;
 }
 

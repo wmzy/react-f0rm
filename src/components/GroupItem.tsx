@@ -17,16 +17,9 @@ export type ItemProps = React.InputHTMLAttributes<HTMLInputElement> & {
   value: any;
 };
 
-/**
- * Shared implementation of the Radio and Checkbox group components: a
- * `Group` binds one array-valued field and publishes its value as a Set
- * through {@link CheckboxGroupContext}; an `Item` toggles its `value` in
- * that set and renders an input of the given `type`.
- *
- * The two components differ only in the input type — everything else
- * (context, aria wiring, toggle logic) is byte-identical, so both are
- * thin factories over this builder.
- */
+/** Shared Radio/Checkbox group factory: `Group` binds one array-valued
+ * field and publishes it as a Set; `Item` toggles its `value` and renders
+ * an input of `type`. The two differ only in input type. */
 export function createGroupItem(type: 'radio' | 'checkbox'): {
   Group: (props: GroupProps) => React.JSX.Element;
   Item: (props: ItemProps) => React.JSX.Element;

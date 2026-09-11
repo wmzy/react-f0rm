@@ -8,138 +8,54 @@ import {formDataFromValues} from '../server';
 import {FormContext} from '../context';
 import useForm from '../hooks/form';
 
-/**
- * Props for <Form>.
- *
- * Native validation behavior: the rendered <form> always sets noValidate,
- * which suppresses the browser's built-in blocked-submit UI. However, native
- * constraint validation still gates submission — the form element's
- * checkValidity() runs before custom validators, and when it fails,
- * reportValidity() surfaces the offending constraints as native bubbles and
- * submission stops (onInvalidSubmit fires). onSubmit/onValidSubmit only run
- * once every native constraint (required, type=email, minLength, ...) passes.
- * Pass `shouldUseNativeValidation={false}` (or `createForm({shouldUseNativeValidation:
- * false})`) to skip the native gate entirely for custom-validator-only
- * forms — targets without checkValidity (React Native, toolbar buttons)
- * are always exempt.
- *
- * The submit flow itself lives in the headless `handleSubmit` (see form.ts);
- * this component is a thin wrapper that binds it to the rendered <form>.
- */
+/** Props for <Form>. Native constraint validation gates submission: the
+ * form always sets noValidate, but checkValidity() runs before custom
+ * validators and a failure stops submission (onInvalidSubmit fires).
+ * `shouldUseNativeValidation={false}` skips the gate (targets without
+ * checkValidity are always exempt). The flow itself lives in the headless
+ * `handleSubmit`; this is a thin wrapper binding it to the <form>. */
 type FormProps<T extends Record<string, any> = any> = Omit<
   React.FormHTMLAttributes<HTMLFormElement>,
   'onSubmit'
 > & {
   form?: FormApi<T>;
-  /**
-   * Provide into an isolated context from `createFormContext()` instead of
-   * the module-level one — `<Form context={ProfileForm.context}>` keeps the
-   * component's full submit machinery while the factory's bound hooks
-   * (`ProfileForm.useField`, `ProfileForm.useFormContext`, ...) resolve this
-   * form from their private context. The module-level `useFormContext()` /
-   * `useField` do not see it; that is the point of the isolation. Omitted,
-   * the form lands in the module-level FormContext as before.
-   */
+  /** Isolated context from `createFormContext()`: its bound hooks see this
+   * form, the module-level ones do not. Defaults to FormContext. */
   context?: React.Context<FormApi<any> | null>;
-  /**
-   * The values baseline — a sync object, a Promise, or a thunk returning
-   * either ({@link Options.initialValues}). Async sources render the form
-   * empty and gate on `form.isLoading` until they resolve.
-   */
+  /** Values baseline — sync object, Promise, or thunk; async sources gate on `isLoading`. */
   initialValues?: T | Promise<T> | (() => T | Promise<T>);
-  /**
-   * Form-level default for a bound field's unmount behavior
-   * ({@link Options.shouldUnregister}): `true` (the default) tombstones
-   * unmounted fields, `false` keeps their values.
-   */
+  /** Default unmount behavior: `true` tombstones unmounted fields, `false` keeps values. */
   shouldUnregister?: boolean;
-  /**
-   * Validate on mount (see {@link Options.validateOnMount}): every
-   * mounted field with a validator kicks once after mount and the
-   * form-level `validate` (if any) runs once. A field's own
-   * `validateOnMount` prop overrides this flag.
-   */
+  /** Validate on mount: each validator kicks once; a field's own prop overrides. */
   validateOnMount?: boolean;
-  /**
-   * Disable every bound field: the form-level flag fields OR with their
-   * own `disabled` option (a field cannot opt out). Seeded at create and
-   * kept in sync while this prop changes (undefined leaves the current
-   * flag untouched — toggle at runtime with `setDisabled`).
-   */
+  /** Disable every bound field (fields OR with their own option); undefined leaves the flag untouched. */
   disabled?: boolean;
-  /**
-   * Form-level default for field validation's `asyncAlways`: a field
-   * whose `required` gate failed still runs its debounced validator, its
-   * result landing per-source alongside the gate's errors. A field's own
-   * `asyncAlways` prop overrides this flag.
-   */
+  /** Form-level default for `asyncAlways`; a field's own prop overrides. */
   asyncAlways?: boolean;
-  /**
-   * Controlled external values. When the `values` reference changes, the
-   * new object is synced into the form (via setInitialValues semantics):
-   * uncommitted user edits are discarded -- master-detail semantics, where
-   * selecting another record replaces the draft -- while touched flags and
-   * errors are kept. Sync is reference-based: re-renders that pass the same
-   * `values` reference never clobber what the user is typing.
-   */
+  /** Controlled external values: a new reference syncs via setInitialValues
+   * (draft discarded, touched/errors kept); same reference never clobbers. */
   values?: T;
-  /** May be async — the submit flow awaits it, so form.isSubmitting
-   * covers the entire flight. */
+  /** May be async; `isSubmitting` covers the flight. */
   onSubmit?: (values: T, e: React.FormEvent) => void | Promise<void>;
   /** May be async, same as onSubmit. */
   onValidSubmit?: (values: T, e: React.FormEvent) => void | Promise<void>;
-  /**
-   * React 19 Server Action target: after validation passes (and after
-   * onSubmit/onValidSubmit), the validated, schema-coerced values are
-   * converted to FormData ({@link formDataFromValues} — files, arrays and
-   * nested objects included) and dispatched to this callback, e.g.
-   * `action={createUser}` for a server action or
-   * `action={formData => startTransition(() => dispatch(formData))}` in a
-   * useActionState bridge. `isSubmitting` covers the whole flight.
-   *
-   * The callback may return an {@link ActionErrorResult}: its `errors`
-   * record lands on the form as per-field `type: 'server'` errors and the
-   * submit counts as unsuccessful — a server action rejecting the payload
-   * (422-style) hydrates the fields exactly like failed client
-   * validation. Return anything else to report success.
-   *
-   * Alternatively pass a URL string: it renders as the form's native
-   * `action` attribute, giving progressive enhancement — without
-   * JavaScript the browser posts the raw FormData to it (native
-   * constraint attributes from declarative `rules` still gate invalid
-   * submits), and with JavaScript the validated pipeline runs instead
-   * (pair the URL with `method="post"` and perform the network call in
-   * `onValidSubmit`; `handleSubmit` preventDefaults the native post).
-   */
+  /** Server Action target: after validation, schema-coerced values become
+   * FormData and dispatch here. Returning {@link ActionErrorResult} lands
+   * `type: 'server'` per-field errors (unsuccessful submit); a URL string
+   * renders the native `action` for no-JS progressive enhancement. */
   action?:
     string | ((formData: FormData) => void | Promise<void | ActionErrorResult>);
-  /**
-   * Called when validation fails.
-   * @param errors array of {path, type, message} entries in insertion
-   *        order; path is the dotted field path ('a.b', 'list.0'), type is
-   *        the error kind ('custom' for plain string errors, 'native' for
-   *        failed DOM constraint validation), message is the display text
-   * @param values current form values
-   */
+  /** Called when validation fails; errors are {path, type, message} entries
+   * (type: 'custom' | 'native'). */
   onInvalidSubmit?: (
     errors: {path: string; type: string; message: string}[],
     values: T
   ) => void;
-  /**
-   * Focus the first field with an error after a failed submit: custom
-   * validation failures focus the first errored field, native constraint
-   * failures focus the first ':invalid' control. Defaults to true; pass
-   * false to disable.
-   */
+  /** Focus the first errored field (or first ':invalid' control) after a failed submit. Default true. */
   shouldFocusError?: boolean;
-  /**
-   * Whether native constraint validation gates submission — pass false
-   * for custom-validator-only forms (react-hook-form's
-   * `shouldUseNativeValidation`). Seeds the internally created form's
-   * flag (`useForm` create-time option) and overrides it for this form's
-   * submit wiring; with an external `form` prop only the submit wiring is
-   * affected. Defaults to the form's flag (`true`).
-   */
+  /** Whether native constraint validation gates submission (pass false for
+   * custom-validator-only forms). Seeds the created form's flag and this
+   * form's submit wiring. */
   shouldUseNativeValidation?: boolean;
 };
 
@@ -171,10 +87,8 @@ export default function Form<T extends Record<string, any> = any>({
   });
   const form = f1 || f2;
 
-  // The form instance outlives prop changes (useForm creates it once), so
-  // a changing `disabled` prop re-applies through the runtime channel —
-  // the same `setDisabled` consumers toggle imperatively. undefined means
-  // "not controlled here": leave the flag as-is.
+  // The form outlives prop changes; a changing `disabled` re-applies via
+  // setDisabled. undefined = not controlled here.
   React.useEffect(() => {
     if (disabled !== undefined) setDisabled(form, disabled);
   }, [form, disabled]);
@@ -191,14 +105,10 @@ export default function Form<T extends Record<string, any> = any>({
         : undefined
   });
 
-  // Route the form into the caller's isolated context (createFormContext)
-  // or the module-level default, whichever Provider we ended up with.
+  // Route the form into the isolated or module-level context.
   const {Provider} = context ?? FormContext;
 
-  // A string `action` is the progressive-enhancement URL: rendered as the
-  // native attribute so a no-JS submit posts raw FormData to it, while
-  // the JS path (handleSubmit) preventDefaults and runs the validated
-  // pipeline instead.
+  // String action → native attribute for no-JS progressive enhancement.
   const nativeAction = typeof action === 'string' ? action : undefined;
 
   return (

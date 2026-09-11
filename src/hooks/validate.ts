@@ -4,6 +4,7 @@ import {FormContext} from '../context';
 import {registerValidatorByPath} from '../form';
 import type {Form, SyncValidator, Validator} from '../form';
 import type {Path} from '../path';
+import type {FieldRules} from '../rules';
 import {hasStandardProps, schemaToFieldValidator} from '../standardSchema';
 import type {StandardSchemaV1} from '../standardSchema';
 import {pathFromKey} from './path';
@@ -13,68 +14,49 @@ import useStage, {useStageFn} from './stage';
 // (`src/form.ts`); re-exported here so historical imports keep working.
 export type {SyncValidator, Validator};
 
-/**
- * Options for {@link useValidate} — the React-side registration of a field
- * validator. The registration machinery (debounce window, async-round
- * lock, signal abort, validating mark) lives in the core's
- * {@link registerValidatorByPath}; this hook only wires its React
- * lifecycle around it: register on mount, dispose on unmount, and read
- * the validator/debounce/sync-gate live through refs so re-renders never
- * re-subscribe the registration mid-flight.
- */
-export type UseValidateOptions = {
-  /**
-   * Delay in milliseconds before a validation kick actually runs the
-   * debounced validator. `0` (default) runs immediately; a positive value
-   * debounces rapid kicks (e.g. typing) so only the last one executes.
-   * While the timer is pending the field counts as validating, so
-   * `trigger` / `ensureValidate` wait out the window. The `sync`
-   * pre-validator is exempt: it runs immediately on every kick and never
-   * waits out the window.
-   */
-  debounce?: number;
-  /**
-   * Synchronous pre-validator run immediately on every kick — never
-   * debounced. While it returns errors, the debounced `validate` is
-   * skipped for that kick (its errors land and the expensive check never
-   * runs), and any pending debounce window or in-flight round is
-   * superseded. When it passes, a stale error it produced earlier clears
-   * at once, and a registration with no `validate` treats the passing
-   * check as the whole round and clears the field's errors.
-   */
-  sync?: SyncValidator;
-  /**
-   * Run the debounced validator even when the `sync` gate failed —
-   * TanStack Form's `asyncAlways`. The gate's errors land immediately
-   * (never debounced) and the validator's own result lands alongside
-   * them, per-source: a passing async round clears only its own errors,
-   * the gate's verdict stays until the gate itself passes. Defaults to
-   * false (gate failure owns the kick's outcome).
-   */
+/** Option spellings shared across the field, field-array and validator
+ * hooks — private to the hooks slice, never part of the public facade. */
+export type FieldOptionBase = {
+  /** Declarative rules compiled into a sync validator. */
+  rules?: FieldRules;
+  /** Whether unmounting removes the branch; defaults to the form-level
+   * `shouldUnregister` (tombstone). `false` keeps the values. */
+  shouldUnregister?: boolean;
+  /** Keep the debounced validator running when the sync gate failed
+   * (TanStack `asyncAlways`): gate errors land immediately, the
+   * validator's result lands alongside them per-source. */
   asyncAlways?: boolean;
-  /**
-   * Validate on mount: kick the registration once after it lands (Formik's
-   * `validateOnMount` / TanStack Form's per-field flag). Falls back to the
-   * form-level `createForm({validateOnMount})` when omitted, so a field
-   * opts out with `validateOnMount: false`. Validator-less registrations
-   * never kick on mount — an empty kick would clear a server error that
-   * landed before the field mounted. While an async `initialValues` source
-   * is still pending the kick is deferred until the resolved baseline
-   * lands (validating the empty shell would land spurious required
-   * errors); a field unmounted in between never kicks.
-   */
+  /** Validate once on mount (overrides the form-level flag in either
+   * direction). Deferred while async `initialValues` is pending. */
   validateOnMount?: boolean;
 };
 
 /**
- * Register a field validator with the form and return its kick — a stable
- * function that validates the field's current value (debounce and sync
- * gate applied). The returned function is the one stored in
- * `form.validators`; `trigger`/`ensureValidate` run every stored kick,
- * and the field's user-change gate runs the changed path's kick. This is
- * the old "useValidate" behavior — the same public shape with the
- * machinery moved into the core, so non-React adapters can register
- * validators directly through `registerValidatorByPath`.
+ * Options for {@link useValidate}: the registration machinery (debounce
+ * window, async-round lock, signal abort, validating mark) lives in the
+ * core's {@link registerValidatorByPath}; this hook wires its React
+ * lifecycle — register on mount, dispose on unmount, read options live
+ * through refs so re-renders never re-subscribe.
+ */
+export type UseValidateOptions = Pick<
+  FieldOptionBase,
+  'asyncAlways' | 'validateOnMount'
+> & {
+  /** Milliseconds to debounce this validator's kicks; `0` (default) runs
+   * immediately, and the field counts as validating while the window is
+   * pending. The `sync` pre-validator is exempt. */
+  debounce?: number;
+  /** Synchronous pre-validator run on every kick, never debounced; while
+   * it fails, the debounced validator is skipped and pending work is
+   * superseded. A passing check clears its own stale error. */
+  sync?: SyncValidator;
+};
+
+/**
+ * Register a field validator and return its kick (debounce + sync gate
+ * applied) — stored in `form.validators` for `trigger`/`ensureValidate`
+ * and the user-change gate. The machinery lives in the core's
+ * {@link registerValidatorByPath}; this is its React binding.
  */
 export default function useValidate(
   validate: Validator | StandardSchemaV1 | undefined,
@@ -82,17 +64,14 @@ export default function useValidate(
   formProp?: Form,
   options?: UseValidateOptions
 ): () => void {
-  // Read the context unconditionally (hook call order must be stable), then
-  // let an explicitly passed form win — works without a <FormProvider>.
+  // Unconditional context read keeps hook order stable; an explicit form
+  // wins (no <FormProvider> needed).
   const contextForm = useContext(FormContext);
   const form = formProp || contextForm;
   if (!form) throw new Error('no form provided');
-  // Live accessors: the registration must always see the latest
-  // validator/debounce/sync-gate, so swapping them per render (inline
-  // validators, recompiled rules) never re-subscribes the registration
-  // mid-flight. A Standard Schema passed straight to `validate` is
-  // wrapped into a validator here — same treatment the core gives
-  // `createForm({validate: schema})`.
+  // Live accessors: the registration always sees the latest
+  // validator/debounce/sync-gate, so per-render swaps never re-subscribe.
+  // A Standard Schema is wrapped into a validator here.
   const validateOption = validate;
   const validateRef = useRef<Validator | undefined>(undefined);
   validateRef.current =
@@ -103,8 +82,8 @@ export default function useValidate(
   const syncRef = useStage(options?.sync);
   const asyncAlwaysRef = useStage(options?.asyncAlways ?? false);
   // Same live-ref pattern: the effect keys on [form, path.key], so the
-  // option read must not appear in its closure — or it would demand a dep
-  // that re-runs the registration on every options object.
+  // option read must not appear in its closure (it would re-run the
+  // registration per render).
   const validateOnMountRef = useStage(options?.validateOnMount);
 
   useEffect(() => {
@@ -115,18 +94,15 @@ export default function useValidate(
       sync: () => syncRef.current,
       asyncAlways: () => asyncAlwaysRef.current
     });
-    // Mount validation: kick the registration once after it lands. The
-    // field's own option wins over the form-level flag in either
-    // direction. Validator-less registrations never kick — an empty kick
-    // clears whatever error was already stored at the path (a server
-    // backfill that landed before mount, say).
+    // Kick once after the registration lands (own option over form-level).
+    // Validator-less registrations never kick — an empty kick would clear
+    // a stored server error.
     const validateOnMount = validateOnMountRef.current ?? form.validateOnMount;
     if (!validateOnMount || (!validateRef.current && !syncRef.current)) {
       return dispose;
     }
-    // A deferred kick must never fire after this mount's registration was
-    // disposed (unmount, or StrictMode's setup→cleanup→setup remount): the
-    // flag drops it, and a remounted field's own setup schedules its kick.
+    // A deferred kick must never fire after disposal (unmount, or
+    // StrictMode's setup→cleanup→setup remount); the flag drops it.
     let disposed = false;
     const kick = () => {
       if (disposed) return;
@@ -135,9 +111,8 @@ export default function useValidate(
     if (!form.isLoading) {
       kick();
     } else {
-      // Async initialValues pending: the 'loading' event fires after the
-      // resolved baseline has landed (setInitialValues first), so the kick
-      // validates real values instead of the empty shell.
+      // Async initialValues pending: 'loading' fires after the resolved
+      // baseline lands, so the kick validates real values.
       const off = on(form.emitter, 'loading', () => {
         off();
         kick();

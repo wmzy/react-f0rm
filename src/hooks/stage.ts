@@ -19,40 +19,25 @@ export function useStageFn<T extends (...args: any[]) => any>(fn: T): T {
 }
 
 /**
- * Run destructive unmount `teardown` synchronously on every cleanup —
- * real unmounts behave exactly like a plain effect cleanup — and let a
- * setup that immediately follows a cleanup (`restore`) undo it.
- *
- * React 19's StrictMode double-invokes effects on the initial mount
- * (setup → cleanup → setup), so a plain cleanup would run the teardown
- * and then remount with the state gone. The cycle's second setup finds
- * the `removed` flag and calls `restore` before any render or event can
- * observe the gap; a real unmount has no following setup and the
- * teardown simply stands.
- *
- * `teardown`/`restore` must be referentially stable (build them with
- * {@link useStageFn}); the effect intentionally runs once per mount.
+ * Run `teardown` synchronously on every cleanup, and let a setup that
+ * immediately follows a cleanup undo it — StrictMode's dev
+ * setup→cleanup→setup double-invoke would otherwise wipe state the
+ * remount expects; a real unmount has no following setup, so the
+ * teardown stands. `teardown`/`restore` must be referentially stable.
  */
 export function useUnmountRestore(
   teardown: () => void,
   restore: () => void
 ): void {
   const removedRef = useRef(false);
-  // Latest-value refs: the effect runs once per mount, and the contract
-  // asks for referentially stable callbacks (build them with
-  // {@link useStageFn}), so the staged versions are the mount-time
-  // versions in practice.
   const teardownRef = useStage(teardown);
   const restoreRef = useStage(restore);
   useEffect(() => {
-    // Copy the staged callbacks at setup: the cleanup then reads stable
-    // locals instead of `ref.current` (which may legitimately have
-    // changed by cleanup time), and the deps hold only stable ref objects
-    // so the effect still runs exactly once per mount.
+    // Copy the staged callbacks at setup so the cleanup reads stable
+    // locals, not `ref.current` (which may have changed by cleanup time).
     const teardownOnce = teardownRef.current;
     const restoreOnce = restoreRef.current;
-    // The previous cleanup ran the teardown — this setup is the StrictMode
-    // remount: put the state back.
+    // The previous cleanup ran the teardown — StrictMode remount: restore.
     if (removedRef.current) {
       removedRef.current = false;
       restoreOnce();
@@ -65,10 +50,9 @@ export function useUnmountRestore(
 }
 
 /**
- * The concrete {@link useUnmountRestore} use shared by field and
- * field-array unmount: snapshot-and-remove the field/branch unless the
- * effective `shouldUnregister` (own option, falling back to the
- * form-level flag) opts out, restoring it on a StrictMode remount.
+ * Shared field/field-array unmount: snapshot-and-remove the branch unless
+ * the effective `shouldUnregister` opts out, restoring on StrictMode
+ * remount.
  */
 export function useUnmountFieldRemoval(
   form: Form,

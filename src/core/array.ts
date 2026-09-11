@@ -4,25 +4,11 @@ import type {Form} from '../form';
 import type {ArrayItemOf, FieldPath} from '../types';
 import {getValueByPath, setValueByPath} from './values';
 
-/**
- * Framework-free array operations on a form's values: the headless
- * counterparts of `useFieldArray`'s movers (which are thin wrappers
- * around these, adding only their row-id bookkeeping). Every operation
- * reads the array at `path`, computes the next array immutably and lands
- * it through {@link setValueByPath} — one whole-array write at the
- * array's own path, so descendant keys never go stale and subscribers
- * scoped to the branch re-sync exactly like on any array rewrite.
- *
- * Guarded operations are silent no-ops on out-of-range indices — the same
- * convention `useFieldArray`'s `update` has always kept — and report the
- * outcome so callers that keep parallel bookkeeping (row ids, say) can
- * mirror exactly what moved: `true`/`false` for the single-mutation
- * movers, the dropped indices (descending) for removals.
- *
- * A missing or non-array value at `path` reads as an empty array: appends
- * seed it, guards no-op, and a wholesale `replace` overwrites whatever
- * was there — the historical `useFieldArray` semantics.
- */
+/** Framework-free array operations: the headless counterparts of
+ * `useFieldArray`'s movers. Every operation reads the array at `path` and
+ * lands the next array through {@link setValueByPath} — one whole-array
+ * write. Guarded operations no-op on out-of-range indices and report the
+ * outcome; a missing/non-array value reads as an empty array. */
 
 /** Read the array at `path`, tolerating a missing or non-array branch. */
 function readArray(form: Form, path: Path): any[] {
@@ -30,40 +16,21 @@ function readArray(form: Form, path: Path): any[] {
   return Array.isArray(value) ? value : [];
 }
 
-/**
- * Append one value to the array at `path`.
- *
- * @param form
- * @param path
- * @param value
- */
+/** Append one value to the array at `path`. */
 export function appendValueByPath(form: Form, path: Path, value: any): void {
   const arr = readArray(form, path);
   setValueByPath(form, path, [...arr, value]);
 }
 
-/**
- * Prepend one value to the array at `path`.
- *
- * @param form
- * @param path
- * @param value
- */
+/** Prepend one value to the array at `path`. */
 export function prependValueByPath(form: Form, path: Path, value: any): void {
   const arr = readArray(form, path);
   setValueByPath(form, path, [value, ...arr]);
 }
 
-/**
- * Insert one value at `index` in the array at `path` (`index === length`
+/** Insert one value at `index` in the array at `path` (`index === length`
  * appends). Returns `false` — without touching the form — when the index
- * is out of range; `true` once the value landed.
- *
- * @param form
- * @param path
- * @param index
- * @param value
- */
+ * is out of range; `true` once the value landed. */
 export function insertValueByPath(
   form: Form,
   path: Path,
@@ -80,17 +47,11 @@ export function insertValueByPath(
   return true;
 }
 
-/**
- * Remove one or several rows from the array at `path` in a single write.
- * Indices may come in any order and may repeat — each row drops once;
- * out-of-range entries are ignored. Returns the indices actually dropped,
- * sorted descending so caller-side bookkeeping (row ids) can splice them
- * out without re-indexing drift; `[]` when nothing was removable.
- *
- * @param form
- * @param path
- * @param indices a single index or a list of indices
- */
+/** Remove one or several rows from the array at `path` in a single write.
+ * Indices may repeat; out-of-range entries are ignored. Returns the
+ * indices actually dropped, sorted descending so caller-side row-id
+ * bookkeeping can splice them without re-indexing drift; `[]` when nothing
+ * was removable. */
 export function removeValueByPath(
   form: Form,
   path: Path,
@@ -111,16 +72,9 @@ export function removeValueByPath(
   return dropped;
 }
 
-/**
- * Move the row at `from` to `to` (every row in between shifts one
- * position). Returns `false` — without touching the form — when either
- * index is out of range or they are equal; `true` once the row moved.
- *
- * @param form
- * @param path
- * @param from
- * @param to
- */
+/** Move the row at `from` to `to` (rows in between shift one position).
+ * Returns `false` — without touching the form — when either index is out
+ * of range or they are equal; `true` once the row moved. */
 export function moveValueByPath(
   form: Form,
   path: Path,
@@ -139,16 +93,9 @@ export function moveValueByPath(
   return true;
 }
 
-/**
- * Swap the rows at `from` and `to`. Returns `false` — without touching
+/** Swap the rows at `from` and `to`. Returns `false` — without touching
  * the form — when either index is out of range or they are equal; `true`
- * once the rows swapped.
- *
- * @param form
- * @param path
- * @param from
- * @param to
- */
+ * once the rows swapped. */
 export function swapValuesByPath(
   form: Form,
   path: Path,
@@ -166,13 +113,7 @@ export function swapValuesByPath(
   return true;
 }
 
-/**
- * Wholesale-replace the array at `path` (length may change) in one write.
- *
- * @param form
- * @param path
- * @param values the new array
- */
+/** Wholesale-replace the array at `path` (length may change) in one write. */
 export function replaceValuesByPath(
   form: Form,
   path: Path,
@@ -181,17 +122,9 @@ export function replaceValuesByPath(
   setValueByPath(form, path, [...values]);
 }
 
-/**
- * Overwrite one row of the array at `path` in place (a whole-array write,
+/** Overwrite one row of the array at `path` in place (a whole-array write,
  * so the row's position and every other row are untouched). Returns
- * `false` — without touching the form — when the index is out of range;
- * `true` once the value landed.
- *
- * @param form
- * @param path
- * @param index
- * @param value
- */
+ * `false` when the index is out of range; `true` once the value landed. */
 export function updateValueByPath(
   form: Form,
   path: Path,
@@ -206,14 +139,7 @@ export function updateValueByPath(
   return true;
 }
 
-/**
- * Append one value to the array at `name`. With a typed form the value is
- * checked against the array's element type (`ArrayItemOf<T, P>`).
- *
- * @param form
- * @param name
- * @param value
- */
+/** Append one value to the array at `name`. */
 export function appendValue<
   T extends Record<string, any> = any,
   P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
@@ -221,13 +147,7 @@ export function appendValue<
   appendValueByPath(form, createPath(name), value);
 }
 
-/**
- * Prepend one value to the array at `name`. See {@link appendValue}.
- *
- * @param form
- * @param name
- * @param value
- */
+/** Prepend one value to the array at `name`. See {@link appendValue}. */
 export function prependValue<
   T extends Record<string, any> = any,
   P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
@@ -235,15 +155,8 @@ export function prependValue<
   prependValueByPath(form, createPath(name), value);
 }
 
-/**
- * Insert one value at `index` in the array at `name`. Returns `false` on
- * an out-of-range index (see {@link insertValueByPath}).
- *
- * @param form
- * @param name
- * @param index
- * @param value
- */
+/** Insert one value at `index` in the array at `name`. Returns `false` on
+ * an out-of-range index (see {@link insertValueByPath}). */
 export function insertValue<
   T extends Record<string, any> = any,
   P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
@@ -251,15 +164,9 @@ export function insertValue<
   return insertValueByPath(form, createPath(name), index, value);
 }
 
-/**
- * Remove one or several rows from the array at `name` in a single write.
+/** Remove one or several rows from the array at `name` in a single write.
  * Returns the indices actually dropped, descending (see
- * {@link removeValueByPath}).
- *
- * @param form
- * @param name
- * @param indices a single index or a list of indices
- */
+ * {@link removeValueByPath}). */
 export function removeValue<
   T extends Record<string, any> = any,
   P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
@@ -267,15 +174,8 @@ export function removeValue<
   return removeValueByPath(form, createPath(name), indices);
 }
 
-/**
- * Move the row at `from` to `to` in the array at `name`. Returns `false`
- * on an out-of-range or no-op move (see {@link moveValueByPath}).
- *
- * @param form
- * @param name
- * @param from
- * @param to
- */
+/** Move the row at `from` to `to` in the array at `name`. Returns `false`
+ * on an out-of-range or no-op move (see {@link moveValueByPath}). */
 export function moveValue<
   T extends Record<string, any> = any,
   P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
@@ -283,15 +183,8 @@ export function moveValue<
   return moveValueByPath(form, createPath(name), from, to);
 }
 
-/**
- * Swap the rows at `from` and `to` in the array at `name`. Returns
- * `false` on an out-of-range or no-op swap (see {@link swapValuesByPath}).
- *
- * @param form
- * @param name
- * @param from
- * @param to
- */
+/** Swap the rows at `from` and `to` in the array at `name`. Returns
+ * `false` on an out-of-range or no-op swap (see {@link swapValuesByPath}). */
 export function swapValues<
   T extends Record<string, any> = any,
   P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
@@ -299,13 +192,7 @@ export function swapValues<
   return swapValuesByPath(form, createPath(name), from, to);
 }
 
-/**
- * Wholesale-replace the array at `name` (see {@link replaceValuesByPath}).
- *
- * @param form
- * @param name
- * @param values the new array
- */
+/** Wholesale-replace the array at `name` (see {@link replaceValuesByPath}). */
 export function replaceValues<
   T extends Record<string, any> = any,
   P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
@@ -313,15 +200,8 @@ export function replaceValues<
   replaceValuesByPath(form, createPath(name), values);
 }
 
-/**
- * Overwrite one row of the array at `name` in place. Returns `false` on
- * an out-of-range index (see {@link updateValueByPath}).
- *
- * @param form
- * @param name
- * @param index
- * @param value
- */
+/** Overwrite one row of the array at `name` in place. Returns `false` on
+ * an out-of-range index (see {@link updateValueByPath}). */
 export function updateValue<
   T extends Record<string, any> = any,
   P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments

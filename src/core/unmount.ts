@@ -1,18 +1,10 @@
-/**
- * Unmount-removal helpers: the snapshot/remove pair and its restore.
- *
- * React 19's StrictMode double-invokes effects on the initial mount
- * (setup → cleanup → setup), so a plain effect cleanup that calls
- * {@link removeFieldByPath} runs during the mount cycle and wipes a field
- * the very next setup expects to be there. `useUnmountRestore` in
- * src/hooks/stage.ts runs the teardown synchronously on every cleanup
- * (real unmounts stay exactly as before) and hands the restore to the
- * setup that follows — which exists only in the StrictMode cycle, so the
- * removal is undone before any render or subscriber can observe the gap.
- *
- * This module is internal: hooks import it directly, the facade never
- * re-exports it.
- */
+/** Unmount-removal helpers: the snapshot/remove pair and its restore.
+ * React 19's StrictMode double-invokes effects on the initial mount, so a
+ * plain cleanup that calls {@link removeFieldByPath} wipes a field the
+ * very next setup expects. `useUnmountRestore` runs the teardown on every
+ * cleanup and restores on the setup that follows (which exists only in the
+ * StrictMode cycle), undoing the removal before anything observes the gap.
+ * Internal: hooks import it directly, the facade never re-exports it. */
 import {emit} from '../emitter';
 import type {FieldError, Form} from '../form';
 import type {Path} from '../path';
@@ -32,10 +24,8 @@ export type RemovedFieldSnapshot = {
   errors: FieldError[] | undefined;
 };
 
-/**
- * Snapshot the field's state, then remove it — the teardown half of the
- * StrictMode-safe unmount removal.
- */
+/** Snapshot the field's state, then remove it — the teardown half of the
+ * StrictMode-safe unmount removal. */
 export function removeFieldForUnmount(
   form: Form,
   path: Path
@@ -51,16 +41,14 @@ export function removeFieldForUnmount(
   return snapshot;
 }
 
-/**
- * Undo {@link removeFieldForUnmount} — the restore half, run only by a
+/** Undo {@link removeFieldForUnmount} — the restore half, run only by a
  * setup that immediately follows the cleanup (the StrictMode remount).
  * Rebuilds the exact pre-removal state:
- * - a Map-backed value re-lands through {@link setValueByPath} with
+ * - a Map-backed value re-lands via {@link setValueByPath} with
  *   `shouldDirty: false` (the removal cleared committed baselines; the
- *   restored value becomes the baseline — identical dirty reads, since
- *   the StrictMode cycle happens at mount before any edit exists)
+ *   restored value becomes the baseline — identical dirty reads)
  * - a baseline-derived value (absent from the Map) only needs its
- *   tombstone undone — no write, so no entry materializes in the Map
+ *   tombstone undone — no write, so no entry materializes
  * - touched/errors re-add without re-validating
  */
 export function restoreRemovedField(

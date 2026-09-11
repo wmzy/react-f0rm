@@ -1,14 +1,6 @@
-/**
- * Stylesheet for the Devtools panel.
- *
- * Zero runtime dependencies by design: a single CSS string injected once
- * into <head> (idempotent across module reloads and multiple bundles).
- *
- * Aesthetic: instrument panel / terminal — near-black layers, monospace
- * stack, dense rows, hairline borders. Semantic colors only: error red,
- * success green, neutral gray, with one dim amber accent for the active
- * tab indicator and the collapsed badge.
- */
+/** Stylesheet for the Devtools panel — a single CSS string injected once
+ * into <head>. Aesthetic: instrument panel / terminal (near-black,
+ * monospace, hairline borders; semantic colors plus one amber accent). */
 
 const CSS = `
 .rf0-dt {
@@ -292,11 +284,8 @@ const CSS = `
 
 const STYLE_ID = 'react-f0rm-devtools-style';
 
-/**
- * Inject the panel stylesheet into <head>. Idempotent: repeated calls
- * (module reloads, HMR, multiple Devtools mounts) never duplicate the
- * <style> element. No-ops outside a DOM environment (SSR).
- */
+/** Inject the panel stylesheet into <head> — idempotent; no-ops outside a
+ * DOM environment (SSR). */
 export function injectDevtoolsStyles(): void {
   if (typeof document === 'undefined') return;
   if (document.getElementById(STYLE_ID)) return;

@@ -29,12 +29,9 @@ export const FormContext: Context<Form<any> | null> =
 export const FormProvider: Provider<Form<any> | null> = FormContext.Provider;
 
 /**
- * Read the form from the module-level {@link FormContext}. Pass the values
- * shape — `useFormContext<Values>()` — to get a fully typed `Form<Values>`
- * headless API; the `any` default keeps untyped call sites compiling.
- *
- * For multiple forms in one subtree use {@link createFormContext} instead.
- *
+ * Read the form from the module-level {@link FormContext}; pass the values
+ * shape (`useFormContext<Values>()`) for a typed `Form<Values>`. Use
+ * {@link createFormContext} for multiple forms in one subtree.
  * @throws when no `<FormProvider>` is mounted above the call site.
  */
 export function useFormContext<T extends Record<string, any> = any>(): Form<T> {
@@ -75,26 +72,18 @@ export type FormContextBundle<TValues extends Record<string, any> = any> = {
 
 /**
  * Create an isolated bundle of form-context bindings: its own React context
- * plus `useField` / `useFieldArray` / `useFieldArrayItem` /
- * `useFormContext` hooks that resolve their form from it.
- *
- * Why: the module-level {@link FormContext} works fine for a single form per
- * subtree, but nesting two forms (or reusing a component inside a different
- * form) makes them fight over one context. Calling this factory once per app
- * area — `const Ctx = createFormContext<Values>()` — fixes the value shape
- * (`Ctx.useField({name: 'user.name'})` gets its `name` constrained by
- * `FieldPath<Values>` and its `value` typed accordingly), so call sites stop
- * hand-writing generics, and each instance's Provider scopes a strictly
- * separate form. The bundle also carries its raw React context
- * (`Ctx.context`) so `<Form context={Ctx.context}>` can provide into it.
+ * plus `useField`/`useFieldArray`/`useFieldArrayItem`/`useFormContext`
+ * hooks resolving from it. One factory per app area scopes a separate
+ * form and fixes the value shape (`Ctx.useField` gets typed `name`/`value`);
+ * `Ctx.context` lets `<Form context={Ctx.context}>` provide into it.
  */
 export function createFormContext<
   TValues extends Record<string, any> = any
 >(): FormContextBundle<TValues> {
   const Context = createContext<Form<TValues> | null>(null);
 
-  // A `form`-prop wrapper instead of exposing Context.Provider directly:
-  // callers shouldn't have to know about the raw `value` prop shape.
+  // A `form`-prop wrapper, not a raw Context.Provider: callers shouldn't
+  // have to know the `value` prop shape.
   function FormProvider({
     form,
     children
@@ -115,10 +104,8 @@ export function createFormContext<
     TPath extends FieldPath<TValues> | PathSegments =
       FieldPath<TValues> | PathSegments
   >(
-    // The bare `{name: TPath}` member keeps `name` a direct inference site
-    // for TPath instead of routing it through the mapped Omit type.
-    // `form` is omitted on purpose — the form always comes from this
-    // factory's own Context.
+    // `{name: TPath}` keeps `name` a direct TPath inference site; `form` is
+    // omitted — the form always comes from this factory's own Context.
     options: {name: TPath} & Omit<UseFieldOptions<TValues, TPath>, 'form'>
   ): UseFieldResult<TValues, TPath> {
     return useFieldCore(options as UseFieldOptions<TValues, TPath>, Context);
@@ -143,9 +130,8 @@ export function createFormContext<
     return useFieldArrayItemCore(options as {name: Name; id: string}, Context);
   }
 
-  // The raw React context, for `<Form context={...}>`: the component keeps
-  // its submit machinery while providing into this instance's private
-  // context, so the bound hooks above resolve the form it manages.
+  // The raw context, for `<Form context={...}>`: the component keeps its
+  // submit machinery while providing into this instance's context.
   return {
     context: Context,
     FormProvider,

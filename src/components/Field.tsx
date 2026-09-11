@@ -1,122 +1,30 @@
 import * as React from 'react';
 import useField from '../hooks/field';
+import type {UseFieldOptions as HookFieldOptions} from '../hooks/field';
 import {errorIdFromKey} from '../errorId';
 export {fieldErrorId} from '../errorId';
 import {FormContext} from '../context';
-import type {Validator} from '../hooks/validate';
-import type {Form, ValidationMode} from '../form';
 import {rulesToConstraintAttrs} from '../rules';
 import type {FieldRules} from '../rules';
-import type {Path, PathSegments} from '../path';
+import type {PathSegments} from '../path';
 import type {StandardSchemaV1} from '../standardSchema';
 import {hasStandardProps, schemaToFieldValidator} from '../standardSchema';
-import type {FieldPath, PathValueOf} from '../types';
+import type {FieldPath} from '../types';
 import {eventToValueOrDefault} from '../util';
 
-/** Dev-only flag, replaced at build time (rollup.config.js `replace`);
- * defined for the test environment in vitest.config.ts. */
+/** Dev-only flag, replaced at build time (rollup); defined in vitest.config.ts. */
 declare const __DEV__: boolean;
 
-/**
- * Props shared by Field/Checkbox/Select. Generic so a typed form flows into
- * the `validate` callback: with `form` (a `Form<Values>`) and `name`
- * (a `FieldPath<Values>`) provided, `validate` receives the value at that
- * path — `PathValueOf<Values, P>` — instead of `any`. The defaults keep the
- * bare `<Field name="x" />` (context-resolved, untyped) call sites exactly
- * as permissive as before.
- */
+/** Props shared by Field/Checkbox/Select: the hook options minus the
+ * required `name` (the components type it optional) and `validateDeps`
+ * (the components do not forward it), plus the index signature that lets
+ * DOM props flow through. */
 type UseFieldOptions<
   TValues extends Record<string, any> = any,
   TPath extends FieldPath<TValues> | PathSegments =
     FieldPath<TValues> | PathSegments
-> = {
-  form?: Form<TValues>;
+> = Omit<HookFieldOptions<TValues, TPath>, 'name' | 'validateDeps'> & {
   name?: TPath;
-  initialValue?: any;
-  shouldUnregister?: boolean;
-  /**
-   * Field-level validator. The value argument is typed when the field is
-   * tied to a typed form (via the `form` prop); the return shape mirrors
-   * {@link Validator} — an error (string / FieldError / mixed array) or
-   * undefined when valid, possibly a Promise for async validation. The
-   * second argument carries the validation context (`meta.signal` aborts
-   * when the round is superseded).
-   */
-  validate?:
-    | ((
-        value: PathValueOf<TValues, TPath>,
-        meta: {form: Form; path: Path; signal: AbortSignal}
-      ) => ReturnType<Validator>)
-    | StandardSchemaV1<PathValueOf<TValues, TPath>>;
-  /**
-   * Declarative rules (required/min/max/minLength/maxLength/pattern,
-   * plus custom `validate` callbacks), compiled into a validator that
-   * runs before `validate`; failures land in the form's error state.
-   * The declarative subset is also rendered as native constraint
-   * attributes (`required`, `minLength`, `pattern`, …) onto the element
-   * for browser/AT hints — `:invalid` styling, screen-reader
-   * announcements — while the store pipeline stays the source of truth
-   * for messages (`renderError`/`aria-invalid` keep working; a user-passed
-   * `required`/`pattern`/… prop overrides the derived attribute). Passed
-   * through to useField — like validateDebounce it is never spread onto
-   * the DOM element.
-   */
-  rules?: FieldRules;
-  /**
-   * Milliseconds to debounce this field's validation kicks. Defaults to 0
-   * (validate immediately); only the last kick inside the window runs the
-   * validator, and `trigger` waits the window out. Passed through to
-   * useField/useValidate.
-   */
-  validateDebounce?: number;
-  /**
-   * Run this field's debounced validator even when its `required` gate
-   * failed (TanStack Form's `asyncAlways`): the gate's errors land
-   * immediately, the validator's own result lands alongside them
-   * per-source. Falls back to the form-level `createForm({asyncAlways})`.
-   * Passed through to useField.
-   */
-  asyncAlways?: boolean;
-  /**
-   * Validate this field once on mount (see {@link
-   * UseFieldOptions}' `validateOnMount`): overrides the form-level
-   * `createForm({validateOnMount})` / `<Form validateOnMount>` flag in
-   * either direction. Passed through to useField.
-   */
-  validateOnMount?: boolean;
-  /**
-   * Disable this field's control: OR-ed with the form-level flag
-   * (`createForm({disabled})` / `setDisabled`) — a field cannot opt out
-   * of a disabled form. Passed through to useField, like every option,
-   * never spread onto the DOM element from props.
-   */
-  disabled?: boolean;
-  /**
-   * Milliseconds to delay showing a newly appearing error (render layer
-   * only — `aria-invalid`/`renderError` wait out the window while the
-   * form's error state stays immediate for trigger/submit). An error
-   * that clears inside the window never shows; once visible, error
-   * changes apply immediately. Passed through to useField.
-   */
-  delayError?: number;
-  /**
-   * Field-level validation mode override: this field validates on its own
-   * schedule instead of the form's `mode` (other fields are unaffected);
-   * the form's `reValidateMode` still governs re-validation once the
-   * field has an error. Passed through to useField, never spread onto
-   * the DOM element.
-   */
-  mode?: ValidationMode;
-  /**
-   * Uncontrolled mode: render the element with `defaultValue` instead of
-   * `value` — typing re-renders nothing (the store still carries every
-   * write; errors/touched/disabled still re-render the field). The
-   * snapshot is pinned at mount; bulk operations (reset/setInitialValues)
-   * sync the DOM element directly without a render — RHF-register
-   * behavior (read live values with useValue/getValues). Passed through
-   * to useField, never spread onto the DOM element.
-   */
-  uncontrolled?: boolean;
   [key: string]: any;
 };
 
@@ -127,34 +35,10 @@ type FieldProps<
 > = UseFieldOptions<TValues, TPath> & {
   as?: React.ComponentType<any>;
   asProps?: Record<string, any>;
-  eventToValue?: (e: any) => any;
   valueToProps?: (value: any) => Record<string, any>;
-  /**
-   * Optional error renderer. When provided and the field has an error,
-   * Field renders `<span id={id} role="alert">{renderError(error, id)}</span>`
-   * next to the input. The input's aria-describedby points at that span's
-   * id (the same `fieldErrorId(name)` derivation) whenever the field has
-   * an error — with or without renderError — so custom error components
-   * that render the element themselves (using `fieldErrorId`) get the
-   * wiring for free.
-   */
+  /** Error renderer: renders `<span id role="alert">` beside the input;
+   * `aria-describedby` always points at that id (`fieldErrorId`). */
   renderError?: (error: string, id: string) => React.ReactNode;
-  /**
-   * Store `e.target.valueAsNumber` instead of the string value —
-   * react-hook-form's `register({valueAsNumber})` counterpart for number
-   * inputs (`<input type="number">`). `NaN` passes through as-is when the
-   * input cannot be parsed, matching RHF. An explicit `eventToValue`
-   * takes precedence.
-   */
-  valueAsNumber?: boolean;
-  /**
-   * Store `e.target.valueAsDate` instead of the string value — RHF's
-   * `register({valueAsDate})` counterpart for date/time inputs. `null`
-   * passes through when the input cannot be parsed. An explicit
-   * `eventToValue` takes precedence; combining with `valueAsNumber` is a
-   * TypeError.
-   */
-  valueAsDate?: boolean;
 };
 
 function setRef<T>(ref: React.Ref<T> | undefined, value: T | null) {
@@ -165,13 +49,8 @@ function setRef<T>(ref: React.Ref<T> | undefined, value: T | null) {
   }
 }
 
-/**
- * The aria wiring every bound field shares: `aria-invalid` when the field
- * has an error, and `aria-describedby` pointing at the error-message
- * element id derived from the field key — the same id `fieldErrorId(name)`
- * derives (the key is what useField returns as `name`). User-provided ids
- * survive, joined ahead of the error id.
- */
+/** Shared aria wiring: `aria-invalid` on error, `aria-describedby` pointed
+ * at the error-message id (`fieldErrorId`); user ids survive ahead. */
 function ariaProps(
   error: string | undefined,
   fieldKey: string,
@@ -195,13 +74,8 @@ function toConstraintAttrs(
   return rules ? rulesToConstraintAttrs(rules) : undefined;
 }
 
-/**
- * The callable shape of {@link Field}: `form` + `name` flow their generics
- * into `validate`'s value argument (`PathValueOf<TValues, TPath>`). A named
- * interface rather than an inline `as <TValues, ...>() => ...` signature —
- * same types, and the inline form trips no-use-before-define on the type
- * parameters.
- */
+/** Callable shape of {@link Field}; a named interface because the inline
+ * `as <TValues,...>() => ...` form trips no-use-before-define. */
 type FieldComponent = {
   <
     TValues extends Record<string, any> = any,
@@ -241,24 +115,18 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
   ) => {
     const innerRef = React.useRef<HTMLInputElement | null>(null);
     const [nativeInvalidCount, setNativeInvalidCount] = React.useState(0);
-    // The native gate below reads the form's shouldUseNativeValidation
-    // flag; raw useContext (not useFormContext) so a form-prop-only call
-    // site — no provider mounted — still works. Null only while useField
-    // is about to throw anyway.
+    // Raw useContext (not useFormContext) so a form-prop-only call site
+    // with no provider still works.
     const contextForm = React.useContext(FormContext);
     const resolvedForm = formProp ?? contextForm;
-    // A Standard Schema passed straight to `validate` becomes a validator
-    // here: the checkValidity gate below calls it as a function, which a
-    // schema object is not (useField applies the same wrap further down).
-    const validateOption = validate;
+    const isFile = props.type === 'file';
+    // The native gate calls validate as a function, so wrap a Standard Schema here.
     const validateWrapped =
-      validateOption && hasStandardProps(validateOption)
-        ? schemaToFieldValidator(validateOption as StandardSchemaV1<any, any>)
-        : (validateOption as ((value: any, meta: any) => any) | undefined);
-    // Only declared options go into the hook; DOM props stay in `props` and
-    // are spread onto the element below — useField no longer echoes unknown
-    // options back, so `as`/`valueToProps`/DOM props are destructured here
-    // instead of being fished out of its result.
+      validate && hasStandardProps(validate)
+        ? schemaToFieldValidator(validate as StandardSchemaV1<any, any>)
+        : (validate as ((value: any, meta: any) => any) | undefined);
+    // Declared options go to the hook; `as`/`valueToProps`/DOM props stay
+    // in `props` (useField no longer echoes unknown options).
     const {
       value,
       onChange,
@@ -279,14 +147,12 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
       disabled,
       asyncAlways,
       mode,
-      // File inputs cannot be value-controlled at all — force the
-      // uncontrolled path so no `value` prop ever reaches the element.
-      uncontrolled: uncontrolled || props.type === 'file',
+      // File inputs can't be value-controlled — force the uncontrolled path.
+      uncontrolled: uncontrolled || isFile,
       validate: (...params: [any, any]) => {
-        // The per-kick native gate: a control failing its own constraints
-        // skips the custom validator for this kick (RHF first-error
-        // semantics). `createForm({shouldUseNativeValidation: false})`
-        // disables it — custom validators become the only verdict.
+        // Per-kick native gate: a control failing its own constraints skips
+        // the custom validator (RHF first-error); shouldUseNativeValidation:
+        // false disables it.
         if (resolvedForm?.shouldUseNativeValidation !== false) {
           const el = innerRef.current;
           if (el && typeof el.checkValidity === 'function') {
@@ -297,17 +163,11 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
             }
           }
         }
-        // The gate below calls the validator as a function — a Standard
-        // Schema object must become a validator first (useField wraps it
-        // too; this wrapper sits outside that pipeline).
         if (validateWrapped) return validateWrapped(...params);
       }
     });
-    // One merged ref, three duties: the private innerRef (validate's
-    // setCustomValidity above), the focus channel (useField's focusRef —
-    // setFocus and a failed submit's shouldFocusError focus through it),
-    // and the user's forwarded ref. focusRef is identity-stable, so the
-    // deps behave exactly as the previous [ref] did.
+    // Merged ref: innerRef (native gate), focusRef (setFocus/shouldFocusError),
+    // and the forwarded ref.
     const mergedRef = React.useCallback(
       (node: HTMLInputElement | null) => {
         innerRef.current = node;
@@ -333,7 +193,6 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
       if (nativeInvalidCount > 0) innerRef.current?.reportValidity();
     }, [nativeInvalidCount]);
 
-    const isFile = props.type === 'file';
     if (__DEV__ && valueAsNumber && valueAsDate) {
       // eslint-disable-next-line no-console -- dev-only diagnostics
       console.warn(
@@ -346,8 +205,8 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
       valueAsDate
     });
 
-    // file inputs never receive a value/defaultValue prop (they cannot be
-    // value-controlled); uncontrolled renders defaultValue, controlled
+    // File inputs never receive a value/defaultValue prop (they cannot
+    // be value-controlled); uncontrolled renders defaultValue, controlled
     // renders value.
     const valueProps = valueToProps
       ? valueToProps(value)
@@ -357,17 +216,10 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
           ? {defaultValue: value}
           : {value};
 
-    // fieldKey is the field's path key (set by useField), e.g. '["a","0"]'.
+    // fieldKey is the JSON-stringified path key, e.g. '["a","0"]'.
     const errorId = errorIdFromKey(fieldKey);
-    // Declarative rules → native constraint attributes for browser/AT
-    // hints (:invalid styling, screen-reader announcements). Spread
-    // before `props` so a user-passed required/minLength/pattern always
-    // wins over the derived one. The store pipeline keeps owning
-    // messages: rules run ahead of the wrapper below, so their errors
-    // land in the form state (renderError/aria-invalid) even when the
-    // native checkValidity gate now also sees the derived attrs and
-    // skips the user's `validate` for that kick (RHF first-error
-    // semantics).
+    // Spread constraint attrs before `props` so a user-passed required/pattern
+    // wins; the store still owns error messages (renderError/aria-invalid).
     const constraintAttrs = toConstraintAttrs(rules);
 
     return (
@@ -400,10 +252,8 @@ type CheckboxProps<
     FieldPath<TValues> | PathSegments
 > = UseFieldOptions<TValues, TPath>;
 
-/**
- * Callable shape of {@link Checkbox}: the same form-typed `validate`
- * inference contract as {@link FieldComponent}.
- */
+/** Callable shape of {@link Checkbox}: same form-typed `validate` contract
+ * as {@link FieldComponent}. */
 type CheckboxComponent = {
   <
     TValues extends Record<string, any> = any,
@@ -483,12 +333,7 @@ type SelectProps<
   children?: React.ReactNode;
 };
 
-/**
- * Controlled <select>. Options are passed as children (<option> elements).
- * Single-select stores the selected option's value as a string, matching
- * Field's default event-to-value behavior; a multiple select stores the
- * values of all selected options as a string array.
- */
+/** Select value coercion: single → string, multiple → string[]. */
 function toSelectValue(
   multiple: boolean | undefined,
   value: any
@@ -497,10 +342,8 @@ function toSelectValue(
   return value ?? '';
 }
 
-/**
- * Callable shape of {@link Select}: the same form-typed `validate`
- * inference contract as {@link FieldComponent}.
- */
+/** Callable shape of {@link Select}: same form-typed `validate` contract
+ * as {@link FieldComponent}. */
 type SelectComponent = {
   <
     TValues extends Record<string, any> = any,

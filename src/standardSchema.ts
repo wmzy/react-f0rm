@@ -1,15 +1,8 @@
-/**
- * Standard Schema v1 (https://standardschema.dev) contract and adapters,
- * shared by the resolver entry (`react-f0rm/resolvers/standard-schema`)
- * and the core's direct-schema support (`createForm({validate: schema})`,
- * `useField({validate: schema})`).
- *
- * The types are a structural copy of the spec — zero runtime or type
- * dependencies on any schema library, so zod v3.24+/v4, valibot v1,
- * arktype and every other v1 implementer work without importing them.
- * This module is framework-free and imports nothing but
- * `core/errors`' VALIDATION_OUTCOME brand at runtime.
- */
+/** Standard Schema v1 (standardschema.dev) contract and adapters, shared
+ * by the resolver entry and direct-schema support. The types are a
+ * structural copy of the spec — no dependency on any schema library, so
+ * zod/valibot/arktype and every v1 implementer work without importing
+ * them. */
 import {FORM_ERROR, VALIDATION_OUTCOME} from './core/errors';
 import type {FieldError, ValidationOutcome, Validator} from './form';
 
@@ -25,11 +18,8 @@ export type StandardSchemaResult<Output = unknown> =
   | {readonly value: Output; readonly issues?: undefined}
   | {readonly issues: ReadonlyArray<StandardSchemaIssue>};
 
-/**
- * Structural Standard Schema v1. `types` is optional in the spec but
- * implemented by zod v3.24+/v4, valibot v1 and arktype — it is what
- * {@link InferSchemaValues} and `createForm`'s `TValues` inference read.
- */
+/** Structural Standard Schema v1. `types` (optional in the spec) is what
+ * {@link InferSchemaValues} and `createForm`'s inference read. */
 export type StandardSchemaV1<Input = unknown, Output = Input> = {
   readonly '~standard': {
     readonly version: 1;
@@ -44,34 +34,18 @@ export type StandardSchemaV1<Input = unknown, Output = Input> = {
   };
 };
 
-/**
- * The values type a Standard Schema produces: the `Output` of its
- * `~standard.types`, resolved structurally without importing the schema
- * library. Coercions/transforms land in the output — `z.coerce.date()`
- * infers `Date`, not `string`. `never` when the schema does not expose
- * `types` (pass an explicit `TValues` then).
- *
- * @example
- * ```ts
- * const schema = z.object({email: z.string().email()});
- * type Values = InferSchemaValues<typeof schema>; // {email: string}
- * const form = useForm<InferSchemaValues<typeof schema>>();
- * ```
- */
+/** The values type a Standard Schema produces: the `Output` of its
+ * `~standard.types` (coercions/transforms included). `never` when the
+ * schema lacks `types` — pass an explicit `TValues`. */
 export type InferSchemaValues<S> = S extends {
   readonly '~standard': {readonly types: {readonly output: infer Out}};
 }
   ? Out
   : never;
 
-/**
- * Does the value implement the Standard Schema v1 props? A plain boolean
- * predicate, not a type guard: narrowing a
- * `Fn | StandardSchemaV1<In, Out>` union through the guard fails either
- * way (a generics-narrowing guard is contravariance-blocked, an
- * intersection guard keeps both members) — call sites cast after the
- * check instead.
- */
+/** Implements Standard Schema v1 props? A boolean predicate, not a type
+ * guard — narrowing the union through a guard fails either way, so call
+ * sites cast after the check. */
 export function hasStandardProps(schema: any): boolean {
   return (
     !!schema &&
@@ -85,14 +59,9 @@ function toFieldError(issue: StandardSchemaIssue | undefined): FieldError {
   return {type: 'standard', message: issue?.message || 'Validation failed'};
 }
 
-/**
- * Field-level Standard Schema adapter: validate a single value with any
- * schema implementing '~standard' and map every issue to a FieldError, so
- * a value breaking several rules surfaces all of them (setErrorByPath
- * stores the array; error/errorObject readers still see the first).
- * The schema's parsed output is validation-only here — field validators
- * never rewrite the value; form-level schemas own coercion.
- */
+/** Field-level adapter: validate one value with a schema and map every
+ * issue to a FieldError (all issues surface; readers see the first). The
+ * parsed output is validation-only — field validators never rewrite. */
 export function schemaToFieldValidator(
   schema: StandardSchemaV1<any, any>
 ): Validator {
@@ -103,20 +72,11 @@ export function schemaToFieldValidator(
   };
 }
 
-/**
- * Form-level Standard Schema adapter: validate the whole values object and
- * return a ValidationOutcome. On failure `errors` carries the nested shape
- * Options.validate expects ({a: {b: FieldError[]}}; ensureValidate flattens
- * it back to per-field errors, keeping every issue of a path). Issues
- * without a path are form-level errors and land on the FORM_ERROR key.
- * On success `values` carries the schema's parsed output (coerce/transform
- * results included), which the form stores as its parsedValues baseline —
- * the layer getValues reads above initialValues.
- *
- * `createForm({validate: schema})` wraps the schema through this adapter
- * automatically (no resolver import needed), and `TValues` infers from
- * the schema's output type.
- */
+/** Form-level adapter: validate the whole values object and return a
+ * ValidationOutcome. Failure nests errors ({a: {b: FieldError[]}});
+ * pathless issues land on FORM_ERROR. Success exposes the schema's parsed
+ * output as the parsedValues baseline. `createForm({validate: schema})`
+ * wraps through this automatically. */
 export function schemaToFormValidator<T extends Record<string, any>>(
   schema: StandardSchemaV1<any, T>
 ): (values: T) => Promise<ValidationOutcome<T>> {
@@ -124,8 +84,7 @@ export function schemaToFormValidator<T extends Record<string, any>>(
     const result = await schema['~standard'].validate(values);
     const {issues} = result;
     if (!issues?.length) {
-      // Success: expose the schema's parsed output. `in` keeps the union
-      // narrowed (the success variant is the one carrying `value`).
+      // `in` keeps the union narrowed: the success variant carries `value`.
       return {
         [VALIDATION_OUTCOME]: true,
         values: 'value' in result ? result.value : undefined
@@ -137,10 +96,7 @@ export function schemaToFormValidator<T extends Record<string, any>>(
       if (segments.length) {
         assignAtPath(errors, segments, toFieldError(issue));
       } else {
-        // Pathless issues are all form-level: they accumulate on the
-        // FORM_ERROR slot instead of the first shadowing the rest. (A
-        // nested path literally named like FORM_ERROR would have made the
-        // slot a branch — skip then.)
+        // Pathless issues accumulate on FORM_ERROR instead of shadowing each other.
         const slot = (errors[FORM_ERROR] ??= []);
         if (Array.isArray(slot)) slot.push(toFieldError(issue));
       }
@@ -149,9 +105,7 @@ export function schemaToFormValidator<T extends Record<string, any>>(
   };
 }
 
-/**
- * Stringify an issue path: PropertyKey or {key} path segments → strings.
- */
+/** Stringify an issue path: PropertyKey or {key} segments → strings. */
 function toPathSegments(issue: StandardSchemaIssue): string[] {
   const path = issue.path || [];
   const segments: string[] = [];
@@ -165,11 +119,8 @@ function toPathSegments(issue: StandardSchemaIssue): string[] {
   return segments;
 }
 
-/**
- * Append the error at a nested path. Leaves are FieldError[] arrays, so
- * several issues on one field accumulate in issue order; an issue whose
- * path conflicts with an existing leaf or crosses it is skipped.
- */
+/** Append an error at a nested path: leaves are FieldError[] (issues
+ * accumulate in order); a path conflicting with a leaf is skipped. */
 function assignAtPath(
   root: Record<string, any>,
   segments: string[],
@@ -178,10 +129,8 @@ function assignAtPath(
   let node = root;
   for (let i = 0; i < segments.length - 1; i++) {
     const segment = segments[i];
-    let next = node[segment];
-    if (next === undefined) {
-      next = node[segment] = {};
-    }
+    if (node[segment] === undefined) node[segment] = {};
+    const next = node[segment];
     if (!isBranch(next)) return;
     node = next;
   }
@@ -191,33 +140,23 @@ function assignAtPath(
   else if (Array.isArray(slot)) slot.push(error);
 }
 
-/**
- * A branch is a plain container built while nesting; the leaves it carries
- * are the FieldError[] arrays assignAtPath appends.
- */
+/** A branch is a plain container built while nesting; its leaves are the FieldError[] arrays. */
 function isBranch(value: any): value is Record<string, any> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-/**
- * Drop empty branch objects left behind by conflicting issue paths.
- */
+/** Drop empty branch objects left behind by conflicting issue paths. */
 function pruneEmpty(
   node: Record<string, any>
 ): Record<string, any> | undefined {
-  let hasLeaf = false;
   const result: Record<string, any> = {};
-  Object.entries(node).forEach(([key, value]) => {
+  for (const [key, value] of Object.entries(node)) {
     if (isBranch(value)) {
       const pruned = pruneEmpty(value);
-      if (pruned) {
-        result[key] = pruned;
-        hasLeaf = true;
-      }
+      if (pruned) result[key] = pruned;
     } else {
       result[key] = value;
-      hasLeaf = true;
     }
-  });
-  return hasLeaf ? result : undefined;
+  }
+  return Object.keys(result).length ? result : undefined;
 }

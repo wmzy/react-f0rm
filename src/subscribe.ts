@@ -4,21 +4,15 @@ import createPath from './path';
 import type {Name, Path} from './path';
 import type {Form, FormEvents} from './form';
 
-/** Subscription granularity for {@link onPathEvent}.
- * - `'leaf'`: the subscriber reads exactly one key ({@link
- *   useValueByPath}); only writes at that key or above it can change what
- *   it reads.
- * - `'branch'`: the subscriber aggregates a whole subtree below a key
- *   ({@link useFieldArray}); descendant writes matter too. */
+/** Subscription granularity for {@link onPathEvent}: `'leaf'` reads one
+ * key (only writes at it or above matter); `'branch'` aggregates a whole
+ * subtree (descendant writes matter too). */
 export type WatchScope = 'leaf' | 'branch';
 
 /**
- * Is `key` a strict descendant of `ancestorKey`?
- *
- * Keys are JSON.stringify'd segment arrays ('["a","b"]'), so a descendant
- * key is the ancestor key minus its closing ']' followed by a ','
- * ('["a","b",'). The ',' separator is mandatory: a plain prefix match
- * would let the sibling '["tagsX"]' pass as a descendant of '["tags"]'.
+ * Is `key` a strict descendant? Keys are JSON-stringified segment arrays,
+ * so a descendant is the ancestor key minus its closing ']' plus ','; the
+ * mandatory ',' keeps sibling '["tagsX"]' from matching '["tags"]'.
  */
 function isDescendant(key: string, ancestorKey: string): boolean {
   return key.startsWith(`${ancestorKey.slice(0, -1)},`);
@@ -26,25 +20,10 @@ function isDescendant(key: string, ancestorKey: string): boolean {
 
 /**
  * Subscribe to `event`, invoking `cb` only when the emitted path is
- * relevant to `path`.
- *
- * Payload-less broadcasts (reset, setInitialValues) always invoke `cb` --
- * they are global syncs and the correctness fallback. (removeFieldByPath
- * emits with its path: its mutations are bounded to that key, so the path
- * matching below is exact.) When the emit carries a path P:
- * - `'leaf'`: P.key equals `path.key` or is one of its ancestors -- a leaf
- *   read falls back to ancestor values (getValueByPath), so ancestor
- *   writes must invalidate, while sibling and descendant writes cannot
- *   change what the leaf reads.
- * - `'branch'`: `'leaf'` semantics plus P.key being a descendant of
- *   `path.key` -- changed descendants re-aggregate the subtree.
- *
- * @param emitter emitter to subscribe to
- * @param event event name
- * @param path the watched path
- * @param scope which writes around `path` are relevant
- * @param cb listener, invoked with no arguments
- * @return unsubscribe function
+ * relevant. Payload-less broadcasts always invoke (global sync). With a
+ * path P: `'leaf'` fires on P == path or an ancestor (leaf reads fall back
+ * to ancestor values); `'branch'` also fires on descendants, which
+ * re-aggregate the subtree.
  */
 export function onPathEvent(
   emitter: EventEmitter<FormEvents>,
@@ -67,18 +46,9 @@ export function onPathEvent(
 }
 
 /**
- * Subscribe to `event`, invoking `cb` only when the emitted path's key is
- * exactly `key` (or the emit carries no payload -- a global sync).
- *
- * For state stored per exact key (errors, touched) no ancestor or
- * descendant matching is wanted: another field's key must not wake this
- * subscriber.
- *
- * @param emitter emitter to subscribe to
- * @param event event name
- * @param key exact path key to match
- * @param cb listener, invoked with no arguments
- * @return unsubscribe function
+ * Subscribe to `event`, invoking `cb` only on exact key matches (or a
+ * payload-less global sync). Exact-key state (errors, touched) wants no
+ * ancestor/descendant matching.
  */
 export function onKeyEvent(
   emitter: EventEmitter<FormEvents>,
@@ -91,15 +61,10 @@ export function onKeyEvent(
   });
 }
 
-/** Events {@link subscribe} can watch. `'errors'` and `'touched'` are
- * stored per exact key, so they match exact keys ({@link onKeyEvent});
- * `'change'`, `'validating'`, `'submitting'`, `'submitCount'`,
- * `'disabled'`, `'status'` and `'submitSuccessful'` go through
- * {@link onPathEvent}. `'validating'` carries paths (one per async
- * validator round) and matches by path exactly like `'change'`;
- * `'submitting'`, `'submitCount'`, `'disabled'`, `'status'` and
- * `'submitSuccessful'` are payload-less broadcasts, so `name` never
- * narrows them — every subscriber hears every emission. */
+/** Events {@link subscribe} can watch. `'errors'`/`'touched'` match exact
+ * keys ({@link onKeyEvent}); `'change'`/`'validating'` match by path
+ * ({@link onPathEvent}); the rest are payload-less broadcasts every
+ * subscriber hears. */
 export type SubscribeEvent =
   | 'change'
   | 'errors'
@@ -112,31 +77,23 @@ export type SubscribeEvent =
   | 'status'
   | 'loading';
 
-/** Options accepted by {@link subscribe}. */
 export type SubscribeOptions = {
-  /** Path (or list of paths) to watch. Omit to receive every emission of
-   * `event`, payload-less broadcasts included. A single segments path
-   * (`['tags', 0]`) and a list of names (`['tags', 'user.name']`) are told
-   * apart by the same rule `trigger` uses: only a segments path can hold
-   * a number. */
+  /** Path or paths to watch; omit to receive every emission. A segments
+   * path vs a name list is told apart by `trigger`'s rule: only segments
+   * hold a number. */
   name?: Name | Name[];
   /** Event to watch. Defaults to `'change'`. */
   event?: SubscribeEvent;
-  /** Which writes around `name` are relevant — `'leaf'` or `'branch'`.
-   * Only meaningful for the path-carrying events `'change'` and
-   * `'validating'`: `'errors'`/`'touched'` match exact keys and
-   * `'submitting'`/`'submitCount'`/`'disabled'`/`'status'`/
-   * `'submitSuccessful'` are payload-less. Defaults to `'branch'` — the
-   * intuitive linkage semantics, where subscribing to `'tags'` means the
-   * whole branch. */
+  /** Which writes around `name` are relevant. Only meaningful for the
+   * path-carrying events; defaults to `'branch'` (subscribing to `'tags'`
+   * means the whole branch). */
   scope?: WatchScope;
-  /** Invoked with no arguments after each matching emission. Read fresh
-   * state through the `get*` readers inside it. */
+  /** Invoked after each matching emission; read fresh state through the
+   * `get*` readers inside it. */
   callback: () => void;
 };
 
-/** Is `name` a list of names rather than one segments path? Numbers only
- * occur inside a segments path (`['a', 0]`), never as standalone names —
+/** A segments path can hold a number (`['a', 0]`), a name list never can —
  * the same disambiguation `trigger` applies to its name argument. */
 function isNameList(name: Name | Name[]): name is Name[] {
   return (
@@ -147,26 +104,10 @@ function isNameList(name: Name | Name[]): name is Name[] {
 
 /**
  * Subscribe to form events imperatively — the non-render counterpart of
- * the `use*` hooks: linkages and side effects (province changed → clear
- * city, autosave, analytics) run without mounting a watching component.
- *
- * Without `name`, `callback` fires on every `event` emission, payload-less
- * broadcasts (reset, setInitialValues) included. With `name`, matching
- * follows the event's shape: `'errors'`/`'touched'` match the exact key
- * ({@link onKeyEvent}) — another field's error never wakes this
- * subscriber — while `'change'`/`'validating'`/`'submitting'`/
- * `'submitCount'`/`'disabled'`/`'submitSuccessful'` go through
- * {@link onPathEvent}, so the default `'branch'` scope wakes a `'tags'`
- * subscriber when any `tags.*` descendant is written. `'validating'`
- * carries a path per validator round and narrows by path like
- * `'change'`; `'disabled'`/`'submitSuccessful'` (like `'submitting'`)
- * are payload-less broadcasts that every named subscriber receives. A
- * `name` array builds one subscription per path and the returned
- * function unsubscribes them all.
- *
- * @param form the form to watch
- * @param options event, name(s), scope and callback
- * @return unsubscribe function
+ * the `use*` hooks. Without `name`, `callback` fires on every emission;
+ * with `name`, matching follows the event's shape (`'errors'`/`'touched'`
+ * match exact keys, the rest match by path or broadcast). A name array
+ * builds one subscription per path.
  */
 export function subscribe(form: Form, options: SubscribeOptions): () => void {
   const {name, event = 'change', scope = 'branch', callback} = options;
@@ -184,64 +125,27 @@ export function subscribe(form: Form, options: SubscribeOptions): () => void {
 }
 
 /** The handle {@link watch} returns: a subscribe/getSnapshot pair any
- * reactive runtime can bind to — React's `useSyncExternalStore(subscribe,
- * getSnapshot)`, a Solid signal, a Vue ref, a Svelte store. The handle
- * keeps one internal listener alive from creation, so `getSnapshot()` is
- * always fresh (a read never returns a pre-write value even with no
- * consumer subscribed); `subscribe` adds a consumer callback and returns
- * its own unsubscribe. Call {@link WatchHandle.dispose} when the handle's
- * lifetime ends (adapter teardown, effect cleanup). */
+ * reactive runtime can bind to. One internal listener stays alive from
+ * creation, so `getSnapshot()` is always fresh; `dispose` ends it. */
 export type WatchHandle<T> = {
-  /** Read the current snapshot. Recomputed on every heard event (and on
-   * first read), cached in between — repeated reads share one reference
-   * until the watched state actually changes. */
+  /** Read the current snapshot, cached between events; repeated reads
+   * share one reference until state changes. */
   getSnapshot: () => T;
-  /** Register a change listener; returns the unsubscribe function. The
-   * listener fires only when the projection observably changed: with an
-   * `isEqual` comparator the getter is re-run per event and an equal
-   * verdict skips the callback entirely (TanStack's `useSelector`
-   * contract); without one, every heard event wakes the listener. */
+  /** Register a change listener; fires only when the projection changed.
+   * With `isEqual`, an equal verdict skips the callback; without one,
+   * every event wakes it. */
   subscribe: (invalidate: () => void) => () => void;
-  /** Remove the internal listener and every consumer callback. The handle
-   * is dead afterwards — reads return the last cached value and no
-   * callback ever fires again. */
+  /** Remove the internal listener and every consumer callback; the handle
+   * is dead afterwards. */
   dispose: () => void;
 };
 
 /**
  * Watch a projection of form state without React — the framework-free
- * counterpart of {@link useWatch} (same signature, same `isEqual`
- * bailout), exported as a named top-level function so it is tree-shaken
- * when unused. Headless adapters (Solid/Vue/Svelte bridges, imperative
- * autosave/analytics code) consume the returned
- * {@link WatchHandle}: read the current snapshot through `getSnapshot()`
- * and re-read (or re-render) whenever `subscribe`'s listener fires.
- *
- * The handle subscribes eagerly at creation, so `getSnapshot()` never
- * returns a stale value — including reads with no consumer subscribed.
- * `getter` and `isEqual` are captured when `watch` is called: call it at
- * setup time, like a subscription, and {@link WatchHandle.dispose} it at
- * teardown. Every emission of `event` wakes the listener (payload-less
- * broadcasts included) — the wide surface `useWatch` uses; path-scoped
- * variants are the `useValue`-family hooks on the React side and
- * {@link subscribe} with a `name` on this side.
- *
- * ```js
- * const handle = watch(form, 'change', () => getValue(form, 'email'));
- * // imperative consumer:
- * const off = handle.subscribe(() => save(handle.getSnapshot()));
- * // React adapter (useWatch is this composition):
- * useSyncExternalStore(handle.subscribe, handle.getSnapshot, handle.getSnapshot);
- * handle.dispose(); // teardown
- * ```
- *
- * @param form the form to watch
- * @param event the event whose emissions invalidate the snapshot
- * @param getter the projection — read fresh state through the `get*`
- *        readers inside it
- * @param isEqual optional equality check; an equal verdict after an event
- *        skips the listeners entirely (wide getters returning fresh
- *        references per call stop churning subscribers)
+ * {@link useWatch} (same `isEqual` bailout), tree-shaken when unused.
+ * Returns a {@link WatchHandle}: read `getSnapshot()`, re-read/re-render
+ * when `subscribe`'s listener fires. The handle subscribes eagerly, so
+ * reads are never stale; `getter`/`isEqual` are captured at creation.
  */
 export function watch<T>(
   form: Form,
@@ -254,8 +158,8 @@ export function watch<T>(
   const wake = () => {
     if (isEqual && cache.hasValue) {
       // Custom comparator: decide before waking consumers. Equal means
-      // observably unchanged — keep the cached reference and skip. Unequal
-      // stores the fresh snapshot so the next read needs no recompute.
+      // unchanged — keep the cache and skip; unequal stores the fresh
+      // snapshot so the next read needs no recompute.
       const next = getter();
       if (isEqual(cache.value as T, next)) return;
       cache.value = next;
@@ -266,8 +170,7 @@ export function watch<T>(
     consumers.forEach(invalidate => invalidate());
   };
   // Eager: the cache tracks the form from creation, so reads are fresh
-  // even before any consumer subscribes (and events emitted between
-  // watch() and subscribe() are never missed).
+  // even before any consumer subscribes.
   const off = on(form.emitter, event, wake);
   return {
     getSnapshot: () => {

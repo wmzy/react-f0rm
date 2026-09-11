@@ -1,16 +1,13 @@
 import {segmentsFromKey} from '../path';
 import type {Path} from '../path';
 import type {Form} from '../form';
-import {dirtyFieldsCaches, getDirtyBaseline} from './internals';
+import {dirtyFieldsCaches, getDirtyBaseline, getOrCreate} from './internals';
 
-/**
- * Is one field dirty — the per-field rule behind `getFieldState`'s
- * `isDirty` and {@link useIsFieldDirty}: a live value exists at the path
- * and differs from the field's effective baseline (committed
- * `shouldDirty: false` baselines included). A leaf under a wholesale
- * ancestor write reports clean — dirtiness belongs to the branch that
- * actually diverged, the same attribution {@link getDirtyFields} applies.
- */
+/** Is one field dirty — the per-field rule behind `getFieldState`'s
+ * `isDirty`: a live value exists at the path and differs from the field's
+ * effective baseline (committed `shouldDirty: false` baselines included).
+ * A leaf under a wholesale ancestor write reports clean — dirtiness
+ * belongs to the branch that actually diverged. */
 export function isFieldDirtyByPath(form: Form, path: Path): boolean {
   const live = form.values.get(path.key);
   return (
@@ -19,16 +16,13 @@ export function isFieldDirtyByPath(form: Form, path: Path): boolean {
   );
 }
 
-/**
- * Is dirty -- any value differs from initialValues
- * @param form
- */
+/** Is dirty — any value differs from initialValues. */
 export function isDirty(form: Form): boolean {
-  let dirty = false;
-  forEachDirtyField(form, () => {
-    dirty = true;
-  });
-  return dirty;
+  for (const [key, value] of form.values) {
+    const path = segmentsFromKey(key);
+    if (getDirtyBaseline(form, key, path) !== value) return true;
+  }
+  return false;
 }
 
 function forEachDirtyField(form: Form, fn: (dottedKey: string) => void): void {
@@ -57,23 +51,18 @@ function sameDirtyKeys(
   return aKeys.every(key => b[key] === true);
 }
 
-/**
- * Get dirty fields -- fields whose current value differs from initialValues.
- * Keys are user-facing dotted paths ('a.b', 'a.0.c'), unlike the JSON array
- * keys stored in the values Map.
- * @param form
- * @return object mapping each dirty field's dotted path to true; the same
- * reference is returned until the dirty set actually changes
- */
+/** Get dirty fields — fields whose current value differs from
+ * initialValues. Keys are user-facing dotted paths ('a.b', 'a.0.c'); the
+ * same reference is returned until the dirty set actually changes. */
 export function getDirtyFields(form: Form): Record<string, boolean> {
-  let cache = dirtyFieldsCaches.get(form);
-  if (!cache) {
-    cache = {version: 0, result: computeDirtyFields(form)};
-    dirtyFieldsCaches.set(form, cache);
-  } else if (cache.version > 0) {
+  const cache = getOrCreate(dirtyFieldsCaches, form, () => ({
+    version: 0,
+    result: computeDirtyFields(form)
+  }));
+  if (cache.version > 0) {
     const result = computeDirtyFields(form);
-    // Keep the old reference when the dirty set is unchanged (values always
-    // map to true) so subscribers see identity-stable snapshots.
+    // Keep the old reference when the dirty set is unchanged so subscribers
+    // see identity-stable snapshots.
     if (!sameDirtyKeys(cache.result, result)) cache.result = result;
     cache.version = 0;
   }

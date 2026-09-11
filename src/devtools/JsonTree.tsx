@@ -5,10 +5,8 @@ import type {ReactNode} from 'react';
 /** Nodes deeper than this start collapsed. */
 const DEFAULT_OPEN_DEPTH = 1;
 
-/**
- * Read-only inspection: the tree never mutates form state, so structural
- * sharing of the inspected value is safe and re-renders stay cheap.
- */
+/** Read-only inspection: never mutates form state, so structural sharing
+ * is safe and re-renders stay cheap. */
 type JsonNodeProps = {
   /** Property name (or array index) rendering before the value. */
   name?: string | number;
@@ -18,10 +16,7 @@ type JsonNodeProps = {
   depth?: number;
 };
 
-/**
- * One line of the tree: either a collapsible container row
- * (`▸ key: {`) or a leaf (`key: value`).
- */
+/** One tree line: a collapsible container row (`▸ key: {`) or a leaf (`key: value`). */
 function JsonNode({name, value, depth = 0}: JsonNodeProps): React.JSX.Element {
   const [open, setOpen] = useState(depth <= DEFAULT_OPEN_DEPTH);
 
