@@ -89,6 +89,17 @@ export type ValidatorRegistration = {
   asyncAlways?: () => boolean;
 };
 
+/** Normalize a validator verdict into its non-empty error list; null
+ * when the verdict is clean. Field-error coercion stays with
+ * setErrorByPath — this only answers "is there anything to land". */
+function asErrorList(
+  output: ValidatorOutput | undefined
+): (string | FieldError)[] | null {
+  if (output === undefined) return null;
+  const list = Array.isArray(output) ? output : [output];
+  return list.length ? list : null;
+}
+
 /**
  * Register a field validator's kick at `path` ({@link Form.validators})
  * — the framework-free machinery behind `useValidate`. Returns a
@@ -118,8 +129,6 @@ export function registerValidatorByPath(
   // form validate) are invisible here; clearing them on a pass is the
   // long-standing "validator owns its whole key" contract.
   let errorSource: 'sync' | 'validator' | null = null;
-  const hasErrors = (errors: any): boolean =>
-    errors !== undefined && !(Array.isArray(errors) && errors.length === 0);
   const mark = () => {
     if (marked) return;
     marked = true;
@@ -137,15 +146,15 @@ export function registerValidatorByPath(
   const runSync = (): boolean => {
     const sync = registration.sync();
     if (!sync) return false;
-    const errors = sync(getValueByPath(form, path), {form, path});
-    if (!hasErrors(errors)) {
+    const gate = asErrorList(sync(getValueByPath(form, path), {form, path}));
+    if (!gate) {
       if (!registration.validate() || errorSource === 'sync') {
         setErrorByPath(form, path, undefined);
         errorSource = null;
       }
       return false;
     }
-    setErrorByPath(form, path, errors);
+    setErrorByPath(form, path, gate);
     errorSource = 'sync';
     return true;
   };
@@ -155,10 +164,7 @@ export function registerValidatorByPath(
   const collectSyncErrors = (): (string | FieldError)[] | null => {
     const sync = registration.sync();
     if (!sync) return null;
-    const errors = sync(getValueByPath(form, path), {form, path});
-    if (errors === undefined) return null;
-    const list = Array.isArray(errors) ? errors : [errors];
-    return list.length ? list : null;
+    return asErrorList(sync(getValueByPath(form, path), {form, path}));
   };
 
   /** Land a validator result. asyncAlways merges the re-collected gate
@@ -167,23 +173,28 @@ export function registerValidatorByPath(
   const land = (result: ValidatorOutput | undefined): void => {
     if (registration.asyncAlways?.()) {
       const gate = collectSyncErrors();
-      const own =
-        result === undefined ? [] : Array.isArray(result) ? result : [result];
+      const own = asErrorList(result) ?? [];
       setErrorByPath(form, path, [...(gate ?? []), ...own]);
-      errorSource = hasErrors(result) ? 'validator' : gate ? 'sync' : null;
+      errorSource = own.length ? 'validator' : gate ? 'sync' : null;
     } else {
       setErrorByPath(form, path, result);
-      errorSource = hasErrors(result) ? 'validator' : null;
+      errorSource = asErrorList(result) ? 'validator' : null;
     }
   };
 
-  const supersede = () => {
+  /** Terminal cancel: drop the pending window and in-flight round,
+   * release the mark — one invariant, so no caller strands the mark (a
+   * stranded mark hangs settle-waiters). Starting a NEW round
+   * (runValidator) refreshes the lock inline instead: an unmark/remark
+   * there would expose a false settled state to waiters. */
+  const cancel = () => {
     if (timer !== null) {
       clearTimeout(timer);
       timer = null;
     }
     controller?.abort();
     lock = {};
+    unmark();
   };
 
   const runValidator = () => {
@@ -238,8 +249,7 @@ export function registerValidatorByPath(
    * the outcome — supersede pending work, release the mark. */
   const gateOwnsKick = (): boolean => {
     if (!(runSync() && !registration.asyncAlways?.())) return false;
-    supersede();
-    unmark();
+    cancel();
     return true;
   };
 
@@ -269,12 +279,7 @@ export function registerValidatorByPath(
   form.validators.set(path.key, kick);
   return () => {
     form.validators.delete(path.key);
-    if (timer !== null) {
-      clearTimeout(timer);
-      timer = null;
-    }
-    unmark();
-    controller?.abort();
+    cancel();
   };
 }
 

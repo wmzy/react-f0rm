@@ -1319,3 +1319,24 @@ describe('registerValidatorByPath asyncAlways', () => {
     }
   });
 });
+
+describe('registerValidatorByPath dispose', () => {
+  const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+
+  it('an abort-ignoring in-flight round never lands after dispose', async () => {
+    const form = createForm({initialValues: {name: 'x'}});
+    const path = createPath('name');
+    const ignoreSignal = () =>
+      new Promise(resolve => setTimeout(() => resolve('late error'), 0));
+    const dispose = registerValidatorByPath(form, path, {
+      validate: () => ignoreSignal,
+      debounce: () => 0,
+      sync: () => undefined
+    });
+    form.validators.get(path.key)();
+    dispose();
+    await flush();
+    expect(getFieldErrors(form, 'name')).toEqual([]);
+    expect(form.validating.has(path.key)).toBe(false);
+  });
+});
