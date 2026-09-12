@@ -39,7 +39,7 @@ export function setStatus(form: Form, value: any): void {
  * constraint-validation members we read, without coupling core to DOM
  * types. */
 type NativeFormElement = {
-  elements: ArrayLike<{
+  elements: Iterable<{
     name: string;
     checkValidity: () => boolean;
     validationMessage: string;
@@ -68,9 +68,7 @@ function nameToPath(name: string): string {
  * native validity is transient browser-owned DOM state. */
 function getNativeErrors(formEl: NativeFormElement): FieldErrorEntry[] {
   const errors: FieldErrorEntry[] = [];
-  const {elements} = formEl;
-  for (let i = 0; i < elements.length; i++) {
-    const el = elements[i];
+  for (const el of formEl.elements) {
     if (
       el.name &&
       typeof el.checkValidity === 'function' &&
@@ -86,13 +84,16 @@ function getNativeErrors(formEl: NativeFormElement): FieldErrorEntry[] {
   return errors;
 }
 
+/** A submit callback: the submitted values plus the triggering event. */
+type SubmitCallback<T> = (values: T, e?: any) => void | Promise<void>;
+
 /** Submit callbacks for {@link handleSubmit}. All optional — a missing
  * callback is simply skipped, matching the <Form> component semantics. */
 export type HandleSubmitOptions<T extends Record<string, any> = any> = {
   /** Called after validation passes, before onValidSubmit. */
-  onSubmit?: (values: T, e?: any) => void | Promise<void>;
+  onSubmit?: SubmitCallback<T>;
   /** Called after validation passes, following a successful onSubmit. */
-  onValidSubmit?: (values: T, e?: any) => void | Promise<void>;
+  onValidSubmit?: SubmitCallback<T>;
   /** Called when validation fails, with the flattened error entries and
    * current values. */
   onInvalidSubmit?: (errors: FieldErrorEntry[], values: T) => void;

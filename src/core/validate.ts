@@ -13,6 +13,7 @@ import type {
 } from '../form';
 import {
   VALIDATION_OUTCOME,
+  ValidatorOutput,
   getErrors,
   getFirstError,
   hasErrors,
@@ -31,16 +32,11 @@ import {
 
 type ErrorFootprint = Map<string, FieldError[]>;
 
-function getOrCreateValue<V>(
-  map: Map<string, V>,
-  key: string,
-  create: () => V
-): V {
-  if (map.has(key)) return map.get(key) as V;
-  const value = create();
-  map.set(key, value);
-  return value;
-}
+/** The meta bag passed to a validator's second argument. */
+type ValidatorMeta = {form: Form; path: Path};
+
+/** A pending debounce-window handle, Node or DOM flavored. */
+type Timer = ReturnType<typeof setTimeout> | null;
 
 export function unsetValidatingByPath(
   {emitter, validating}: Form,
@@ -65,13 +61,8 @@ export function setValidatingByPath(
  * two-argument signatures keep working. */
 export type Validator = (
   value: any,
-  meta: {form: Form; path: Path; signal: AbortSignal}
-) =>
-  | string
-  | FieldError
-  | (string | FieldError)[]
-  | undefined
-  | Promise<string | FieldError | (string | FieldError)[] | undefined>;
+  meta: ValidatorMeta & {signal: AbortSignal}
+) => ValidatorOutput | undefined | Promise<ValidatorOutput | undefined>;
 
 /** Synchronous pre-validator (declarative `required` gates in practice):
  * runs on every kick, never debounced; its errors land immediately and
@@ -79,8 +70,8 @@ export type Validator = (
  * `signal` — nothing to abort. */
 export type SyncValidator = (
   value: any,
-  meta: {form: Form; path: Path}
-) => string | FieldError | (string | FieldError)[] | undefined;
+  meta: ValidatorMeta
+) => ValidatorOutput | undefined;
 
 /** Live options for {@link registerValidatorByPath}: accessors, read at
  * every kick, so `useValidate` can swap them per render without
@@ -118,7 +109,7 @@ export function registerValidatorByPath(
   path: Path,
   registration: ValidatorRegistration
 ): () => void {
-  let timer: ReturnType<typeof setTimeout> | null = null;
+  let timer: Timer = null;
   let controller: AbortController | null = null;
   let marked = false;
   let lock: object | null = null;
@@ -173,9 +164,7 @@ export function registerValidatorByPath(
   /** Land a validator result. asyncAlways merges the re-collected gate
    * verdict ahead of the validator's errors; the default path keeps the
    * historical "validator owns the whole key" write. */
-  const land = (
-    result: string | FieldError | (string | FieldError)[] | undefined
-  ): void => {
+  const land = (result: ValidatorOutput | undefined): void => {
     if (registration.asyncAlways?.()) {
       const gate = collectSyncErrors();
       const own =
@@ -229,13 +218,11 @@ export function registerValidatorByPath(
     }
     mark();
     result
-      .then(
-        (error: string | FieldError | (string | FieldError)[] | undefined) => {
-          if (lock === round) {
-            land(error);
-          }
+      .then((error: ValidatorOutput | undefined) => {
+        if (lock === round) {
+          land(error);
         }
-      )
+      })
       // Rejection is how aborted validators give up (AbortError); the
       // owning round writes the outcome.
       .catch(() => {})
@@ -401,9 +388,7 @@ function setFormErrors(
     ];
     if (typeof value === 'string') {
       if (value) landLeafError(form, path, value, footprint);
-    } else if (Array.isArray(value)) {
-      landLeafError(form, path, value, footprint);
-    } else if (isFieldError(value)) {
+    } else if (Array.isArray(value) || isFieldError(value)) {
       landLeafError(form, path, value, footprint);
     } else if (value && typeof value === 'object') {
       setFormErrors(form, value, path, footprint);
@@ -428,7 +413,7 @@ function recordFootprint(
 function landLeafError(
   form: Form,
   path: PathSegments,
-  error: string | FieldError | (string | FieldError)[],
+  error: ValidatorOutput,
   footprint?: ErrorFootprint
 ): void {
   setError(form, path, error);
@@ -518,7 +503,7 @@ function fieldsSettled(form: Form): boolean {
 const SETTLED = Symbol('form-validate-settled');
 
 type FormValidateState = {
-  timer: ReturnType<typeof setTimeout> | null;
+  timer: Timer;
   controller: AbortController | null;
   /** Identity of the in-flight round; superseded outcomes (rejections
    * included) are dropped by comparing against it. */
@@ -598,14 +583,11 @@ function runFormValidateRound(
   if (!validate) return Promise.resolve();
   state.controller?.abort();
   const controller = (state.controller = new AbortController());
-  let outcome: Promise<any>;
-  try {
-    outcome = Promise.resolve(
-      validate(getValues(form), {form, signal: controller.signal})
-    );
-  } catch (error) {
-    outcome = Promise.reject(error);
-  }
+  // The Promise constructor turns a synchronous validator throw into a
+  // rejection — the try/catch comes for free.
+  const outcome = new Promise<any>(resolve =>
+    resolve(validate(getValues(form), {form, signal: controller.signal}))
+  );
   return outcome.then(
     result => {
       if (state.round === round) applyValidateResult(form, result);
@@ -706,7 +688,9 @@ export function registerFieldValidateDeps(
 ): void {
   const deps = getOrCreate(fieldValidateDeps, form, () => new Map());
   for (const depKey of depKeys) {
-    getOrCreateValue(deps, depKey, () => new Set()).add(key);
+    const dependents = deps.get(depKey) ?? new Set<string>();
+    dependents.add(key);
+    deps.set(depKey, dependents);
   }
 }
 

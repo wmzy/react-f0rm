@@ -67,6 +67,34 @@ function defaultMessage(type: RuleType, bound?: number): string {
   }
 }
 
+/** One bound rule: the FieldRules key, how `value` is measured
+ * (`undefined` skips — `NaN` numbers, unsized values), and which side of
+ * the bound fails. */
+type BoundCheck = readonly [
+  type: Exclude<RuleType, 'required' | 'pattern'>,
+  measure: (value: any) => number | undefined,
+  fails: (metric: number, bound: number) => boolean
+];
+
+function numericMetric(value: any): number | undefined {
+  const n = Number(value);
+  return Number.isNaN(n) ? undefined : n;
+}
+
+function sizedMetric(value: any): number | undefined {
+  return typeof value === 'string' || Array.isArray(value)
+    ? value.length
+    : undefined;
+}
+
+/** The bound checks in declaration order. */
+const BOUND_CHECKS: readonly BoundCheck[] = [
+  ['min', numericMetric, (metric, bound) => metric < bound],
+  ['max', numericMetric, (metric, bound) => metric > bound],
+  ['minLength', sizedMetric, (metric, bound) => metric < bound],
+  ['maxLength', sizedMetric, (metric, bound) => metric > bound]
+];
+
 /** Compile {@link FieldRules} into a {@link SyncValidator}: `required`
  * short-circuits the rest when it fails; other failures collect into one
  * FieldError[] in declaration order. Messages resolve to the rule's own
@@ -94,38 +122,13 @@ export function rulesToValidator(rules: FieldRules): SyncValidator {
     const errors: FieldError[] = [];
     const message = (type: Exclude<RuleType, 'required'>, bound: number) =>
       rules.messages?.[type] ?? defaultMessage(type, bound);
-    if (rules.min !== undefined) {
-      const n = Number(value);
-      if (!Number.isNaN(n) && n < rules.min) {
-        errors.push({type: 'min', message: message('min', rules.min)});
+    for (const [type, measure, fails] of BOUND_CHECKS) {
+      const bound = rules[type];
+      if (bound === undefined) continue;
+      const metric = measure(value);
+      if (metric !== undefined && fails(metric, bound)) {
+        errors.push({type, message: message(type, bound)});
       }
-    }
-    if (rules.max !== undefined) {
-      const n = Number(value);
-      if (!Number.isNaN(n) && n > rules.max) {
-        errors.push({type: 'max', message: message('max', rules.max)});
-      }
-    }
-    const isSized = typeof value === 'string' || Array.isArray(value);
-    if (
-      rules.minLength !== undefined &&
-      isSized &&
-      value.length < rules.minLength
-    ) {
-      errors.push({
-        type: 'minLength',
-        message: message('minLength', rules.minLength)
-      });
-    }
-    if (
-      rules.maxLength !== undefined &&
-      isSized &&
-      value.length > rules.maxLength
-    ) {
-      errors.push({
-        type: 'maxLength',
-        message: message('maxLength', rules.maxLength)
-      });
     }
     if (rules.pattern && !rules.pattern.value.test(value)) {
       errors.push({
@@ -165,10 +168,9 @@ export function rulesToValidator(rules: FieldRules): SyncValidator {
 export function rulesToConstraintAttrs(rules: FieldRules): Record<string, any> {
   const attrs: Record<string, any> = {};
   if (rules.required) attrs.required = true;
-  if (rules.min !== undefined) attrs.min = rules.min;
-  if (rules.max !== undefined) attrs.max = rules.max;
-  if (rules.minLength !== undefined) attrs.minLength = rules.minLength;
-  if (rules.maxLength !== undefined) attrs.maxLength = rules.maxLength;
+  for (const key of ['min', 'max', 'minLength', 'maxLength'] as const) {
+    if (rules[key] !== undefined) attrs[key] = rules[key];
+  }
   if (rules.pattern) attrs.pattern = rules.pattern.value.source;
   return attrs;
 }

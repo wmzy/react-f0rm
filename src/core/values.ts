@@ -1,7 +1,7 @@
 import {emit} from '../emitter';
 import createPath, {segmentsFromKey} from '../path';
 import type {Name, Path, PathSegments} from '../path';
-import type {FieldPath, PathValueOf} from '../types';
+import type {PathValueOf, AnyPath} from '../types';
 import {freezeValues, get, isEqual, setOwned, unset} from '../util';
 import type {FieldError, Form} from '../form';
 import {clearErrors, getErrorByPath, getFieldErrorsByPath} from './errors';
@@ -66,7 +66,7 @@ function computeValues(form: Form): any {
 /** Get a field's value. */
 export function getValue<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
+  P extends AnyPath<T> = AnyPath<T>
 >(form: Form<T>, name: P): PathValueOf<T, P> {
   return getValueByPath(form, createPath(name));
 }
@@ -119,7 +119,7 @@ export type SetFieldOptions = {
  * contract) — so a function can never itself be stored as a value. */
 export function setValue<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
+  P extends AnyPath<T> = AnyPath<T>
 >(
   form: Form<T>,
   name: P,
@@ -197,7 +197,7 @@ export type FieldState<T = any> = {
  * per-field rule as {@link getDirtyFields}. */
 export function getFieldState<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
+  P extends AnyPath<T> = AnyPath<T>
 >(form: Form<T>, name: P): FieldState<PathValueOf<T, P>> {
   const path = createPath(name);
   const {touched, validating} = form;
@@ -371,9 +371,9 @@ function collectValueLeaves(
 ): void {
   if (node !== null && typeof node === 'object') {
     if (Array.isArray(node)) {
-      for (let i = 0; i < node.length; i++) {
-        collectValueLeaves(node[i], [...segments, i], out);
-      }
+      node.forEach((item, i) =>
+        collectValueLeaves(item, [...segments, i], out)
+      );
       return;
     }
     const keys = Object.keys(node);
@@ -473,7 +473,7 @@ export type ResetFieldOptions = {
  * inverse of {@link removeFieldByPath}. Other fields are untouched. */
 export function resetField<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
+  P extends AnyPath<T> = AnyPath<T>
 >(form: Form<T>, name: P, options?: ResetFieldOptions): void {
   const path = createPath(name);
   const {emitter, values, touched, errors, deleted} = form;

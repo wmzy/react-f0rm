@@ -124,17 +124,14 @@ export function registerField(
       // The required gate splits off like useField's: synchronous, runs on
       // every kick; the remaining rules compose into the debounced
       // validator (debounce fixed at 0 — immediate).
-      const sync =
-        rules.required !== undefined
-          ? rulesToValidator({required: rules.required})
-          : undefined;
-      const rest: typeof rules =
-        rules.required !== undefined ? {...rules, required: undefined} : rules;
+      const {required, ...rest} = rules;
+      const requiredGate =
+        required !== undefined ? rulesToValidator({required}) : undefined;
       disposeValidator = registerValidatorByPath(form, path, {
         validate: () =>
           hasRuleConstraints(rest) ? rulesToValidator(rest) : undefined,
         debounce: () => 0,
-        sync: () => sync
+        sync: () => requiredGate
       } as ValidatorRegistration);
     }
     offFocus = on(

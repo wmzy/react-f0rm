@@ -2,6 +2,7 @@
  * path strings, `PathValue<T, P>` resolves the leaf type. Grammar mirrors
  * `normalizePath`: numeric segments are bracket-only ('a[0]', never
  * 'a.0' — dotted numerics throw at runtime). */
+import type {PathSegments} from './path';
 
 /** `true` only for the `any` type (`0 extends 1 & any`). */
 type IsAny<T> = 0 extends 1 & T ? true : false;
@@ -32,21 +33,19 @@ type Continue<T, D extends number> = [D] extends [never]
   ? never
   : IsAny<T> extends true
     ? string
-    : T extends OpaqueLeaf
+    : T extends OpaqueLeaf | Primitive | Function
       ? never
-      : T extends Primitive | Function
-        ? never
-        : T extends readonly (infer U)[]
-          ? `[${number}]` | `[${number}]${Continue<U, Prev[D]>}`
-          : {
-              [K in Extract<keyof T, string>]:
-                | (K extends `${number}` ? never : `.${K}`)
-                | `[${K}]`
-                | (K extends `${number}`
-                    ? never
-                    : `.${K}${Continue<T[K], Prev[D]>}`)
-                | `[${K}]${Continue<T[K], Prev[D]>}`;
-            }[Extract<keyof T, string>];
+      : T extends readonly (infer U)[]
+        ? `[${number}]` | `[${number}]${Continue<U, Prev[D]>}`
+        : {
+            [K in Extract<keyof T, string>]:
+              | (K extends `${number}` ? never : `.${K}`)
+              | `[${K}]`
+              | (K extends `${number}`
+                  ? never
+                  : `.${K}${Continue<T[K], Prev[D]>}`)
+              | `[${K}]${Continue<T[K], Prev[D]>}`;
+          }[Extract<keyof T, string>];
 
 /** Every valid field path string for a values shape `T`. Capped at 10
  * segments ({@link MaxDepth}); beyond the cap call sites fall back to
@@ -55,17 +54,19 @@ type Continue<T, D extends number> = [D] extends [never]
 export type FieldPath<T> =
   IsAny<T> extends true
     ? string
-    : T extends OpaqueLeaf
+    : T extends OpaqueLeaf | Primitive | Function
       ? never
-      : T extends Primitive | Function
-        ? never
-        : T extends readonly (infer U)[]
-          ? `[${number}]` | `[${number}]${Continue<U, MaxDepth>}`
-          : {
-              [K in Extract<keyof T, string>]: K extends `${number}`
-                ? never
-                : K | `${K}${Continue<T[K], MaxDepth>}`;
-            }[Extract<keyof T, string>];
+      : T extends readonly (infer U)[]
+        ? `[${number}]` | `[${number}]${Continue<U, MaxDepth>}`
+        : {
+            [K in Extract<keyof T, string>]: K extends `${number}`
+              ? never
+              : K | `${K}${Continue<T[K], MaxDepth>}`;
+          }[Extract<keyof T, string>];
+
+/** Field address as the hooks and components accept it: a typed path
+ * string or a raw segments array ({@link PathSegments}). */
+export type AnyPath<T> = FieldPath<T> | PathSegments;
 
 /** Resolve `T[K]` for one bare segment: array index -> element, object key -> value. */
 type Lookup<T, K extends string> = K extends `${number}`

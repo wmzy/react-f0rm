@@ -34,11 +34,33 @@ import type {
   FormEvents,
   Options
 } from '../form';
-import type {FieldPath, PathValueOf} from '../types';
+import type {AnyPath, PathValueOf} from '../types';
 import createPath from '../path';
-import type {PathSegments, Path} from '../path';
+import type {Path} from '../path';
 import {get, isEqual, isPromise} from '../util';
 import {pathFromKey} from './path';
+
+/** Seed bookkeeping for {@link useForm}'s baseline sync effects: what
+ * source object was last seeded (`done` false = nothing seeded yet). */
+type SeedTracker = {done: boolean; source: any};
+
+/** Seed `source` unless it is the same object — or structurally equal to —
+ * the one the previous seed used: reference-first for memoized callers,
+ * structural fallback for inline option literals, so only genuinely new
+ * content re-seeds (re-seeding clears the values Map, reverting committed
+ * edits). Shared by useForm's initialValues and controlled-values
+ * effects. */
+function seedIfChanged(form: Form, seeded: SeedTracker, source: any): void {
+  if (
+    seeded.done &&
+    (seeded.source === source || isEqual(seeded.source, source))
+  ) {
+    return;
+  }
+  seeded.done = true;
+  seeded.source = source;
+  setInitialValues(form, source);
+}
 
 /**
  * Create a form instance bound to this component.
@@ -70,14 +92,12 @@ export default function useForm<T extends Record<string, any> = any>(
   const initialValues = options && options.initialValues;
   const values = options && options.values;
 
-  // Track which initialValues source object the form was last seeded from.
-  // Inline options create a fresh object every render, and re-seeding
-  // clears the values Map (setInitialValues semantics), which would revert
-  // every committed edit right after each re-render -- on the client and
-  // after hydration alike. Memoized callers are covered by the reference
-  // check; inline literals by the structural one, so only genuinely new
-  // content re-seeds.
-  const seededRef = useRef<{done: boolean; source: any} | null>(null);
+  // Track which initialValues source object the form was last seeded from
+  // (the same-source guard lives in seedIfChanged): inline options create
+  // a fresh object every render, and re-seeding clears the values Map
+  // (setInitialValues semantics), which would revert every committed edit
+  // right after each re-render -- on the client and after hydration alike.
+  const seededRef = useRef<SeedTracker | null>(null);
   if (seededRef.current === null)
     seededRef.current = {done: false, source: undefined};
 
@@ -93,43 +113,23 @@ export default function useForm<T extends Record<string, any> = any>(
     if (typeof initialValues === 'function' || isPromise(initialValues)) {
       return;
     }
-    const seeded = seededRef.current!;
-    if (
-      seeded.done &&
-      (seeded.source === initialValues || isEqual(seeded.source, initialValues))
-    ) {
-      return;
-    }
-    seeded.done = true;
-    seeded.source = initialValues;
-    setInitialValues(form, initialValues);
+    seedIfChanged(form, seededRef.current!, initialValues);
   }, [form, initialValues]);
 
   // Controlled values: re-sync only when the incoming object genuinely
-  // differs from what the form was last seeded from. The reference check
-  // is the fast path (memoized callers); inline literals get a fresh
-  // object identity every render, so without the structural comparison
-  // each re-render would clear the values Map (setInitialValues
-  // semantics) and revert the user's uncommitted edits -- same hazard the
-  // initialValues seed guard above protects against. Master-detail
-  // semantics still apply whenever the content actually changed.
-  const controlledRef = useRef<{done: boolean; source: any} | null>(null);
-  if (controlledRef.current === null) {
+  // differs from what the form was last seeded from (seedIfChanged's
+  // reference + structural check) — otherwise each re-render's fresh
+  // inline literal would clear the values Map and revert the user's
+  // uncommitted edits, the same hazard the initialValues guard above
+  // protects against. Master-detail semantics still apply whenever the
+  // content actually changed.
+  const controlledRef = useRef<SeedTracker | null>(null);
+  if (controlledRef.current === null)
     controlledRef.current = {done: false, source: undefined};
-  }
 
   useEffect(() => {
     if (values === undefined) return;
-    const seeded = controlledRef.current!;
-    if (
-      seeded.done &&
-      (seeded.source === values || isEqual(seeded.source, values))
-    ) {
-      return;
-    }
-    seeded.done = true;
-    seeded.source = values;
-    setInitialValues(form, values);
+    seedIfChanged(form, controlledRef.current!, values);
   }, [form, values]);
 
   // Mount validation: the form-level `validate` runs once after mount when
@@ -160,6 +160,10 @@ export default function useForm<T extends Record<string, any> = any>(
 /** Per-hook snapshot cache for {@link useWatch}. */
 type WatchCache<T> = {hasValue: boolean; value?: T};
 
+/** Snapshot equality comparator — the `isEqual` contract {@link
+ * useWatchCore} documents. */
+type SnapshotComparator<T> = (prev: T, next: T) => boolean;
+
 /**
  * Shared core of {@link useWatch} and the path-scoped hooks: a
  * useSyncExternalStore binding over a custom event subscription.
@@ -179,7 +183,7 @@ type WatchCache<T> = {hasValue: boolean; value?: T};
 export function useWatchCore<T>(
   subscribeFactory: (invalidate: () => void) => () => void,
   getter: () => T,
-  isEqual?: (prev: T, next: T) => boolean
+  isEqual?: SnapshotComparator<T>
 ): T {
   // useSyncExternalStore requires getSnapshot to return the same reference
   // until the store actually changed, otherwise React warns and loops.
@@ -280,7 +284,7 @@ export function useWatch<T>(
   formOrEmitter: Form | EventEmitter<FormEvents>,
   event: SubscribeEvent,
   getter: () => T,
-  isEqual?: (prev: T, next: T) => boolean
+  isEqual?: SnapshotComparator<T>
 ): T {
   // A form carries an `emitter` field the opaque emitter instance never
   // has, so the duck test cleanly discriminates the two accepted shapes.
@@ -296,7 +300,7 @@ export function useWatch<T>(
 /** Options for {@link useValue} and {@link useValueByPath}. */
 export type UseValueOptions<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
+  P extends AnyPath<T> = AnyPath<T>
 > = {
   /** Value to return while the field reads undefined — react-hook-form's
    * `useWatch` `defaultValue`: an untouched, never-seeded field reads
@@ -316,7 +320,7 @@ export type UseValueOptions<
  */
 export function useValue<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
+  P extends AnyPath<T> = AnyPath<T>
 >(form: Form<T>, name: P, options?: UseValueOptions<T, P>): PathValueOf<T, P> {
   return useValueByPath(form, createPath(name), options);
 }
@@ -379,7 +383,7 @@ export function useValues<T extends Record<string, any> = any>(
  */
 export function useTouched<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
+  P extends AnyPath<T> = AnyPath<T>
 >(form: Form<T>, name: P): boolean {
   return useTouchedByPath(form, createPath(name));
 }
@@ -423,7 +427,7 @@ export function useTouchedByPath(form: Form, path: Path): boolean {
  */
 export function useError<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
+  P extends AnyPath<T> = AnyPath<T>
 >(form: Form<T>, name: P): string | undefined {
   return useErrorByPath(form, createPath(name))?.message;
 }
@@ -451,7 +455,7 @@ export function useErrorByPath(form: Form, path: Path): FieldError | undefined {
  */
 export function useFieldErrors<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
+  P extends AnyPath<T> = AnyPath<T>
 >(form: Form<T>, name: P): FieldError[] {
   return useFieldErrorsByPath(form, createPath(name));
 }
@@ -491,7 +495,7 @@ export function useIsDirty(form: Form): boolean {
  */
 export function useIsFieldDirty<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
+  P extends AnyPath<T> = AnyPath<T>
 >(form: Form<T>, name: P): boolean {
   return useIsFieldDirtyByPath(form, createPath(name));
 }
@@ -609,13 +613,14 @@ function subscribeFormStateEvents(
 function getFormState<T extends Record<string, any>>(
   form: Form<T>
 ): FormState<T> {
+  const anyErrors = hasErrors(form);
   return {
     isDirty: isDirty(form),
     dirtyFields: getDirtyFields(form),
     isTouched: form.touched.size > 0,
     touchedFields: getTouchedFields(form),
-    hasErrors: hasErrors(form),
-    isValid: !hasErrors(form),
+    hasErrors: anyErrors,
+    isValid: !anyErrors,
     errors: getErrorsRecord(form),
     isSubmitting: form.isSubmitting,
     isSubmitted: form.isSubmitted,
@@ -691,7 +696,7 @@ export function useFormState<T extends Record<string, any> = any>(
 export function useStore<T>(
   form: Form,
   selector: () => T,
-  isEqual?: (prev: T, next: T) => boolean
+  isEqual?: SnapshotComparator<T>
 ): T {
   const subscribeFactory = useCallback(
     (invalidate: () => void) =>

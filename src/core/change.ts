@@ -1,6 +1,6 @@
 import createPath from '../path';
-import type {Path, PathSegments} from '../path';
-import type {FieldPath, PathValueOf} from '../types';
+import type {Path} from '../path';
+import type {PathValueOf, AnyPath} from '../types';
 import type {Form, FormValidateMode, ValidationMode} from '../form';
 import {setValueByPath} from './values';
 import type {SetFieldOptions} from './values';
@@ -32,7 +32,7 @@ const fieldModes = new WeakMap<
  * kicks the validator unconditionally. */
 export function changeValue<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
+  P extends AnyPath<T> = AnyPath<T>
 >(
   form: Form<T>,
   name: P,
@@ -97,22 +97,40 @@ function fireFormValidate(form: Form, cadence: FormValidateMode): void {
   runFormValidate(form).catch(() => {});
 }
 
-/** The user-change validation gate shared by a mounted field's onChange
- * and {@link changeValueByPath}: kick the field's validator, the
- * form-level `validateDeps` re-run and field-level dependents under the
- * mode/reValidateMode matrix. The live (stored) error view arms the
- * reValidate kick — an error behind a delayError window still counts. */
-function runUserChangeGate(form: Form, path: Path, mode: ValidationMode): void {
+/** Kick the path's field validator under the mode/reValidateMode gate.
+ * The live (stored) error view arms the reValidate kick — an error
+ * behind a delayError window still counts. */
+function kickFieldValidator(
+  form: Form,
+  path: Path,
+  mode: ValidationMode,
+  cadence: 'onChange' | 'onBlur',
+  touched: boolean
+): void {
   if (
     shouldKick(
       mode,
-      'onChange',
-      hasTouchedByPath(form, path),
+      cadence,
+      touched,
       () => getFieldErrorsByPath(form, path).length > 0,
       form.reValidateMode
     )
   )
     form.validators.get(path.key)?.();
+}
+
+/** The user-change validation gate shared by a mounted field's onChange
+ * and {@link changeValueByPath}: kick the field's validator, the
+ * form-level `validateDeps` re-run and field-level dependents under the
+ * mode/reValidateMode matrix. */
+function runUserChangeGate(form: Form, path: Path, mode: ValidationMode): void {
+  kickFieldValidator(
+    form,
+    path,
+    mode,
+    'onChange',
+    hasTouchedByPath(form, path)
+  );
   // Form-level validate deps: a user change to a listed field re-runs the
   // form-level validate under the same gate. No-op without validateDeps.
   revalidateFormOnChange(form, path, mode);
@@ -142,17 +160,7 @@ export function userBlur(form: Form, path: Path): void {
   setTouchedByPath(form, path);
   const entry = fieldModes.get(form)?.get(path.key);
   if (!entry) return;
-  const mode = entry.mode ?? form.mode;
-  if (
-    shouldKick(
-      mode,
-      'onBlur',
-      true,
-      () => getFieldErrorsByPath(form, path).length > 0,
-      form.reValidateMode
-    )
-  )
-    form.validators.get(path.key)?.();
+  kickFieldValidator(form, path, entry.mode ?? form.mode, 'onBlur', true);
   // Form-level validate cadence (Options.validateMode): 'onBlur' re-runs
   // the form-level validate on every user blur.
   fireFormValidate(form, 'onBlur');

@@ -1,7 +1,7 @@
 import createPath from '../path';
-import type {Path, PathSegments} from '../path';
+import type {Path} from '../path';
 import type {Form} from '../form';
-import type {ArrayItemOf, FieldPath} from '../types';
+import type {ArrayItemOf, AnyPath} from '../types';
 import {getValueByPath, setValueByPath} from './values';
 
 /** Framework-free array operations: the headless counterparts of
@@ -142,7 +142,7 @@ export function updateValueByPath(
 /** Append one value to the array at `name`. */
 export function appendValue<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
+  P extends AnyPath<T> = AnyPath<T>
 >(form: Form<T>, name: P, value: ArrayItemOf<T, P>): void {
   appendValueByPath(form, createPath(name), value);
 }
@@ -150,7 +150,7 @@ export function appendValue<
 /** Prepend one value to the array at `name`. See {@link appendValue}. */
 export function prependValue<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
+  P extends AnyPath<T> = AnyPath<T>
 >(form: Form<T>, name: P, value: ArrayItemOf<T, P>): void {
   prependValueByPath(form, createPath(name), value);
 }
@@ -159,7 +159,7 @@ export function prependValue<
  * an out-of-range index (see {@link insertValueByPath}). */
 export function insertValue<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
+  P extends AnyPath<T> = AnyPath<T>
 >(form: Form<T>, name: P, index: number, value: ArrayItemOf<T, P>): boolean {
   return insertValueByPath(form, createPath(name), index, value);
 }
@@ -169,7 +169,7 @@ export function insertValue<
  * {@link removeValueByPath}). */
 export function removeValue<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
+  P extends AnyPath<T> = AnyPath<T>
 >(form: Form<T>, name: P, indices: number | number[]): number[] {
   return removeValueByPath(form, createPath(name), indices);
 }
@@ -178,7 +178,7 @@ export function removeValue<
  * on an out-of-range or no-op move (see {@link moveValueByPath}). */
 export function moveValue<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
+  P extends AnyPath<T> = AnyPath<T>
 >(form: Form<T>, name: P, from: number, to: number): boolean {
   return moveValueByPath(form, createPath(name), from, to);
 }
@@ -187,7 +187,7 @@ export function moveValue<
  * `false` on an out-of-range or no-op swap (see {@link swapValuesByPath}). */
 export function swapValues<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
+  P extends AnyPath<T> = AnyPath<T>
 >(form: Form<T>, name: P, from: number, to: number): boolean {
   return swapValuesByPath(form, createPath(name), from, to);
 }
@@ -195,7 +195,7 @@ export function swapValues<
 /** Wholesale-replace the array at `name` (see {@link replaceValuesByPath}). */
 export function replaceValues<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
+  P extends AnyPath<T> = AnyPath<T>
 >(form: Form<T>, name: P, values: ArrayItemOf<T, P>[]): void {
   replaceValuesByPath(form, createPath(name), values);
 }
@@ -204,7 +204,7 @@ export function replaceValues<
  * an out-of-range index (see {@link updateValueByPath}). */
 export function updateValue<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
+  P extends AnyPath<T> = AnyPath<T>
 >(form: Form<T>, name: P, index: number, value: ArrayItemOf<T, P>): boolean {
   return updateValueByPath(form, createPath(name), index, value);
 }

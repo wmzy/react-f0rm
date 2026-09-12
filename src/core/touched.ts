@@ -1,7 +1,7 @@
 import {emit} from '../emitter';
 import createPath, {segmentsFromKey} from '../path';
-import type {Name, Path, PathSegments} from '../path';
-import type {FieldPath} from '../types';
+import type {Name, Path} from '../path';
+import type {AnyPath} from '../types';
 import type {Form} from '../form';
 
 /** Set a field's touched state. */
@@ -21,7 +21,7 @@ export function setTouchedByPath({emitter, touched}: Form, path: Path): void {
 /** Check if a field has been touched. */
 export function hasTouched<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
+  P extends AnyPath<T> = AnyPath<T>
 >(form: Form<T>, name: P): boolean {
   return hasTouchedByPath(form, createPath(name));
 }

@@ -1,8 +1,7 @@
 import {useCallback, useEffect, useRef} from 'react';
 import {getValueByPath, userChangeByPath} from '../form';
 import type {Form} from '../form';
-import type {PathSegments} from '../path';
-import type {FieldPath, PathValueOf} from '../types';
+import type {AnyPath, PathValueOf} from '../types';
 import {isPromise} from '../util';
 import {onPathEvent} from '../subscribe';
 import {useWatchCore} from './form';
@@ -11,8 +10,7 @@ import useStage from './stage';
 
 export type UseTransformOptions<
   TValues extends Record<string, any> = any,
-  TPath extends FieldPath<TValues> | PathSegments =
-    FieldPath<TValues> | PathSegments,
+  TPath extends AnyPath<TValues> = AnyPath<TValues>,
   TDisplay = PathValueOf<TValues, TPath>
 > = {
   /** Map the stored (raw) value to the display value (read direction);
@@ -43,8 +41,7 @@ export type UseTransformOptions<
  */
 export default function useTransform<
   TValues extends Record<string, any> = any,
-  TPath extends FieldPath<TValues> | PathSegments =
-    FieldPath<TValues> | PathSegments,
+  TPath extends AnyPath<TValues> = AnyPath<TValues>,
   TDisplay = PathValueOf<TValues, TPath>
 >(
   form: Form<TValues>,

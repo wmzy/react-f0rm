@@ -19,6 +19,7 @@ import type {VALIDATION_OUTCOME} from './core/errors';
 export type {Name};
 export type {
   FieldPath,
+  AnyPath,
   PathValue,
   PathValueOf,
   ArrayItemOf,

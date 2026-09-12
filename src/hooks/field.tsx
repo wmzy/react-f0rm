@@ -15,12 +15,11 @@ import {
   userBlur,
   userChangeByPath
 } from '../form';
-import type {FieldError, Form, ValidationMode} from '../form';
+import type {FieldError, Form, ValidationMode, ValidatorOutput} from '../form';
 import createPath from '../path';
-import type {Path, PathSegments} from '../path';
+import type {Path} from '../path';
 import type {StandardSchemaV1} from '../standardSchema';
-import {hasStandardProps, schemaToFieldValidator} from '../standardSchema';
-import type {FieldPath, PathValueOf} from '../types';
+import type {AnyPath, FieldPath, PathValueOf} from '../types';
 import {hasRuleConstraints, rulesToValidator} from '../rules';
 import type {FieldRules} from '../rules';
 import {errorIdFromKey} from '../errorId';
@@ -33,13 +32,15 @@ import {
 import {useWatchCore} from './form';
 import {onKeyEvent, onPathEvent} from '../subscribe';
 import usePath, {pathFromKey} from './path';
-import useValidate from './validate';
+import useValidate, {schemaAsValidator} from './validate';
 import type {Validator} from './validate';
 import useStage, {useStageFn, useUnmountFieldRemoval} from './stage';
 
 /** Dev-only flag, replaced at build time (rollup.config.js `replace`);
  * defined for the test environment in vitest.config.ts. */
 declare const __DEV__: boolean;
+
+type UncontrolledSyncCell = () => {el: any; path: Path};
 
 /** Module-private registry driving uncontrolled fields' DOM sync — one
  * 'change' listener per form (see the sync effect in {@link
@@ -48,15 +49,36 @@ declare const __DEV__: boolean;
  * path key to a reader of its bound element and path; the shared listener
  * iterates them only on payload-less (bulk) emits. */
 type UncontrolledSyncEntry = {
-  cells: Map<string, () => {el: any; path: Path}>;
+  cells: Map<string, UncontrolledSyncCell>;
   off: () => void;
 };
 const uncontrolledSyncRegistry = new WeakMap<Form, UncontrolledSyncEntry>();
 
+/** Get-or-create the per-form sync entry: the first uncontrolled field
+ * mounts the shared 'change' listener; later ones reuse it. */
+function getUncontrolledSyncEntry(form: Form): UncontrolledSyncEntry {
+  const existing = uncontrolledSyncRegistry.get(form);
+  if (existing) return existing;
+  const cells = new Map<string, UncontrolledSyncCell>();
+  const off = on(form.emitter, 'change', (changed?: Path) => {
+    if (changed) return;
+    for (const read of cells.values()) {
+      const {el, path} = read();
+      // File inputs cannot be assigned a value at all.
+      if (!el || el.type === 'file') continue;
+      const next = getValueByPath(form, path);
+      const asString = next == null ? '' : String(next);
+      if (el.value !== asString) el.value = asString;
+    }
+  });
+  const entry = {cells, off};
+  uncontrolledSyncRegistry.set(form, entry);
+  return entry;
+}
+
 export type UseFieldOptions<
   TValues extends Record<string, any> = any,
-  TPath extends FieldPath<TValues> | PathSegments =
-    FieldPath<TValues> | PathSegments
+  TPath extends AnyPath<TValues> = AnyPath<TValues>
 > = {
   form?: Form<TValues>;
   name: TPath;
@@ -223,8 +245,7 @@ export type UseFieldOptions<
  */
 export type UseFieldResult<
   TValues extends Record<string, any> = any,
-  TPath extends FieldPath<TValues> | PathSegments =
-    FieldPath<TValues> | PathSegments
+  TPath extends AnyPath<TValues> = AnyPath<TValues>
 > = {
   /** The form instance this field is bound to (explicit prop or context) —
    * handy for consumers that need direct access to the headless API. */
@@ -327,7 +348,7 @@ function combineRulesAndValidate(
     // Validator union here is only its declared type.
     const ruleErrors = ruleValidator(value, meta) as FieldError[] | undefined;
     const merge = (
-      other: string | FieldError | (string | FieldError)[] | undefined
+      other: ValidatorOutput | undefined
     ): (string | FieldError)[] | undefined => {
       const list: (string | FieldError)[] = [...(ruleErrors ?? [])];
       if (Array.isArray(other)) list.push(...other);
@@ -486,8 +507,7 @@ function useFieldValue(form: Form, path: Path, uncontrolled: boolean): any {
  */
 export function useFieldCore<
   TValues extends Record<string, any> = any,
-  TPath extends FieldPath<TValues> | PathSegments =
-    FieldPath<TValues> | PathSegments
+  TPath extends AnyPath<TValues> = AnyPath<TValues>
 >(
   {
     form: f1,
@@ -564,11 +584,7 @@ export function useFieldCore<
   // A Standard Schema passed straight to `validate` becomes a validator
   // before composing with the rules (combineRulesAndValidate calls the
   // validator as a function, which a schema object is not).
-  const validateOption = validate;
-  const validateWrapped: Validator | undefined =
-    validateOption && hasStandardProps(validateOption)
-      ? schemaToFieldValidator(validateOption as StandardSchemaV1<any, any>)
-      : (validateOption as Validator | undefined);
+  const validateWrapped = schemaAsValidator(validate);
   useValidate(combineRulesAndValidate(restRules, validateWrapped), path, form, {
     debounce: validateDebounce,
     validateOnMount,
@@ -759,28 +775,12 @@ export function useFieldCore<
   // iteration over the registered cells and keystrokes pay one branch.
   useEffect(() => {
     const spath = pathFromKey(path.key);
-    let entry = uncontrolledSyncRegistry.get(form);
-    if (!entry) {
-      const cells = new Map<string, () => {el: any; path: Path}>();
-      const off = on(form.emitter, 'change', (changed?: Path) => {
-        if (changed) return;
-        for (const read of cells.values()) {
-          const {el, path} = read();
-          // File inputs cannot be assigned a value at all.
-          if (!el || el.type === 'file') continue;
-          const next = getValueByPath(form, path);
-          const asString = next == null ? '' : String(next);
-          if (el.value !== asString) el.value = asString;
-        }
-      });
-      entry = {cells, off};
-      uncontrolledSyncRegistry.set(form, entry);
-    }
+    const entry = getUncontrolledSyncEntry(form);
     entry.cells.set(path.key, () => ({el: elementRef.current, path: spath}));
     return () => {
-      entry!.cells.delete(path.key);
-      if (entry!.cells.size === 0) {
-        entry!.off();
+      entry.cells.delete(path.key);
+      if (entry.cells.size === 0) {
+        entry.off();
         uncontrolledSyncRegistry.delete(form);
       }
     };
@@ -813,18 +813,21 @@ export function useFieldCore<
     ref: focusRef,
     onChange: (e: any) => onChange(extract(e)),
     onBlur,
-    disabled: mergedDisabled,
-    ...(type === 'checkbox'
-      ? {checked: !!value}
-      : type === 'file'
-        ? {}
-        : uncontrolled
-          ? {defaultValue: value}
-          : {value: value ?? ''}),
-    ...(error
-      ? {'aria-invalid': true, 'aria-describedby': errorIdFromKey(path.key)}
-      : {})
+    disabled: mergedDisabled
   };
+  // Exactly one of checked/value/defaultValue: a checkbox renders
+  // `checked`, a file input is never value-controlled, and the remaining
+  // types split controlled `value` from uncontrolled `defaultValue`.
+  if (type === 'checkbox') {
+    inputProps.checked = !!value;
+  } else if (type !== 'file') {
+    if (uncontrolled) inputProps.defaultValue = value;
+    else inputProps.value = value ?? '';
+  }
+  if (error) {
+    inputProps['aria-invalid'] = true;
+    inputProps['aria-describedby'] = errorIdFromKey(path.key);
+  }
 
   return {
     form,
@@ -845,8 +848,7 @@ export function useFieldCore<
 
 export default function useField<
   TValues extends Record<string, any> = any,
-  TPath extends FieldPath<TValues> | PathSegments =
-    FieldPath<TValues> | PathSegments
+  TPath extends AnyPath<TValues> = AnyPath<TValues>
 >(options: UseFieldOptions<TValues, TPath>): UseFieldResult<TValues, TPath> {
   return useFieldCore(options, FormContext);
 }

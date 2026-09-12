@@ -107,16 +107,13 @@ export function schemaToFormValidator<T extends Record<string, any>>(
 
 /** Stringify an issue path: PropertyKey or {key} segments → strings. */
 function toPathSegments(issue: StandardSchemaIssue): string[] {
-  const path = issue.path || [];
-  const segments: string[] = [];
-  for (const segment of path) {
-    const key =
+  return (issue.path || []).map(segment =>
+    String(
       typeof segment === 'object' && segment !== null
         ? (segment as {key: PropertyKey}).key
-        : segment;
-    segments.push(String(key));
-  }
-  return segments;
+        : segment
+    )
+  );
 }
 
 /** Append an error at a nested path: leaves are FieldError[] (issues

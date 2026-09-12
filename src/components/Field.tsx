@@ -6,10 +6,9 @@ export {fieldErrorId} from '../errorId';
 import {FormContext} from '../context';
 import {rulesToConstraintAttrs} from '../rules';
 import type {FieldRules} from '../rules';
-import type {PathSegments} from '../path';
 import type {StandardSchemaV1} from '../standardSchema';
 import {hasStandardProps, schemaToFieldValidator} from '../standardSchema';
-import type {FieldPath} from '../types';
+import type {AnyPath} from '../types';
 import {eventToValueOrDefault} from '../util';
 
 /** Dev-only flag, replaced at build time (rollup); defined in vitest.config.ts. */
@@ -21,8 +20,7 @@ declare const __DEV__: boolean;
  * DOM props flow through. */
 type UseFieldOptions<
   TValues extends Record<string, any> = any,
-  TPath extends FieldPath<TValues> | PathSegments =
-    FieldPath<TValues> | PathSegments
+  TPath extends AnyPath<TValues> = AnyPath<TValues>
 > = Omit<HookFieldOptions<TValues, TPath>, 'name' | 'validateDeps'> & {
   name?: TPath;
   [key: string]: any;
@@ -30,8 +28,7 @@ type UseFieldOptions<
 
 type FieldProps<
   TValues extends Record<string, any> = any,
-  TPath extends FieldPath<TValues> | PathSegments =
-    FieldPath<TValues> | PathSegments
+  TPath extends AnyPath<TValues> = AnyPath<TValues>
 > = UseFieldOptions<TValues, TPath> & {
   as?: React.ComponentType<any>;
   asProps?: Record<string, any>;
@@ -79,8 +76,7 @@ function toConstraintAttrs(
 type FieldComponent = {
   <
     TValues extends Record<string, any> = any,
-    TPath extends FieldPath<TValues> | PathSegments =
-      FieldPath<TValues> | PathSegments
+    TPath extends AnyPath<TValues> = AnyPath<TValues>
   >(
     props: FieldProps<TValues, TPath> & React.RefAttributes<HTMLInputElement>
   ): React.ReactElement | null;
@@ -176,7 +172,6 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
       },
       [ref, focusRef]
     );
-    const Component = as || 'input';
 
     React.useEffect(() => {
       const el = innerRef.current;
@@ -200,6 +195,7 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
           'valueAsNumber wins. Use eventToValue for anything else.'
       );
     }
+    const Component = as || 'input';
     const toValue = eventToValueOrDefault(eventToValue, {
       valueAsNumber,
       valueAsDate
@@ -246,25 +242,19 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
   }
 ) as FieldComponent;
 
-type CheckboxProps<
-  TValues extends Record<string, any> = any,
-  TPath extends FieldPath<TValues> | PathSegments =
-    FieldPath<TValues> | PathSegments
-> = UseFieldOptions<TValues, TPath>;
-
 /** Callable shape of {@link Checkbox}: same form-typed `validate` contract
  * as {@link FieldComponent}. */
 type CheckboxComponent = {
   <
     TValues extends Record<string, any> = any,
-    TPath extends FieldPath<TValues> | PathSegments =
-      FieldPath<TValues> | PathSegments
+    TPath extends AnyPath<TValues> = AnyPath<TValues>
   >(
-    props: CheckboxProps<TValues, TPath> & React.RefAttributes<HTMLInputElement>
+    props: UseFieldOptions<TValues, TPath> &
+      React.RefAttributes<HTMLInputElement>
   ): React.ReactElement | null;
 };
 
-export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
+export const Checkbox = React.forwardRef<HTMLInputElement, UseFieldOptions>(
   (
     {
       name,
@@ -326,8 +316,7 @@ export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
 
 type SelectProps<
   TValues extends Record<string, any> = any,
-  TPath extends FieldPath<TValues> | PathSegments =
-    FieldPath<TValues> | PathSegments
+  TPath extends AnyPath<TValues> = AnyPath<TValues>
 > = UseFieldOptions<TValues, TPath> & {
   multiple?: boolean;
   children?: React.ReactNode;
@@ -347,8 +336,7 @@ function toSelectValue(
 type SelectComponent = {
   <
     TValues extends Record<string, any> = any,
-    TPath extends FieldPath<TValues> | PathSegments =
-      FieldPath<TValues> | PathSegments
+    TPath extends AnyPath<TValues> = AnyPath<TValues>
   >(
     props: SelectProps<TValues, TPath> & React.RefAttributes<HTMLSelectElement>
   ): React.ReactElement | null;

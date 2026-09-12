@@ -83,7 +83,7 @@ export function formDataFromValues(values: Record<string, any>): FormData {
  * back; everything else stays literal (quoted text is never parsed). */
 function parseFormDataString(raw: string): unknown {
   const value = raw.trim();
-  if (value.length > 0 && (value.startsWith('{') || value.startsWith('['))) {
+  if (value.startsWith('{') || value.startsWith('[')) {
     try {
       return JSON.parse(value);
     } catch {

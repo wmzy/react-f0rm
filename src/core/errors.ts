@@ -1,7 +1,7 @@
 import {emit} from '../emitter';
 import createPath, {segmentsFromKey} from '../path';
-import type {Name, Path, PathSegments} from '../path';
-import type {FieldPath, OpaqueTypes} from '../types';
+import type {Name, Path} from '../path';
+import type {FieldPath, OpaqueTypes, AnyPath} from '../types';
 import type {FieldError, FieldErrorEntry, Form} from '../form';
 import {
   bumpErrorsVersion,
@@ -9,6 +9,10 @@ import {
   isFieldError,
   isSegmentsPath
 } from './internals';
+
+/** An error value as validators yield it and the error setters
+ * accept it: one error, or a mixed list of them. */
+export type ValidatorOutput = string | FieldError | (string | FieldError)[];
 
 /** Reserved top-level path segment for form-level errors: the Standard
  * Schema adapter lands path-less issues under this key, read via
@@ -24,7 +28,7 @@ export const VALIDATION_OUTCOME: unique symbol = Symbol('validation-outcome');
 /** Get a field's first error, or undefined. */
 export function getError<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
+  P extends AnyPath<T> = AnyPath<T>
 >(form: Form<T>, name: P): FieldError | undefined {
   return getErrorByPath(form, createPath(name));
 }
@@ -45,7 +49,7 @@ const NO_ERRORS: FieldError[] = [];
 /** Get all errors of a field (insertion order; empty array when none). */
 export function getFieldErrors<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
+  P extends AnyPath<T> = AnyPath<T>
 >(form: Form<T>, name: P): FieldError[] {
   return getFieldErrorsByPath(form, createPath(name));
 }
@@ -131,7 +135,7 @@ export type FieldErrorsTree<T = any> = FieldErrorsTreeNode<T> & {
  * write. */
 function computeErrorsViews(form: Form): void {
   const cached = errorsCaches.get(form);
-  if (cached && cached.version === 0) return;
+  if (cached?.version === 0) return;
   const result: Record<string, FieldError[]> = {};
   const tree: any = {};
   for (const [key, list] of form.errors) {
@@ -231,11 +235,11 @@ export type SetErrorOptions = {
  * items dropped); undefined clears. */
 export function setError<
   T extends Record<string, any> = any,
-  P extends FieldPath<T> | PathSegments = FieldPath<T> | PathSegments
+  P extends AnyPath<T> = AnyPath<T>
 >(
   form: Form<T>,
   name: P,
-  error: string | FieldError | (string | FieldError)[] | undefined,
+  error: ValidatorOutput | undefined,
   options?: SetErrorOptions
 ): void {
   setErrorByPath(form, createPath(name), error, options);
@@ -245,7 +249,7 @@ export function setError<
 export function setErrorByPath(
   form: Form,
   path: Path,
-  error: string | FieldError | (string | FieldError)[] | undefined,
+  error: ValidatorOutput | undefined,
   options?: SetErrorOptions
 ): void {
   const {emitter, errors} = form;
@@ -265,7 +269,7 @@ export function setErrorByPath(
 /** Normalize a {@link setErrorByPath} input into the stored non-empty
  * FieldError[] shape, or undefined when there is nothing to store. */
 function normalizeErrors(
-  error: string | FieldError | (string | FieldError)[] | undefined
+  error: ValidatorOutput | undefined
 ): FieldError[] | undefined {
   if (typeof error === 'string') {
     return error ? [{type: 'custom', message: error}] : undefined;
@@ -341,21 +345,17 @@ export function setServerErrors(
  * round so a retry is judged fresh; client errors are untouched. Emits
  * payload-less 'errors' when anything changed. */
 export function clearServerErrors(form: Form): void {
-  let changed = false;
-  for (const [key, errors] of form.errors) {
-    const kept = errors.filter(error => error.type !== 'server');
-    if (kept.length === 0) {
-      form.errors.delete(key);
-      changed = true;
-    } else if (kept.length !== errors.length) {
-      form.errors.set(key, kept);
-      changed = true;
-    }
+  const affected = Array.from(form.errors).filter(([, list]) =>
+    list.some(error => error.type === 'server')
+  );
+  if (affected.length === 0) return;
+  for (const [key, list] of affected) {
+    const kept = list.filter(error => error.type !== 'server');
+    if (kept.length) form.errors.set(key, kept);
+    else form.errors.delete(key);
   }
-  if (changed) {
-    bumpErrorsVersion(form);
-    emit(form.emitter, 'errors');
-  }
+  bumpErrorsVersion(form);
+  emit(form.emitter, 'errors');
 }
 
 export function hasErrors({errors}: Form): boolean {

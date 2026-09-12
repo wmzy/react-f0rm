@@ -46,12 +46,9 @@ function getArrayIds(form: Form, key: string): string[] | undefined {
 }
 
 function registerArrayIds(form: Form, key: string, ids: string[]): void {
-  let registry = arrayIdsRegistry.get(form);
-  if (!registry) {
-    registry = new Map();
-    arrayIdsRegistry.set(form, registry);
-  }
+  const registry = arrayIdsRegistry.get(form) ?? new Map<string, string[]>();
   registry.set(key, ids);
+  arrayIdsRegistry.set(form, registry);
 }
 
 /** Stable identity for the render-count reducer below: never recreated,
@@ -121,13 +118,8 @@ export function useFieldArrayCore<TItem = any, K extends string = 'id'>(
   const path = usePath(options.name);
   const idsRef = useRef<string[]>([]);
 
-  const getArray = useCallback(
-    (): any[] => getValueByPath(form, path) || [],
-    [form, path]
-  );
-
   const computeFields = useCallback(() => {
-    const arr = getArray();
+    const arr = getValueByPath(form, path) || [];
     while (idsRef.current.length < arr.length) {
       idsRef.current.push(generateId(form));
     }
@@ -139,7 +131,7 @@ export function useFieldArrayCore<TItem = any, K extends string = 'id'>(
       index,
       [keyName]: id
     })) as FieldArrayItem<K>[];
-  }, [getArray, form, keyName]);
+  }, [form, path, keyName]);
 
   // Subscribe to 'change' events scoped to this array's branch: the array
   // key itself, its ancestors (an ancestor write replaces what the leaf
@@ -200,7 +192,7 @@ export function useFieldArrayCore<TItem = any, K extends string = 'id'>(
     form,
     {
       sync:
-        rules && rules.required !== undefined
+        rules?.required !== undefined
           ? rulesToValidator({required: rules.required})
           : undefined
     }
@@ -297,6 +289,11 @@ export type UseFieldArrayItemResult<TValue = any> = {
   form: Form;
 };
 
+/** Options for {@link useFieldArrayItem} and its per-instance core: the
+ * array's `name`, the row's stable `id` (from `fields[i].id`), and an
+ * optional explicit `form`. */
+type UseFieldArrayItemOptions = {name: Name; id: string; form?: Form};
+
 /**
  * Shared core of {@link useFieldArrayItem} and the per-instance hook
  * returned by `createFormContext()`: identical behavior, but the form is
@@ -304,7 +301,7 @@ export type UseFieldArrayItemResult<TValue = any> = {
  * module-level one.
  */
 export function useFieldArrayItemCore<TValue = any>(
-  options: {name: Name; id: string; form?: Form},
+  options: UseFieldArrayItemOptions,
   Context: Context<Form<any> | null>
 ): UseFieldArrayItemResult<TValue> {
   // Read the context unconditionally (hook call order must be stable), then
@@ -425,10 +422,8 @@ export function useFieldArrayItemCore<TValue = any>(
  * the same path — it publishes the id table), the row's `id` from
  * `fields[i].id`, and optionally an explicit `form`
  */
-export function useFieldArrayItem<TValue = any>(options: {
-  name: Name;
-  id: string;
-  form?: Form;
-}): UseFieldArrayItemResult<TValue> {
+export function useFieldArrayItem<TValue = any>(
+  options: UseFieldArrayItemOptions
+): UseFieldArrayItemResult<TValue> {
   return useFieldArrayItemCore(options, FormContext);
 }

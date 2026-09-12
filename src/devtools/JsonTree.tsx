@@ -19,6 +19,7 @@ type JsonNodeProps = {
 /** One tree line: a collapsible container row (`▸ key: {`) or a leaf (`key: value`). */
 function JsonNode({name, value, depth = 0}: JsonNodeProps): React.JSX.Element {
   const [open, setOpen] = useState(depth <= DEFAULT_OPEN_DEPTH);
+  const indent = depth * 12;
 
   const label =
     name === undefined ? null : (
@@ -40,7 +41,7 @@ function JsonNode({name, value, depth = 0}: JsonNodeProps): React.JSX.Element {
       : `${openBracket}…${closeBracket} ${entries.length}`;
 
     return (
-      <div className="rf0-dt-row" style={{paddingLeft: depth * 12}}>
+      <div className="rf0-dt-row" style={{paddingLeft: indent}}>
         <button
           type="button"
           className="rf0-dt-node-toggle"
@@ -56,7 +57,7 @@ function JsonNode({name, value, depth = 0}: JsonNodeProps): React.JSX.Element {
             {entries.map(([k, v]) => (
               <JsonNode key={String(k)} name={k} value={v} depth={depth + 1} />
             ))}
-            <span className="rf0-dt-punct" style={{paddingLeft: depth * 12}}>
+            <span className="rf0-dt-punct" style={{paddingLeft: indent}}>
               {closeBracket}
             </span>
           </>
@@ -68,7 +69,7 @@ function JsonNode({name, value, depth = 0}: JsonNodeProps): React.JSX.Element {
   return (
     <span
       className="rf0-dt-row"
-      style={{paddingLeft: depth * 12, display: 'block'}}
+      style={{paddingLeft: indent, display: 'block'}}
     >
       {label}
       <Primitive value={value} />

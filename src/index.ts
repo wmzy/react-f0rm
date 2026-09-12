@@ -10,6 +10,7 @@ export type {Form as FormInstance} from './form';
 export type {EventEmitter} from './emitter';
 export type {
   FieldPath,
+  AnyPath,
   PathValue,
   PathValueOf,
   ArrayItemOf,

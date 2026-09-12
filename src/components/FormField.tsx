@@ -1,15 +1,13 @@
 import * as React from 'react';
 import useField from '../hooks/field';
 import type {UseFieldOptions, UseFieldResult} from '../hooks/field';
-import type {FieldPath} from '../types';
-import type {PathSegments} from '../path';
+import type {AnyPath} from '../types';
 
 /** Every {@link UseFieldOptions} option plus a render-prop `children`
  * receiving the bound field result. */
 export type FormFieldProps<
   TValues extends Record<string, any> = any,
-  TPath extends FieldPath<TValues> | PathSegments =
-    FieldPath<TValues> | PathSegments
+  TPath extends AnyPath<TValues> = AnyPath<TValues>
 > = UseFieldOptions<TValues, TPath> & {
   children: (field: UseFieldResult<TValues, TPath>) => React.ReactNode;
 };
@@ -20,8 +18,7 @@ export type FormFieldProps<
  * `form` option. */
 export default function FormField<
   TValues extends Record<string, any> = any,
-  TPath extends FieldPath<TValues> | PathSegments =
-    FieldPath<TValues> | PathSegments
+  TPath extends AnyPath<TValues> = AnyPath<TValues>
 >({children, ...options}: FormFieldProps<TValues, TPath>): React.ReactNode {
   const field = useField<TValues, TPath>(options);
   return children(field);

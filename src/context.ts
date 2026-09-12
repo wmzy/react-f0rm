@@ -20,8 +20,8 @@ import {
 } from './hooks/fieldArray';
 import type {FieldRules} from './rules';
 import type {Form} from './form';
-import type {Name, PathSegments} from './path';
-import type {FieldPath} from './types';
+import type {Name} from './path';
+import type {AnyPath, FieldPath} from './types';
 
 export const FormContext: Context<Form<any> | null> =
   createContext<Form<any> | null>(null);
@@ -40,6 +40,29 @@ export function useFormContext<T extends Record<string, any> = any>(): Form<T> {
   return form;
 }
 
+/** Options the bundle's pre-bound hooks take: the underlying hook's
+ * options minus `form` — this factory's own context supplies it. For
+ * `useField`, `{name: TPath}` keeps `name` a direct TPath inference site. */
+type BoundFieldOptions<
+  TValues extends Record<string, any>,
+  TPath extends AnyPath<TValues>
+> = {name: TPath} & Omit<UseFieldOptions<TValues, TPath>, 'form'>;
+
+type BoundFieldArrayOptions<
+  TValues extends Record<string, any>,
+  K extends string = 'id'
+> = {
+  name: FieldPath<TValues> | Name;
+  keyName?: K;
+  rules?: FieldRules;
+  shouldUnregister?: boolean;
+};
+
+type BoundFieldArrayItemOptions<TValues extends Record<string, any>> = {
+  name: FieldPath<TValues> | Name;
+  id: string;
+};
+
 /** The bundle {@link createFormContext} returns: a private React context
  * plus the hooks pre-bound to it, all typed against `TValues`. */
 export type FormContextBundle<TValues extends Record<string, any> = any> = {
@@ -52,22 +75,15 @@ export type FormContextBundle<TValues extends Record<string, any> = any> = {
     children: ReactNode;
   }) => ReactNode;
   useFormContext: () => Form<TValues>;
-  useField: <
-    TPath extends FieldPath<TValues> | PathSegments =
-      FieldPath<TValues> | PathSegments
-  >(
-    options: {name: TPath} & Omit<UseFieldOptions<TValues, TPath>, 'form'>
+  useField: <TPath extends AnyPath<TValues> = AnyPath<TValues>>(
+    options: BoundFieldOptions<TValues, TPath>
   ) => UseFieldResult<TValues, TPath>;
-  useFieldArray: <TItem = any, K extends string = 'id'>(options: {
-    name: FieldPath<TValues> | Name;
-    keyName?: K;
-    rules?: FieldRules;
-    shouldUnregister?: boolean;
-  }) => UseFieldArrayResult<TItem, K>;
-  useFieldArrayItem: <TValue = any>(options: {
-    name: FieldPath<TValues> | Name;
-    id: string;
-  }) => UseFieldArrayItemResult<TValue>;
+  useFieldArray: <TItem = any, K extends string = 'id'>(
+    options: BoundFieldArrayOptions<TValues, K>
+  ) => UseFieldArrayResult<TItem, K>;
+  useFieldArrayItem: <TValue = any>(
+    options: BoundFieldArrayItemOptions<TValues>
+  ) => UseFieldArrayItemResult<TValue>;
 };
 
 /**
@@ -100,33 +116,24 @@ export function createFormContext<
     return form;
   }
 
-  function useField<
-    TPath extends FieldPath<TValues> | PathSegments =
-      FieldPath<TValues> | PathSegments
-  >(
-    // `{name: TPath}` keeps `name` a direct TPath inference site; `form` is
-    // omitted — the form always comes from this factory's own Context.
-    options: {name: TPath} & Omit<UseFieldOptions<TValues, TPath>, 'form'>
+  function useField<TPath extends AnyPath<TValues> = AnyPath<TValues>>(
+    options: BoundFieldOptions<TValues, TPath>
   ): UseFieldResult<TValues, TPath> {
     return useFieldCore(options as UseFieldOptions<TValues, TPath>, Context);
   }
 
-  function useFieldArray<TItem = any, K extends string = 'id'>(options: {
-    name: FieldPath<TValues> | Name;
-    keyName?: K;
-    rules?: FieldRules;
-    shouldUnregister?: boolean;
-  }): UseFieldArrayResult<TItem, K> {
+  function useFieldArray<TItem = any, K extends string = 'id'>(
+    options: BoundFieldArrayOptions<TValues, K>
+  ): UseFieldArrayResult<TItem, K> {
     return useFieldArrayCore<TItem, K>(
       options as UseFieldArrayOptions<K>,
       Context
     );
   }
 
-  function useFieldArrayItem<TValue = any>(options: {
-    name: FieldPath<TValues> | Name;
-    id: string;
-  }): UseFieldArrayItemResult<TValue> {
+  function useFieldArrayItem<TValue = any>(
+    options: BoundFieldArrayItemOptions<TValues>
+  ): UseFieldArrayItemResult<TValue> {
     return useFieldArrayItemCore(options as {name: Name; id: string}, Context);
   }
 

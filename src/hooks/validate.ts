@@ -1,4 +1,4 @@
-import {useContext, useEffect, useRef} from 'react';
+import {useContext, useEffect} from 'react';
 import {on} from '../emitter';
 import {FormContext} from '../context';
 import {registerValidatorByPath} from '../form';
@@ -52,6 +52,16 @@ export type UseValidateOptions = Pick<
   sync?: SyncValidator;
 };
 
+/** Coerce a `validate` option that may be a Standard Schema into a plain
+ * validator — a plain validator passes through, `undefined` stays. */
+export function schemaAsValidator(
+  validate: Validator | StandardSchemaV1<any, any> | undefined
+): Validator | undefined {
+  return validate && hasStandardProps(validate)
+    ? schemaToFieldValidator(validate as StandardSchemaV1<any, any>)
+    : (validate as Validator | undefined);
+}
+
 /**
  * Register a field validator and return its kick (debounce + sync gate
  * applied) — stored in `form.validators` for `trigger`/`ensureValidate`
@@ -59,7 +69,7 @@ export type UseValidateOptions = Pick<
  * {@link registerValidatorByPath}; this is its React binding.
  */
 export default function useValidate(
-  validate: Validator | StandardSchemaV1 | undefined,
+  validate: Validator | StandardSchemaV1<any, any> | undefined,
   path: Path,
   formProp?: Form,
   options?: UseValidateOptions
@@ -72,12 +82,7 @@ export default function useValidate(
   // Live accessors: the registration always sees the latest
   // validator/debounce/sync-gate, so per-render swaps never re-subscribe.
   // A Standard Schema is wrapped into a validator here.
-  const validateOption = validate;
-  const validateRef = useRef<Validator | undefined>(undefined);
-  validateRef.current =
-    validateOption && hasStandardProps(validateOption)
-      ? schemaToFieldValidator(validateOption as StandardSchemaV1<any, any>)
-      : (validateOption as Validator | undefined);
+  const validateRef = useStage(schemaAsValidator(validate));
   const debounceRef = useStage(options?.debounce ?? 0);
   const syncRef = useStage(options?.sync);
   const asyncAlwaysRef = useStage(options?.asyncAlways ?? false);
@@ -128,6 +133,7 @@ export default function useValidate(
     debounceRef,
     syncRef,
     asyncAlwaysRef,
+    validateRef,
     validateOnMountRef
   ]);
 

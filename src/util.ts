@@ -216,16 +216,13 @@ export function isPromise(value: any): value is Promise<any> {
   return value && typeof value.then === 'function';
 }
 
+/** Typed-accessor options shared by the event-value protocol. */
+type TypedAccessorOptions = {valueAsNumber?: boolean; valueAsDate?: boolean};
+
 /** Shared DOM event → value protocol: file → FileList, checkbox →
  * `checked`, `valueAsNumber`/`valueAsDate` → typed accessors, else the
  * string `value`; a non-DOM argument passes through unchanged. */
-export function extractEventValue(
-  e: any,
-  options?: {
-    valueAsNumber?: boolean;
-    valueAsDate?: boolean;
-  }
-): any {
+export function extractEventValue(e: any, options?: TypedAccessorOptions): any {
   const target = e?.target;
   if (!target) return e;
   if (target.type === 'file') return target.files;
@@ -239,7 +236,7 @@ export function extractEventValue(
  * extraction follows valueAsNumber/valueAsDate. */
 export function eventToValueOrDefault(
   eventToValue: ((e: any) => any) | undefined,
-  options?: {valueAsNumber?: boolean; valueAsDate?: boolean}
+  options?: TypedAccessorOptions
 ): (e: any) => any {
   return eventToValue ?? ((e: any) => extractEventValue(e, options));
 }

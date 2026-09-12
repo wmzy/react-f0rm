@@ -28,16 +28,16 @@ export type DevtoolsProps<T extends Record<string, any> = any> = {
   position?: DevtoolsPosition;
 };
 
-type TabId = 'values' | 'errors' | 'touched' | 'dirty' | 'submits' | 'events';
-
-const TABS: TabId[] = [
+const TABS = [
   'values',
   'errors',
   'touched',
   'dirty',
   'submits',
   'events'
-];
+] as const;
+
+type TabId = (typeof TABS)[number];
 
 /** One emitted form event, newest first in the event timeline tab. */
 type EventTrace = {
@@ -74,14 +74,14 @@ function countLeaves(value: unknown): number {
   );
 }
 
-// Arrow-key tab navigation — buttons stay click/Enter/Space operable.
-const ARROW_DELTAS: Record<string, number> = {ArrowRight: 1, ArrowLeft: -1};
-
 /** Status label for the submit-successful indicator. */
 function submitStatusLabel(ok: boolean | undefined): string {
   if (ok === undefined) return '–';
   return ok ? 'ok' : 'failed';
 }
+
+// Arrow-key tab navigation — buttons stay click/Enter/Space operable.
+const ARROW_DELTAS: Record<string, number> = {ArrowRight: 1, ArrowLeft: -1};
 
 type TabListProps = {
   tab: TabId;
@@ -228,14 +228,7 @@ function SubmitTraceItem({trace}: {trace: SubmitTrace}): React.JSX.Element {
       </summary>
       {trace.errors.length > 0 && (
         <div className="rf0-dt-submit-errors">
-          {trace.errors.map(({path, type, message}, index) => (
-            <ErrorItem
-              key={`${path}:${index}`}
-              path={path}
-              type={type}
-              message={message}
-            />
-          ))}
+          <ErrorList errors={trace.errors} />
         </div>
       )}
       <JsonTree value={trace.values} />
