@@ -130,7 +130,8 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
       error,
       name: fieldKey,
       disabled: isDisabled,
-      focusRef
+      focusRef,
+      validating
     } = useField({
       name: name!,
       form: formProp,
@@ -229,6 +230,7 @@ export const Field = React.forwardRef<HTMLInputElement, FieldProps>(
           {...valueProps}
           {...ariaProps(error, fieldKey, props)}
           disabled={isDisabled}
+          aria-busy={validating || undefined}
           onChange={(e: any) => onChange(toValue(e))}
           ref={mergedRef}
         />
@@ -279,7 +281,8 @@ export const Checkbox = React.forwardRef<HTMLInputElement, UseFieldOptions>(
       onBlur,
       error,
       name: fieldKey,
-      disabled: isDisabled
+      disabled: isDisabled,
+      validating
     } = useField({
       name: name!,
       form,
@@ -305,6 +308,7 @@ export const Checkbox = React.forwardRef<HTMLInputElement, UseFieldOptions>(
         checked={!!value}
         {...ariaProps(error, fieldKey, props)}
         disabled={isDisabled}
+        aria-busy={validating || undefined}
         onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
           onChange(e.target.checked)
         }
@@ -369,7 +373,8 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
       onBlur,
       error,
       name: fieldKey,
-      disabled: isDisabled
+      disabled: isDisabled,
+      validating
     } = useField({
       name: name!,
       form,
@@ -395,6 +400,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
         value={toSelectValue(multiple, value)}
         {...ariaProps(error, fieldKey, props)}
         disabled={isDisabled}
+        aria-busy={validating || undefined}
         onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
           onChange(
             multiple

@@ -145,6 +145,34 @@ describe('form.register', () => {
     expect(form.validators.size).toBe(0);
   });
 
+  it('a form-level messages table overrides the default rule copy', async () => {
+    const form = createForm({
+      initialValues: {a: ''},
+      mode: 'onSubmit',
+      messages: {required: '必填', minLength: '至少 {bound} 位'}
+    });
+    const binding = form.register('a', {
+      rules: {required: true, minLength: 2},
+      mode: 'onChange'
+    });
+    binding.ref(makeInput());
+    // The sync required gate reads the table.
+    binding.onChange(changeEvent({value: ''}));
+    expect(getError(form, 'a')?.message).toBe('必填');
+    // The debounced rules validator reads it too.
+    binding.onChange(changeEvent({value: 'x'}));
+    await trigger(form);
+    expect(getError(form, 'a')?.message).toBe('至少 2 位');
+    // A field's own message still wins over the table.
+    const own = form.register('b', {
+      rules: {required: '自定义必填'},
+      mode: 'onChange'
+    });
+    own.ref(makeInput());
+    own.onChange(changeEvent({value: ''}));
+    expect(getError(form, 'b')?.message).toBe('自定义必填');
+  });
+
   it('bulk reset rewrites the bound DOM element without a render', () => {
     const form = createForm({initialValues: {a: ''}});
     const {ref, onChange} = form.register('a');

@@ -20,6 +20,7 @@ const form = useForm({
 |--------|------|-------------|
 | `initialValues` | `T` | Initial form values |
 | `values` | `T` | Controlled external values — re-synced into the form when they **genuinely change** (reference-first with a structural fallback: an inline literal with equal content never re-syncs, so re-renders don't clobber in-progress edits) |
+| `resetOptions` | `ResetOptions` | Reroute a genuinely-changed `values` sync through `reset` — the keep flags (`keepDirtyValues`, `keepTouched`, …) decide what survives instead of the default master-detail replace — see [below](#controlled-values--resetoptions) |
 | `validate` | `(values: T) => Record<string, any> \| Promise<Record<string, any>>` | Form-level validator; nested results are flattened onto field paths (see [Validation](../guides/validation.md)) |
 | `validateDebounce` | `number` | Milliseconds to debounce the form-level `validate` (default: `0`); kicks from `trigger`/submit inside the window merge into one run, and while the timer is pending the form counts as validating — see [Async Validation](../guides/validation.md#async-validation) |
 | `validateDeps` | `FieldPath<T>[]` | Fields whose **user changes re-run the form-level `validate`** (the password-confirm dependency list). Re-runs are gated by the mode/`reValidateMode` matrix, and each round clears the errors the previous round wrote — see [Re-running on dependent field changes](../guides/validation.md#re-running-on-dependent-field-changes-validatedeps) |
@@ -27,6 +28,25 @@ const form = useForm({
 | `reValidateMode` | `'onChange' \| 'onBlur' \| 'onSubmit'` | When a field is re-validated **after it already has an error** (default: `'onChange'`) |
 | `disabled` | `boolean` | Start the form with every bound field disabled (default: `false`) — bound fields OR this flag with their own `disabled` option (a field cannot opt out); toggle at runtime with `setDisabled` |
 | `validateOnMount` | `boolean` | Validate on mount (default: `false`): every mounted field with a validator kicks once after mount and the form-level `validate` runs once — errors show on an untouched form. Deferred while an async `initialValues` source is pending (the kicks run after the resolved baseline lands); a field's own `validateOnMount` overrides the flag |
+
+#### Controlled `values` + `resetOptions`
+
+By default a genuinely-changed `values` object re-syncs with `setInitialValues` semantics: the baseline is swapped and **uncommitted edits are discarded** — master-detail semantics, where selecting another record replaces the draft — while touched flags and errors survive.
+
+Pass `resetOptions` to reroute that sync through [`reset`](#reset-options): a changed-content sync then behaves exactly like `reset(form, values, resetOptions)`, so the keep flags decide what survives — including clearing touched flags and errors unless `keepTouched`/`keepErrors` say otherwise. The genuine-change guard applies to both routes: a `values` object structurally equal to the last-seeded one never re-syncs, whatever `resetOptions` says.
+
+The `keepDirtyValues` master-detail shape — the record switches, but fields the user is mid-edit on don't:
+
+```tsx
+function UserForm({user}) {
+  const form = useForm({
+    values: user,                          // a refetch swaps the record
+    resetOptions: {keepDirtyValues: true}, // ...but not mid-edit drafts
+  });
+}
+```
+
+Clean fields adopt the incoming record's values; fields whose live value differs from the baseline (the same rule `getDirtyFields` applies) keep the user's draft.
 
 ## Form Instance API
 

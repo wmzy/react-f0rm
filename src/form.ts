@@ -5,7 +5,7 @@ import type {EventEmitter} from './emitter';
 import createPath from './path';
 import type {Name, Path} from './path';
 import type {FieldPath} from './types';
-import type {FieldRules} from './rules';
+import type {FieldRules, FormMessages} from './rules';
 import {isPromise} from './util';
 import {setInitialValues} from './core/values';
 import {registerField} from './core/register';
@@ -25,6 +25,7 @@ export type {
   ArrayItemOf,
   OpaqueTypes
 } from './types';
+export type {FormMessages} from './rules';
 
 /** Dev-only flag, replaced at build time (rollup.config.js `replace`);
  * defined for the test environment in vitest.config.ts. */
@@ -197,6 +198,11 @@ export type Form<T extends Record<string, any> = any> = {
   /** When the form-level `validate` re-runs outside submit/trigger — the
    * cadence from {@link Options.validateMode}, seeded at create time. */
   validateMode: FormValidateMode;
+  /** Form-level default messages for declarative rules, seeded from
+   * {@link Options.messages}: one table overriding every field's built-in
+   * English rule message (i18n in one place). Per-field messages still
+   * win. */
+  messages?: FormMessages;
   isSubmitting: boolean;
   /** Whether a submit has been attempted — set by `handleSubmit` on every
    * attempt, cleared by `reset` (react-hook-form's `isSubmitted`). */
@@ -274,6 +280,13 @@ export type Options<T extends Record<string, any> = any> = {
    * `validateOnMount` — a cadence declaration instead of enumerating
    * {@link Options.validateDeps}. See {@link FormValidateMode}. */
   validateMode?: FormValidateMode;
+  /** Form-level default messages for declarative rules, keyed by rule
+   * type — one table overriding the built-in English defaults for every
+   * field (i18n in one place). A string may carry a `{bound}`
+   * placeholder; a function receives the bound. A field's own message
+   * (the `required` string, `rules.messages`, `pattern.message`) still
+   * wins. See {@link FormMessages}. */
+  messages?: FormMessages;
   /** Form-level default for a bound field's unmount behavior. `true` (the
    * default) tombstones an unmounted field; `false` keeps the value
    * (react-hook-form's `shouldUnregister`). A field's own option

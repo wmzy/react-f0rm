@@ -4,7 +4,8 @@ import {
   renderHook,
   act,
   fireEvent,
-  screen
+  screen,
+  waitFor
 } from '@testing-library/react';
 import {FormProvider} from '../../src/context';
 import useFieldArray from '../../src/hooks/fieldArray';
@@ -513,6 +514,26 @@ describe('useFieldArray', () => {
       ]);
     });
 
+    it('a form-level messages table overrides the default rule copy', async () => {
+      const form = createForm({
+        initialValues: {tags: []},
+        messages: {required: '至少一项', minLength: '至少 {bound} 项'}
+      });
+      renderHook(() =>
+        useFieldArray({
+          name: 'tags',
+          form,
+          rules: {required: true, minLength: 2}
+        })
+      );
+      await act(async () => {
+        expect(await trigger(form, 'tags')).toBe(false);
+      });
+      expect(getFieldErrors(form, 'tags')).toEqual([
+        {type: 'required', message: '至少一项'}
+      ]);
+    });
+
     it('length rules read the array length', async () => {
       const form = createForm({initialValues: {tags: ['a']}});
       const {result} = renderHook(() =>
@@ -641,6 +662,90 @@ describe('useFieldArray', () => {
       expect(getValues(form).items).toEqual(['a', 'b']);
       expect(result.current.fields).toBe(fieldsBefore);
       expect(result.current.fields.map(f => f.id)).toEqual(idsBefore);
+    });
+  });
+
+  describe('row-add focus option', () => {
+    // Focus rides the 'focusError' channel and the target key resolves
+    // only after the commit (one task later), so rows need real mounted
+    // fields (useField + focusRef) for focus to land on their inputs.
+    function setup(initialValues) {
+      const form = createForm({initialValues});
+      let api;
+      function Row({index}) {
+        const name = useField({form, name: ['items', index, 'name']});
+        const email = useField({form, name: ['items', index, 'email']});
+        return (
+          <div>
+            <input aria-label={`name-${index}`} ref={name.focusRef} />
+            <input aria-label={`email-${index}`} ref={email.focusRef} />
+          </div>
+        );
+      }
+      function Items() {
+        api = useFieldArray({name: 'items', form});
+        return (
+          <div>
+            {api.fields.map(f => (
+              <Row key={f.id} index={f.index} />
+            ))}
+          </div>
+        );
+      }
+      render(<Items />);
+      return api;
+    }
+
+    // Give a wrongly scheduled focus timer time to fire before asserting
+    // that focus was not taken.
+    const settle = () =>
+      act(() => new Promise(resolve => setTimeout(resolve, 10)));
+
+    it('append with {focus: true} focuses the first field of the new row', async () => {
+      const api = setup({items: [{name: 'a', email: 'a@x'}]});
+      act(() => api.append({name: 'b', email: 'b@x'}, {focus: true}));
+      await waitFor(() =>
+        expect(document.activeElement).toBe(screen.getByLabelText('name-1'))
+      );
+    });
+
+    it('append with {focus: "email"} focuses that child of the new row', async () => {
+      const api = setup({items: [{name: 'a', email: 'a@x'}]});
+      act(() => api.append({name: 'b', email: 'b@x'}, {focus: 'email'}));
+      await waitFor(() =>
+        expect(document.activeElement).toBe(screen.getByLabelText('email-1'))
+      );
+    });
+
+    it('prepend with {focus: true} focuses the new row at index 0', async () => {
+      const api = setup({items: [{name: 'a', email: 'a@x'}]});
+      act(() => api.prepend({name: 'b', email: 'b@x'}, {focus: true}));
+      await waitFor(() =>
+        expect(document.activeElement).toBe(screen.getByLabelText('name-0'))
+      );
+    });
+
+    it('insert with {focus: "name"} focuses the inserted row at its index', async () => {
+      const api = setup({items: [{name: 'a', email: 'a@x'}]});
+      act(() => api.insert(1, {name: 'b', email: 'b@x'}, {focus: 'name'}));
+      await waitFor(() =>
+        expect(document.activeElement).toBe(screen.getByLabelText('name-1'))
+      );
+    });
+
+    it('append without options does not focus', async () => {
+      const api = setup({items: []});
+      act(() => api.append({name: 'a', email: 'a@x'}));
+      await settle();
+      expect(document.activeElement).toBe(document.body);
+    });
+
+    it('out-of-bounds insert with focus is a no-op and does not focus', async () => {
+      const api = setup({items: [{name: 'a', email: 'a@x'}]});
+      act(() => api.insert(9, {name: 'z', email: 'z@x'}, {focus: true}));
+      expect(api.fields).toHaveLength(1);
+      await settle();
+      expect(document.activeElement).toBe(document.body);
     });
   });
 });

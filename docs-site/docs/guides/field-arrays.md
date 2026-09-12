@@ -49,6 +49,20 @@ const {append, update} = useFieldArray<{qty: number}>({name: 'items'});
 append({qty: 1});  // typed — append('nope') is a compile error
 ```
 
+## Focusing a New Row
+
+`append`, `prepend` and `insert` take an optional second argument with a `focus` option: `true` focuses the new row's first mounted child field, a string names the child field to focus:
+
+```tsx
+append({name: '', qty: 1});                      // no focus — the default
+append({name: '', qty: 1}, {focus: true});       // the row's first field
+prepend({name: '', qty: 1}, {focus: 'name'});    // that exact child field
+```
+
+Unlike react-hook-form — whose array movers focus the new row by default — nothing is focused unless you ask: a toolbar "Add row" button should not yank the caret out of the field the user is typing in.
+
+The target resolves **after the row commits**. The mover's write lands before React renders the new row, so the focus request is scheduled one task later and resolved against the mounted tree: `focus: true` picks the row's first mounted child (registration order); `focus: 'name'` targets the `name` child of that row. A child that never mounts (or `focus: true` on a row with no mounted fields) is a silent no-op, as are guarded no-ops — an out-of-range `insert` never focuses.
+
 ## `replace` and `update`
 
 Two bulk operations complement the movers:

@@ -21,7 +21,7 @@ import type {Path} from '../path';
 import type {StandardSchemaV1} from '../standardSchema';
 import type {AnyPath, FieldPath, PathValueOf} from '../types';
 import {hasRuleConstraints, rulesToValidator} from '../rules';
-import type {FieldRules} from '../rules';
+import type {FieldRules, FormMessages} from '../rules';
 import {errorIdFromKey} from '../errorId';
 import {eventToValueOrDefault, isPromise} from '../util';
 import {
@@ -338,10 +338,11 @@ export type UseFieldInputProps = {
  */
 function combineRulesAndValidate(
   rules: FieldRules | undefined,
-  validate: Validator | undefined
+  validate: Validator | undefined,
+  formMessages: FormMessages | undefined
 ): Validator | undefined {
   if (!rules || !hasRuleConstraints(rules)) return validate;
-  const ruleValidator = rulesToValidator(rules);
+  const ruleValidator = rulesToValidator(rules, formMessages);
   if (!validate) return ruleValidator;
   return (value, meta) => {
     // rulesToValidator's contract is FieldError[] | undefined; the wider
@@ -585,15 +586,20 @@ export function useFieldCore<
   // before composing with the rules (combineRulesAndValidate calls the
   // validator as a function, which a schema object is not).
   const validateWrapped = schemaAsValidator(validate);
-  useValidate(combineRulesAndValidate(restRules, validateWrapped), path, form, {
-    debounce: validateDebounce,
-    validateOnMount,
-    asyncAlways: asyncAlways ?? form.asyncAlways,
-    sync:
-      rules && rules.required !== undefined
-        ? rulesToValidator({required: rules.required})
-        : undefined
-  });
+  useValidate(
+    combineRulesAndValidate(restRules, validateWrapped, form.messages),
+    path,
+    form,
+    {
+      debounce: validateDebounce,
+      validateOnMount,
+      asyncAlways: asyncAlways ?? form.asyncAlways,
+      sync:
+        rules && rules.required !== undefined
+          ? rulesToValidator({required: rules.required}, form.messages)
+          : undefined
+    }
+  );
 
   // All errors of the field through one subscription owned by
   // useDelayedErrors; the array reference is stable (stored array or

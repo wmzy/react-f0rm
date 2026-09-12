@@ -123,7 +123,9 @@ export type ActionErrorResult = {
  * around native constraint validation (skipped for targets without
  * checkValidity) and custom validators; failed validation fires
  * onInvalidSubmit, a passing submit runs onSubmit then onValidSubmit.
- * Errors thrown by either are swallowed into isSubmitSuccessful=false. */
+ * Errors thrown by either are swallowed into isSubmitSuccessful=false.
+ * A new attempt while one is in flight is ignored outright (no state
+ * changes at all) — including handleSubmit calls nested inside onSubmit. */
 export function handleSubmit<T extends Record<string, any> = any>(
   form: Form<T>,
   options?: HandleSubmitOptions<T>
@@ -142,6 +144,12 @@ export function handleSubmit<T extends Record<string, any> = any>(
       e.preventDefault();
     }
     const formEl = e?.currentTarget;
+    // One flight at a time: isSubmitting flips true synchronously before
+    // the first await below, so any attempt arriving while a round is
+    // pending — a double click, or handleSubmit nested inside onSubmit —
+    // is ignored before touching any state. The settling finally resets
+    // the flag and re-arms the next round.
+    if (form.isSubmitting) return;
     // A fresh attempt supersedes the previous round trip's verdict: server
     // errors from the last submit must not veto this one (the server is
     // being asked again). Client errors stay.

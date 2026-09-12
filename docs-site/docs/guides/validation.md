@@ -58,6 +58,20 @@ For declarative constraints, pass `rules` to `Field` (or any bound component —
 
 The optional top-level `messages` record overrides messages per rule type (`min`, `max`, `minLength`, `maxLength`, `pattern`) — useful for centralizing or localizing them.
 
+To localize the **defaults** for every field at once, pass a `messages` table to `createForm`/`useForm` — i18n in one place instead of repeating overrides per field. Each entry is a string with a `{bound}` placeholder (replaced with the rule's bound) or a function receiving the bound:
+
+```tsx
+const form = useForm({
+  messages: {
+    required: '此字段为必填项',
+    minLength: '至少输入 {bound} 个字符',
+    maxLength: n => `最多输入 ${n} 个字符`
+  }
+});
+```
+
+Resolution order per rule: the field's own message (the `required` string, `rules.messages`, `pattern.message`) → the form-level table → the built-in English default.
+
 Semantics:
 
 - A failing `required` short-circuits the rest — an empty value reports only its `required` error, not a full panel.

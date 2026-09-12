@@ -17,6 +17,67 @@ const schema = z.string().min(1, 'Required').email('Invalid email');
 <Field name="email" validate={zodResolver(schema)} />
 ```
 
+### Schema introspection (zod v3/v4)
+
+`constraintsFromSchema` and `defaultsFromSchema` read a zod schema — v3 and
+v4 shapes, duck-typed best effort — so a form builder derives `rules` and
+`initialValues` from the schema instead of writing them a second time:
+
+```tsx
+import {
+  constraintsFromSchema,
+  defaultsFromSchema
+} from 'react-f0rm/resolvers/zod';
+
+const schema = z.object({
+  name: z.string().min(1).max(20).default(''),
+  age: z.number().min(18).max(120).optional(),
+  items: z.array(z.object({qty: z.number().min(1).default(1)}))
+});
+
+const constraints = constraintsFromSchema(schema);
+// {
+//   name: {minLength: 1, maxLength: 20},   // .default ⇒ not required
+//   age: {min: 18, max: 120},              // .optional ⇒ not required
+//   'items.qty': {min: 1}                  // de-indexed array path
+// }
+
+defaultsFromSchema(schema);
+// {name: '', items: [{qty: 1}]}
+```
+
+Feed them straight into the form and its fields:
+
+```tsx
+const form = useForm({
+  initialValues: defaultsFromSchema(schema),
+  validate: standardSchemaFormValidator(schema)
+});
+
+<Field name="name" rules={constraints.name} />
+// Array rows borrow the de-indexed constraint set:
+<Field name="items.0.qty" rules={constraints['items.qty']} />
+```
+
+Behavior notes:
+
+- String/array checks become `minLength`/`maxLength`, number checks
+  `min`/`max`, regex checks `pattern` (carrying the check's own message
+  when the schema declares one).
+- `required: true` only on non-optional fields that carry at least one
+  check — a bare `z.string()` contributes nothing, so `required` is not
+  sprayed over every field of the tree. `.optional()`, `.nullable()` and
+  `.default()` all drop `required` while keeping the bounds.
+- Array elements map to the de-indexed path (`'items.qty'`): the schema
+  describes one row, standing in for every index of the live array. The
+  array's own length checks (`z.array(...).min(1)`) land on the array path.
+- `defaultsFromSchema` omits keys with no default anywhere below; an array
+  without its own default seeds a single row from its element's defaults —
+  more rows are the user's to add.
+- Both functions are pure, never throw, and silently skip nodes they don't
+  recognize (unknown zod versions, custom wrappers). Circular or recursive
+  schemas terminate.
+
 ## Yup
 
 ```tsx

@@ -126,10 +126,14 @@ export function registerField(
       // validator (debounce fixed at 0 — immediate).
       const {required, ...rest} = rules;
       const requiredGate =
-        required !== undefined ? rulesToValidator({required}) : undefined;
+        required !== undefined
+          ? rulesToValidator({required}, form.messages)
+          : undefined;
       disposeValidator = registerValidatorByPath(form, path, {
         validate: () =>
-          hasRuleConstraints(rest) ? rulesToValidator(rest) : undefined,
+          hasRuleConstraints(rest)
+            ? rulesToValidator(rest, form.messages)
+            : undefined,
         debounce: () => 0,
         sync: () => requiredGate
       } as ValidatorRegistration);

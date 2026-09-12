@@ -12,6 +12,7 @@ import createForm, {
   handleSubmit,
   reset
 } from '../../src/form';
+import useField from '../../src/hooks/field';
 import {FormProvider} from '../../src/context';
 import {Devtools} from '../../src/devtools';
 import {injectDevtoolsStyles} from '../../src/devtools/styles';
@@ -374,6 +375,83 @@ describe('Devtools', () => {
     await user.click(screen.getByRole('button', {name: /clear/i}));
     expect(screen.getByText('no events yet')).toBeTruthy();
     expect(screen.queryByText('change')).toBeNull();
+  });
+
+  it('audits per-event trigger counts and latest payload paths on the subs tab', async () => {
+    const user = userEvent.setup();
+    const form = createForm({initialValues: {name: 'a'}});
+    renderDevtools(form);
+
+    await user.click(screen.getByRole('tab', {name: /^subs/}));
+    const stat = event => {
+      const rows = Array.from(
+        document.querySelectorAll('.rf0-dt-panel .rf0-dt-item')
+      );
+      const row = rows.find(
+        r => r.querySelector('.rf0-dt-item-tag')?.textContent === event
+      );
+      return {
+        count: row?.querySelector('.rf0-dt-item-msg')?.textContent,
+        last: row?.querySelector('.rf0-dt-item-path')?.textContent
+      };
+    };
+
+    // One row per FormEvents type, in declaration order — stable snapshots.
+    const names = Array.from(
+      document.querySelectorAll('.rf0-dt-panel .rf0-dt-item-tag')
+    ).map(tag => tag.textContent);
+    expect(names).toHaveLength(12);
+    expect(names[0]).toBe('change');
+    expect(names[names.length - 1]).toBe('focusError');
+
+    // Never-fired events render a zero count and no payload.
+    expect(stat('change')).toEqual({count: '0', last: '—'});
+    expect(stat('focusError')).toEqual({count: '0', last: '—'});
+
+    act(() => setValue(form, 'name', 'b'));
+    expect(stat('change')).toEqual({count: '1', last: 'name'});
+
+    // The count accumulates and the latest payload path wins.
+    act(() => setValue(form, 'name', 'c'));
+    expect(stat('change')).toEqual({count: '2', last: 'name'});
+
+    // The tab badge counts distinct event types observed so far.
+    expect(screen.getByRole('tab', {name: /^subs/}).textContent).toMatch(/1/);
+  });
+
+  it('counts change events driven by a mounted field subscription', async () => {
+    const user = userEvent.setup();
+    const form = createForm({initialValues: {name: ''}});
+    function NameInput() {
+      const field = useField({name: 'name'});
+      return <input {...field.inputProps} />;
+    }
+    render(
+      <FormProvider value={form}>
+        <NameInput />
+        <Devtools />
+      </FormProvider>
+    );
+
+    await user.click(screen.getByRole('tab', {name: /^subs/}));
+    const changeRow = () =>
+      Array.from(document.querySelectorAll('.rf0-dt-panel .rf0-dt-item')).find(
+        r => r.querySelector('.rf0-dt-item-tag')?.textContent === 'change'
+      );
+
+    // The count cell exists and renders a number before anything fires…
+    expect(changeRow()?.querySelector('.rf0-dt-item-msg')?.textContent).toBe(
+      '0'
+    );
+
+    // …and accumulates one per keystroke through the field's own pipeline.
+    await user.type(screen.getByRole('textbox'), 'ab');
+    expect(changeRow()?.querySelector('.rf0-dt-item-msg')?.textContent).toBe(
+      '2'
+    );
+    expect(changeRow()?.querySelector('.rf0-dt-item-path')?.textContent).toBe(
+      'name'
+    );
   });
 
   // The no-DOM branch (injectDevtoolsStyles' SSR guard) is covered in

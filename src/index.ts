@@ -31,9 +31,10 @@ export * from './hooks/form';
 export {default as useForm} from './hooks/form';
 export {default as useField} from './hooks/field';
 export {default as useFieldArray, useFieldArrayItem} from './hooks/fieldArray';
+export type {FieldArrayFocusOptions} from './hooks/fieldArray';
 export {default as useTransform} from './hooks/transform';
 export type {UseTransformOptions} from './hooks/transform';
-export type {FieldRules} from './rules';
+export type {FieldRules, FormMessages} from './rules';
 
 export {subscribe, watch} from './subscribe';
 export type {
@@ -46,3 +47,4 @@ export type {
 export {default as Form} from './components/Form';
 export {default as FormField} from './components/FormField';
 export * from './components/Field';
+export {default as ErrorSummary} from './components/ErrorSummary';

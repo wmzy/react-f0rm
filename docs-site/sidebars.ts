@@ -9,7 +9,7 @@ const sidebars: SidebarsConfig = {
     {
       type: 'category',
       label: 'Guides',
-      items: ['guides/validation', 'guides/field-arrays', 'guides/submission', 'guides/sub-forms', 'guides/react19-server-actions', 'guides/ssr', 'guides/typescript', 'guides/custom-components', 'guides/ui-integration', 'guides/testing', 'guides/hooks-reference', 'guides/headless-react-native'],
+      items: ['guides/validation', 'guides/field-arrays', 'guides/submission', 'guides/sub-forms', 'guides/derived-fields', 'guides/react19-server-actions', 'guides/ssr', 'guides/typescript', 'guides/custom-components', 'guides/ui-integration', 'guides/testing', 'guides/hooks-reference', 'guides/headless-react-native'],
     },
     {
       type: 'category',

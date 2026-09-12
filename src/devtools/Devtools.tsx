@@ -4,7 +4,7 @@ import type {KeyboardEvent} from 'react';
 import {on} from '../emitter';
 import {FormContext} from '../context';
 import {getErrors, getValues, reset, trigger} from '../form';
-import type {FieldErrorEntry, Form} from '../form';
+import type {FieldErrorEntry, Form, FormEvents} from '../form';
 import type {Path} from '../path';
 import {
   useDirtyFields,
@@ -34,10 +34,40 @@ const TABS = [
   'touched',
   'dirty',
   'submits',
+  'subs',
   'events'
 ] as const;
 
 type TabId = (typeof TABS)[number];
+
+type EventNameOf<E> = E extends readonly [infer N, unknown] ? N : never;
+
+/** Union of every event name in the FormEvents table. */
+type FormEventName = EventNameOf<FormEvents>;
+
+/** Audited event types in FormEvents declaration order — the subs tab
+ * renders one row per entry, so row order stays stable. */
+const SUBS_EVENTS = [
+  'change',
+  'errors',
+  'touched',
+  'validating',
+  'submitting',
+  'submitCount',
+  'submitSuccessful',
+  'reset',
+  'disabled',
+  'status',
+  'loading',
+  'focusError'
+] as const satisfies readonly FormEventName[];
+
+/** One event type's row on the subs tab: lifetime trigger count plus the
+ * dotted path of its latest payload. */
+type EventStat = {
+  count: number;
+  last?: string;
+};
 
 /** One emitted form event, newest first in the event timeline tab. */
 type EventTrace = {
@@ -264,6 +294,33 @@ function EventStream({
   );
 }
 
+/** Subscription audit — one row per event type in {@link SUBS_EVENTS}
+ * order: lifetime trigger count plus the latest payload's dotted path.
+ * The emitter API exposes no listenerCount/eventNames, so live listener
+ * totals are deliberately absent (never monkey-patch emit). */
+function SubsList({
+  stats
+}: {
+  stats: Partial<Record<FormEventName, EventStat>>;
+}): React.JSX.Element {
+  return (
+    <>
+      {SUBS_EVENTS.map(event => {
+        const stat = stats[event];
+        return (
+          <div key={event} className="rf0-dt-item">
+            <span className="rf0-dt-item-tag">{event}</span>
+            <span className="rf0-dt-item-path">{stat?.last ?? '—'}</span>
+            <span className="rf0-dt-item-msg rf0-dt-item-msg--ok">
+              {stat?.count ?? 0}
+            </span>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 type PanelProps = {
   tab: TabId;
   values: unknown;
@@ -271,6 +328,7 @@ type PanelProps = {
   touched: string[];
   dirty: Record<string, boolean>;
   submits: SubmitTrace[];
+  stats: Partial<Record<FormEventName, EventStat>>;
   events: EventTrace[];
   onClearEvents: () => void;
 };
@@ -283,6 +341,7 @@ function Panel({
   touched,
   dirty,
   submits,
+  stats,
   events,
   onClearEvents
 }: PanelProps): React.JSX.Element {
@@ -291,13 +350,15 @@ function Panel({
   if (tab === 'touched') return <TouchedList touched={touched} />;
   if (tab === 'dirty') return <DirtyList dirty={dirty} />;
   if (tab === 'submits') return <SubmitTraceList submits={submits} />;
+  if (tab === 'subs') return <SubsList stats={stats} />;
   return <EventStream events={events} onClear={onClearEvents} />;
 }
 
 /** Live form inspector — a floating dev panel. Tabs for values / errors /
- * touched / dirty / submits (per-attempt traces) plus a status strip and
- * Reset/Validate actions. Reads state through the library's watch hooks,
- * so it updates live without participating in validation/submit. Docked
+ * touched / dirty / submits (per-attempt traces) / events / subs
+ * (per-event-type audit) plus a status strip and Reset/Validate actions.
+ * Reads state through the library's watch hooks, so it updates live
+ * without participating in validation/submit. Docked
  * at a corner, collapsible; keyboard operable. Not re-exported by the
  * main entry. */
 export default function Devtools<T extends Record<string, any> = any>({
@@ -365,20 +426,37 @@ export default function Devtools<T extends Record<string, any> = any>({
   // Event timeline: every event lands here, newest first, capped at 50.
   // State writes ride the event callback (never the effect body/render).
   const [events, setEvents] = useState<EventTrace[]>([]);
+  // Per-event audit for the subs tab — accumulated by the same on()
+  // callbacks below (no second subscription). Counts need no deferred
+  // read, unlike submit traces: nothing settles after the emit.
+  const [stats, setStats] = useState<Partial<Record<FormEventName, EventStat>>>(
+    {}
+  );
   useEffect(() => {
     let seq = 0;
-    const push = (event: string, path?: string) => {
+    const push = (event: FormEventName, path?: string) => {
       seq += 1;
       const trace: EventTrace = {n: seq, event, at: Date.now()};
       if (path !== undefined) trace.path = path;
       setEvents(prev => [trace, ...prev].slice(0, 50));
+      setStats(prev => {
+        const prior = prev[event];
+        const stat: EventStat = {count: (prior?.count ?? 0) + 1};
+        if (path !== undefined) stat.last = path;
+        else if (prior?.last !== undefined) stat.last = prior.last;
+        const next = {...prev};
+        next[event] = stat;
+        return next;
+      });
     };
     const disposers: Array<() => void> = [];
+    // 'disabled' carries an optional path like the field events.
     for (const event of [
       'change',
       'errors',
       'touched',
-      'validating'
+      'validating',
+      'disabled'
     ] as const) {
       disposers.push(
         on(f.emitter, event, (path?: Path) =>
@@ -402,7 +480,6 @@ export default function Devtools<T extends Record<string, any> = any>({
       'submitCount',
       'submitSuccessful',
       'reset',
-      'disabled',
       'status',
       'loading'
     ] as const) {
@@ -434,6 +511,7 @@ export default function Devtools<T extends Record<string, any> = any>({
     touched: touched.length,
     dirty: Object.keys(dirty).length,
     submits: submits.length,
+    subs: Object.keys(stats).length,
     events: events.length
   };
 
@@ -474,6 +552,7 @@ export default function Devtools<T extends Record<string, any> = any>({
           touched={touched}
           dirty={dirty}
           submits={submits}
+          stats={stats}
           events={events}
           onClearEvents={() => setEvents([])}
         />

@@ -901,6 +901,40 @@ describe('useField', () => {
     expect(result.current.errors).toEqual([]);
   });
 
+  it('a form-level messages table overrides the built-in rule copy', () => {
+    const form = createForm({
+      initialValues: {name: ''},
+      mode: 'all',
+      messages: {required: '必填', minLength: '至少 {bound} 个字符'}
+    });
+    const {result} = renderHook(() =>
+      useField({form, name: 'name', rules: {required: true, minLength: 2}})
+    );
+
+    act(() => result.current.onChange(''));
+    expect(result.current.errors).toEqual([
+      {type: 'required', message: '必填'}
+    ]);
+    act(() => result.current.onChange('x'));
+    expect(result.current.errors).toEqual([
+      {type: 'minLength', message: '至少 2 个字符'}
+    ]);
+
+    // A field's own message still wins over the form-level table.
+    const own = createForm({
+      initialValues: {name: ''},
+      mode: 'all',
+      messages: {required: '必填'}
+    });
+    const {result: ownResult} = renderHook(() =>
+      useField({form: own, name: 'name', rules: {required: '自定义必填'}})
+    );
+    act(() => ownResult.current.onChange(''));
+    expect(ownResult.current.errors).toEqual([
+      {type: 'required', message: '自定义必填'}
+    ]);
+  });
+
   it('collects minLength, maxLength and pattern failures together', () => {
     const form = createForm({initialValues: {code: ''}, mode: 'all'});
     const {result} = renderHook(

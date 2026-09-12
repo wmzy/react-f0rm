@@ -37,6 +37,7 @@ import createForm, {
   setDisabled,
   getValue,
   getValues,
+  getDirtyFields,
   getError,
   getTouchedFields,
   clearErrors,
@@ -160,6 +161,58 @@ describe('useForm', () => {
       rerender({values: {name: 'a', extra: 1}}); // structural difference
       expect(getValue(result.current, 'name')).toBe('a');
       expect(getValue(result.current, 'extra')).toBe(1);
+    });
+
+    it('keeps dirty edits and adopts new values via resetOptions.keepDirtyValues', () => {
+      const {result, rerender} = renderHook(
+        ({values, resetOptions}) => useForm({values, resetOptions}),
+        {
+          initialProps: {
+            values: {name: 'a', other: 'x'},
+            resetOptions: {keepDirtyValues: true}
+          }
+        }
+      );
+      act(() => setValue(result.current, 'name', 'draft'));
+      rerender({
+        values: {name: 'b', other: 'y'},
+        resetOptions: {keepDirtyValues: true}
+      });
+      // The dirty field keeps the user's edit; the clean field takes the
+      // new external value.
+      expect(getValue(result.current, 'name')).toBe('draft');
+      expect(getValue(result.current, 'other')).toBe('y');
+      // The new object is also the baseline now: the kept edit reads dirty
+      // against it, and getValues reflects the merge.
+      expect(getValues(result.current)).toEqual({name: 'draft', other: 'y'});
+      expect(getDirtyFields(result.current)).toEqual({name: true});
+    });
+
+    it('discards edits on a values change when no resetOptions is given', () => {
+      const {result, rerender} = renderHook(
+        ({values, resetOptions}) => useForm({values, resetOptions}),
+        {initialProps: {values: {name: 'a'}}}
+      );
+      act(() => setValue(result.current, 'name', 'draft'));
+      rerender({values: {name: 'b'}});
+      expect(getValue(result.current, 'name')).toBe('b');
+    });
+
+    it('does not re-sync structurally equal values even with resetOptions', () => {
+      const {result, rerender} = renderHook(
+        ({values, resetOptions}) => useForm({values, resetOptions}),
+        {
+          initialProps: {
+            values: {name: 'a'},
+            // No keep flags: if the guard failed and reset ran, the edit
+            // below would be wiped — this asserts the skip, not a keep.
+            resetOptions: {}
+          }
+        }
+      );
+      act(() => setValue(result.current, 'name', 'draft'));
+      rerender({values: {name: 'a'}, resetOptions: {}}); // new ref, equal content
+      expect(getValue(result.current, 'name')).toBe('draft');
     });
 
     it('leaves initialValues untouched when no values option is given', () => {

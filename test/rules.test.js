@@ -59,6 +59,79 @@ describe('rulesToValidator', () => {
     const passing = rulesToValidator({validate: () => undefined});
     expect(passing('x', {form: {}, path: {}})).toBeUndefined();
   });
+
+  describe('form-level messages', () => {
+    it('rules.messages beats the form-level table', () => {
+      const validator = rulesToValidator(
+        {minLength: 2, messages: {minLength: 'too short'}},
+        {minLength: '至少 {bound} 字'}
+      );
+      expect(validator('a', {form: {}, path: {}})).toEqual([
+        {type: 'minLength', message: 'too short'}
+      ]);
+    });
+
+    it('the form-level table beats the built-in default', () => {
+      const validator = rulesToValidator(
+        {required: true, minLength: 2},
+        {required: '必填', minLength: '至少 {bound} 字'}
+      );
+      expect(validator('', {form: {}, path: {}})).toEqual([
+        {type: 'required', message: '必填'}
+      ]);
+      expect(validator('a', {form: {}, path: {}})).toEqual([
+        {type: 'minLength', message: '至少 2 字'}
+      ]);
+    });
+
+    it('the built-in default applies when neither side overrides', () => {
+      const validator = rulesToValidator(
+        {minLength: 2},
+        {required: '必填', maxLength: '最多 {bound} 字'}
+      );
+      expect(validator('a', {form: {}, path: {}})).toEqual([
+        {type: 'minLength', message: 'Must be at least 2 characters'}
+      ]);
+    });
+
+    it("replaces a string entry's {bound} placeholder with the bound", () => {
+      const validator = rulesToValidator(
+        {minLength: 2},
+        {minLength: '{bound} 字最少'}
+      );
+      expect(validator('a', {form: {}, path: {}})).toEqual([
+        {type: 'minLength', message: '2 字最少'}
+      ]);
+    });
+
+    it('passes the bound to a function entry', () => {
+      const validator = rulesToValidator(
+        {maxLength: 3},
+        {maxLength: bound => `最多 ${bound} 个`}
+      );
+      expect(validator('abcd', {form: {}, path: {}})).toEqual([
+        {type: 'maxLength', message: '最多 3 个'}
+      ]);
+    });
+
+    it('overrides the pattern default behind the inline message', () => {
+      const validator = rulesToValidator(
+        {pattern: {value: /^\d+$/, message: 'digits only'}},
+        {pattern: '格式不对'}
+      );
+      expect(validator('ab', {form: {}, path: {}})).toEqual([
+        {type: 'pattern', message: 'digits only'}
+      ]);
+      // JS consumers may omit pattern.message entirely — the table wins.
+      const noInline = rulesToValidator(
+        {pattern: {value: /^\d+$/}},
+        {pattern: '格式不对'}
+      );
+      expect(noInline('ab', {form: {}, path: {}})).toEqual([
+        {type: 'pattern', message: '格式不对'}
+      ]);
+    });
+  });
 });
 
 describe('rulesToConstraintAttrs', () => {

@@ -3,6 +3,9 @@ import type {Context} from 'react';
 import {FormContext} from '../context';
 import {getValueByPath, setValueByPath} from '../form';
 import type {FieldError, Form, Name} from '../form';
+import {emit} from '../emitter';
+import createPath from '../path';
+import type {Path} from '../path';
 import {
   appendValueByPath,
   insertValueByPath,
@@ -13,6 +16,7 @@ import {
   swapValuesByPath,
   updateValueByPath
 } from '../core/array';
+import {firstMountedDescendantKey} from '../core/change';
 import {rulesToValidator} from '../rules';
 import {onPathEvent} from '../subscribe';
 import {useFieldErrorsByPath} from './form';
@@ -51,6 +55,30 @@ function registerArrayIds(form: Form, key: string, ids: string[]): void {
   arrayIdsRegistry.set(form, registry);
 }
 
+/** Resolve a just-added row's focus target one task later: at mover time
+ * the row is only a write — its fields (and their 'focusError'
+ * subscriptions) mount during the commit, so `focus: true` has no
+ * descendants to find until then. No target means a silent no-op. */
+function scheduleArrayRowFocus(
+  form: Form,
+  path: Path,
+  index: number,
+  options: FieldArrayFocusOptions | undefined
+): void {
+  // Destructured to a const: the narrowing must survive into the timer
+  // callback (a parameter's would not).
+  const {focus} = options ?? {};
+  if (focus === undefined) return;
+  setTimeout(() => {
+    const segments = [...path.value, index];
+    const key =
+      typeof focus === 'string'
+        ? createPath([...segments, focus]).key
+        : firstMountedDescendantKey(form, createPath(segments));
+    if (key !== undefined) emit(form.emitter, 'focusError', key);
+  }, 0);
+}
+
 /** Stable identity for the render-count reducer below: never recreated,
  * so the dispatch path stays referentially clean. */
 function bumpReducer(count: number): number {
@@ -79,14 +107,23 @@ export type UseFieldArrayOptions<K extends string = 'id'> = Pick<
   keyName?: K;
 };
 
+/** Second argument of the row-adding movers: `focus` decides whether the
+ * new row takes focus once it commits — `true` targets its first mounted
+ * child field, a string names the child field. */
+export type FieldArrayFocusOptions = {focus?: boolean | string};
+
 export type UseFieldArrayResult<TItem = any, K extends string = 'id'> = {
   fields: FieldArrayItem<K>[];
   /** Append one row. With the item type declared —
    * `useFieldArray<Item>({name: 'items'})` — the value is checked
    * against the array's element type. */
-  append: (value: TItem) => void;
-  prepend: (value: TItem) => void;
-  insert: (index: number, value: TItem) => void;
+  append: (value: TItem, options?: FieldArrayFocusOptions) => void;
+  prepend: (value: TItem, options?: FieldArrayFocusOptions) => void;
+  insert: (
+    index: number,
+    value: TItem,
+    options?: FieldArrayFocusOptions
+  ) => void;
   /** Remove one row, or several in a single write (`remove([0, 2])` —
    * order-insensitive, duplicates ignored, out-of-range indices are
    * silent no-ops). */
@@ -187,13 +224,15 @@ export function useFieldArrayCore<TItem = any, K extends string = 'id'>(
   // (runs immediately on every kick, never debounced) exactly like
   // useField's rules; the remaining rules land as the debounced validator.
   useValidate(
-    rules ? rulesToValidator({...rules, required: undefined}) : undefined,
+    rules
+      ? rulesToValidator({...rules, required: undefined}, form.messages)
+      : undefined,
     path,
     form,
     {
       sync:
         rules?.required !== undefined
-          ? rulesToValidator({required: rules.required})
+          ? rulesToValidator({required: rules.required}, form.messages)
           : undefined
     }
   );
@@ -204,20 +243,29 @@ export function useFieldArrayCore<TItem = any, K extends string = 'id'>(
   // guarded movers — so the ids stay in exact lockstep with the values with
   // no duplicated range-check logic: a guarded no-op touches neither the
   // values nor the ids.
-  const append = useStageFn((value: TItem) => {
-    idsRef.current.push(generateId(form));
-    appendValueByPath(form, path, value);
-  });
+  const append = useStageFn(
+    (value: TItem, options?: FieldArrayFocusOptions) => {
+      idsRef.current.push(generateId(form));
+      appendValueByPath(form, path, value);
+      scheduleArrayRowFocus(form, path, idsRef.current.length - 1, options);
+    }
+  );
 
-  const prepend = useStageFn((value: TItem) => {
-    idsRef.current.unshift(generateId(form));
-    prependValueByPath(form, path, value);
-  });
+  const prepend = useStageFn(
+    (value: TItem, options?: FieldArrayFocusOptions) => {
+      idsRef.current.unshift(generateId(form));
+      prependValueByPath(form, path, value);
+      scheduleArrayRowFocus(form, path, 0, options);
+    }
+  );
 
-  const insert = useStageFn((index: number, value: TItem) => {
-    if (!insertValueByPath(form, path, index, value)) return;
-    idsRef.current.splice(index, 0, generateId(form));
-  });
+  const insert = useStageFn(
+    (index: number, value: TItem, options?: FieldArrayFocusOptions) => {
+      if (!insertValueByPath(form, path, index, value)) return;
+      idsRef.current.splice(index, 0, generateId(form));
+      scheduleArrayRowFocus(form, path, index, options);
+    }
+  );
 
   const remove = useStageFn((indices: number | number[]) => {
     // Dropped indices come back descending — splice them in that order and

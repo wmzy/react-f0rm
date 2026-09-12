@@ -24,7 +24,8 @@ import createForm, {
   getDirtyFields,
   getTouchedFields,
   setInitialValues,
-  runFormValidate
+  runFormValidate,
+  reset
 } from '../form';
 import type {
   FieldError,
@@ -32,7 +33,8 @@ import type {
   FieldErrorsTree,
   Form,
   FormEvents,
-  Options
+  Options,
+  ResetOptions
 } from '../form';
 import type {AnyPath, PathValueOf} from '../types';
 import createPath from '../path';
@@ -50,7 +52,12 @@ type SeedTracker = {done: boolean; source: any};
  * content re-seeds (re-seeding clears the values Map, reverting committed
  * edits). Shared by useForm's initialValues and controlled-values
  * effects. */
-function seedIfChanged(form: Form, seeded: SeedTracker, source: any): void {
+function seedIfChanged(
+  form: Form,
+  seeded: SeedTracker,
+  source: any,
+  resetOptions?: ResetOptions
+): void {
   if (
     seeded.done &&
     (seeded.source === source || isEqual(seeded.source, source))
@@ -59,7 +66,14 @@ function seedIfChanged(form: Form, seeded: SeedTracker, source: any): void {
   }
   seeded.done = true;
   seeded.source = source;
-  setInitialValues(form, source);
+  // resetOptions reroutes the changed-content sync from setInitialValues'
+  // baseline swap into full reset semantics — the keep* flags decide what
+  // survives (keepDirtyValues keeps the user's uncommitted edits).
+  if (resetOptions !== undefined) {
+    reset(form, source, resetOptions);
+  } else {
+    setInitialValues(form, source);
+  }
 }
 
 /**
@@ -72,10 +86,14 @@ function seedIfChanged(form: Form, seeded: SeedTracker, source: any): void {
  * while touched flags and errors survive. Change detection is
  * reference-first with a structural fallback, so re-renders that pass an
  * inline literal with equal content never re-sync -- the user's
- * in-progress typing is never clobbered.
+ * in-progress typing is never clobbered. Passing `resetOptions` reroutes
+ * those changed-content syncs through {@link reset} instead, so its keep*
+ * flags govern what survives (`keepDirtyValues: true` keeps the user's
+ * uncommitted edits on dirty fields); the reference/structural guard
+ * applies to both routes.
  */
 export default function useForm<T extends Record<string, any> = any>(
-  options?: Options<T> & {values?: T}
+  options?: Options<T> & {values?: T; resetOptions?: ResetOptions}
 ): Form<T> {
   // Lazy initialization: createForm runs once per mount and the returned
   // instance is stable across re-renders (and StrictMode double renders),
@@ -91,6 +109,7 @@ export default function useForm<T extends Record<string, any> = any>(
   });
   const initialValues = options && options.initialValues;
   const values = options && options.values;
+  const resetOptions = options && options.resetOptions;
 
   // Track which initialValues source object the form was last seeded from
   // (the same-source guard lives in seedIfChanged): inline options create
@@ -122,15 +141,16 @@ export default function useForm<T extends Record<string, any> = any>(
   // inline literal would clear the values Map and revert the user's
   // uncommitted edits, the same hazard the initialValues guard above
   // protects against. Master-detail semantics still apply whenever the
-  // content actually changed.
+  // content actually changed, unless `resetOptions` reroutes the sync
+  // through reset() so its keep* flags decide what survives.
   const controlledRef = useRef<SeedTracker | null>(null);
   if (controlledRef.current === null)
     controlledRef.current = {done: false, source: undefined};
 
   useEffect(() => {
     if (values === undefined) return;
-    seedIfChanged(form, controlledRef.current!, values);
-  }, [form, values]);
+    seedIfChanged(form, controlledRef.current!, values, resetOptions);
+  }, [form, values, resetOptions]);
 
   // Mount validation: the form-level `validate` runs once after mount when
   // the form opted into `validateOnMount` (field kicks are the fields' own

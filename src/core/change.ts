@@ -90,6 +90,21 @@ export function unregisterFieldMode(
   if (modes && entry && entry.token === token) modes.delete(path.key);
 }
 
+/** First key in the mounted-field registry that is a strict descendant of
+ * `ancestor`, in registration order — undefined when none is mounted.
+ * Same descendant rule as `onPathEvent` ('['+','+segment keeps sibling
+ * lookalike keys from matching). */
+export function firstMountedDescendantKey(
+  form: Form,
+  ancestor: Path
+): string | undefined {
+  const prefix = `${ancestor.key.slice(0, -1)},`;
+  for (const key of fieldModes.get(form)?.keys() ?? []) {
+    if (key.startsWith(prefix)) return key;
+  }
+  return undefined;
+}
+
 /** Fire the form-level validate cadence and swallow the async rejection —
  * nothing in a change/blur handler can await the round. */
 function fireFormValidate(form: Form, cadence: FormValidateMode): void {

@@ -225,6 +225,57 @@ describe('handleSubmit', () => {
     expect(form.isSubmitSuccessful).toBe(false);
     expect(form.isSubmitting).toBe(false);
   });
+
+  it('ignores attempts while a submit is in flight', async () => {
+    const form = createForm({initialValues: {name: 'x'}});
+    let resolveFlight;
+    let signalStarted;
+    const started = new Promise(resolve => {
+      signalStarted = resolve;
+    });
+    const onSubmit = vi.fn(() => {
+      signalStarted();
+      return new Promise(resolve => {
+        resolveFlight = resolve;
+      });
+    });
+    const submit = handleSubmit(form, {onSubmit});
+
+    const first = submit();
+    // Synchronous double-fire lands while the round is still pre-onSubmit.
+    const second = submit();
+    // The first round reached onSubmit and is now pending on its promise.
+    await started;
+    expect(form.isSubmitting).toBe(true);
+    const third = submit();
+
+    resolveFlight();
+    await Promise.all([first, second, third]);
+
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(form.isSubmitting).toBe(false);
+    expect(form.submitCount).toBe(1);
+    expect(form.isSubmitSuccessful).toBe(true);
+  });
+
+  it('a settled failed attempt does not block the next round', async () => {
+    const form = createForm({
+      initialValues: {name: ''},
+      validate: values => (values.name ? {} : {name: 'name required'})
+    });
+    const onInvalidSubmit = vi.fn();
+    const submit = handleSubmit(form, {onInvalidSubmit});
+
+    await submit();
+    expect(form.isSubmitting).toBe(false);
+    expect(form.isSubmitSuccessful).toBe(false);
+    expect(form.submitCount).toBe(1);
+
+    await submit();
+    expect(onInvalidSubmit).toHaveBeenCalledTimes(2);
+    expect(form.submitCount).toBe(2);
+    expect(form.isSubmitting).toBe(false);
+  });
 });
 
 describe('action error landing', () => {

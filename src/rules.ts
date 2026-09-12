@@ -5,6 +5,16 @@ import type {SyncValidator} from './hooks/validate';
 export type RuleType =
   'required' | 'min' | 'max' | 'minLength' | 'maxLength' | 'pattern';
 
+/** Form-level default rule messages — the `createForm({messages})` table
+ * overriding the built-in English defaults for every field (i18n in one
+ * place). A string may carry a `{bound}` placeholder (replaced with the
+ * rule's bound); a function receives the bound. A field's own message
+ * (the `required` string, `rules.messages`, `pattern.message`) still
+ * wins. */
+export type FormMessages = Partial<
+  Record<RuleType, string | ((bound?: number) => string)>
+>;
+
 /** Declarative field rules — a subset of react-hook-form's `register`
  * rules. Failures land in the error state as FieldErrors (`type` = rule
  * name), so any design system can render them. */
@@ -67,6 +77,17 @@ function defaultMessage(type: RuleType, bound?: number): string {
   }
 }
 
+/** Resolve a form-level override entry: a function takes the bound, a
+ * string gets its `{bound}` placeholder replaced. */
+function resolveMessage(
+  entry: string | ((bound?: number) => string) | undefined,
+  bound?: number
+): string | undefined {
+  return typeof entry === 'function'
+    ? entry(bound)
+    : entry?.replace('{bound}', String(bound));
+}
+
 /** One bound rule: the FieldRules key, how `value` is measured
  * (`undefined` skips — `NaN` numbers, unsized values), and which side of
  * the bound fails. */
@@ -98,8 +119,12 @@ const BOUND_CHECKS: readonly BoundCheck[] = [
 /** Compile {@link FieldRules} into a {@link SyncValidator}: `required`
  * short-circuits the rest when it fails; other failures collect into one
  * FieldError[] in declaration order. Messages resolve to the rule's own
- * string, `rules.messages`, or the default. */
-export function rulesToValidator(rules: FieldRules): SyncValidator {
+ * string, `rules.messages`, the form-level {@link FormMessages} table,
+ * or the default. */
+export function rulesToValidator(
+  rules: FieldRules,
+  formMessages?: FormMessages
+): SyncValidator {
   return (value, meta) => {
     if (rules.required) {
       if (
@@ -114,14 +139,17 @@ export function rulesToValidator(rules: FieldRules): SyncValidator {
             message:
               typeof rules.required === 'string'
                 ? rules.required
-                : defaultMessage('required')
+                : (resolveMessage(formMessages?.required) ??
+                  defaultMessage('required'))
           }
         ];
       }
     }
     const errors: FieldError[] = [];
     const message = (type: Exclude<RuleType, 'required'>, bound: number) =>
-      rules.messages?.[type] ?? defaultMessage(type, bound);
+      rules.messages?.[type] ??
+      resolveMessage(formMessages?.[type], bound) ??
+      defaultMessage(type, bound);
     for (const [type, measure, fails] of BOUND_CHECKS) {
       const bound = rules[type];
       if (bound === undefined) continue;
@@ -137,6 +165,7 @@ export function rulesToValidator(rules: FieldRules): SyncValidator {
         message:
           rules.messages?.pattern ??
           rules.pattern.message ??
+          resolveMessage(formMessages?.pattern) ??
           defaultMessage('pattern')
       });
     }

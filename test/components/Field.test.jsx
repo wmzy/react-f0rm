@@ -159,6 +159,50 @@ describe('Field', () => {
     expect(document.querySelector('[role="alert"]')).toBeNull();
   });
 
+  it('reflects the validating flag as aria-busy on the input', async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveValidation;
+      const form = createForm({initialValues: {name: ''}, mode: 'all'});
+      render(
+        <Form form={form}>
+          <Field
+            name="name"
+            data-testid="name-input"
+            validateDebounce={30}
+            validate={value =>
+              new Promise(resolve => {
+                resolveValidation = () =>
+                  resolve(value ? undefined : 'required');
+              })
+            }
+          />
+        </Form>
+      );
+      const input = screen.getByTestId('name-input');
+      expect(input.getAttribute('aria-busy')).toBeNull();
+
+      // The keystroke opens the debounce window: validating holds through
+      // the pending window and the in-flight async round.
+      act(() => {
+        fireEvent.change(input, {target: {value: 'a'}});
+      });
+      expect(input.getAttribute('aria-busy')).toBe('true');
+
+      act(() => {
+        vi.advanceTimersByTime(30);
+      });
+      expect(input.getAttribute('aria-busy')).toBe('true');
+
+      await act(async () => {
+        resolveValidation();
+      });
+      expect(input.getAttribute('aria-busy')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('describes fieldErrorId(name) even without renderError', async () => {
     // Library-level wiring convention: a field with an error always sets
     // aria-invalid and describes the fieldErrorId(name) element, so a

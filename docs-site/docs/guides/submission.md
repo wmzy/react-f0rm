@@ -101,6 +101,12 @@ function SubmitButton() {
 
 `reset(form)` clears the submission state too: `isSubmitting` → `false`, `submitCount` → `0`, `isSubmitted` → `false`, `isSubmitSuccessful` → `undefined` (along with values, errors, touched and validating state); `keepSubmitCount`/`keepIsSubmitted`/`keepIsSubmitSuccessful`/`keepIsSubmitting` preserve individual flags through the reset.
 
+## Duplicate Submit Protection
+
+Submission is single-flight: `isSubmitting` flips to `true` synchronously before validation even starts, and any attempt that arrives while a round is pending — a double click, or a `handleSubmit` call nested inside `onSubmit` — is ignored outright, with no state changes at all (no `submitCount` bump, no server-error clearing). Once the round settles, successful or not, the next attempt runs normally.
+
+Don't reach for `form.disabled` / `<Form disabled>` to block the button — that flag only disables inputs, not submission. Bind the button itself to `useCanSubmit` (plus `useIsValidating` for the stricter gate) so the UI reflects the in-flight window the same way the guard does.
+
 ## Server Rejection
 
 A server 422 lands on the same channel client-side validation uses — see [Server-side Errors](./validation.md#server-side-errors) for `setServerErrors`, and the [Server Actions guide](./react19-server-actions.md) for the `<Form action>` round trip.

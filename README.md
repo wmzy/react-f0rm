@@ -30,8 +30,14 @@ A headless, event-driven React form library with field-level subscriptions.
 - **Nested error tree.** `useErrorsTree(form)` / `getErrorsTree(form)` read errors as `errors.items?.[0]?.name` — the typed optional-chain shape RHF's `formState.errors` uses — alongside the flat dotted record (`useErrors`). One cache, both views, stable references.
 - **Form-level validation cadence.** `createForm({validateMode: 'onChange' | 'onBlur'})` re-runs the form-level `validate` on every user change/blur — TanStack `validators.onChange/onBlur` parity without enumerating `validateDeps`; rounds own their errors, so a passing re-run clears what the last round wrote.
 - **Disabled subtrees.** A field declared `disabled: true` disables its descendants (RHF subtree semantics); a descendant opts back out with `disabled: false`. The form-level flag still disables everything.
+- **`<ErrorSummary />`.** GOV.UK-style a11y summary box: every error links to its field's error element (`fieldErrorId`), clicking focuses the field through the focus channel, and a failed submit focuses the box itself; bound inputs carry `aria-invalid`/`aria-describedby` and `aria-busy` while validating.
+- **Single-flight submits.** A submit attempt arriving while one is in flight is ignored outright (double clicks, Enter repeats) — `useCanSubmit` remains the submit button's flag.
+- **Controlled values with keep-flags.** `useForm({values, resetOptions})` — RHF's `resetOptions` contract: a genuinely changed `values` re-syncs through `reset` so flags like `keepDirtyValues` decide what survives; the default `setInitialValues` semantics are unchanged.
+- **Row-add focus.** `append`/`prepend`/`insert` take `{focus: true | 'fieldName'}` — the new row's field takes focus once it commits (opt-in, unlike RHF's default-on).
+- **Form-level rule messages.** `createForm({messages})` overrides every `rules` default message once — string with `{bound}` interpolation or `(bound) => string`; per-rule and per-field messages still win. i18n in one place.
+- **Schema introspection tools.** `constraintsFromSchema`/`defaultsFromSchema` from `react-f0rm/resolvers/zod` derive per-field `rules` constraints and an `initialValues` tree from a zod v3/v4 schema — form generators stop hand-writing the schema twice.
 - **Tombstone unregister, async initial values, declarative `rules`** (store-side errors + native constraint attributes), `validateOnMount`, `validateDeps` cross-field re-runs, `useTransform` async transforms, `createFormContext` typed isolated contexts, `reset`/`resetField` with RHF-parity keep-flags, `<Devtools />` from `react-f0rm/devtools`, `react-f0rm/persist` — see the [docs site](https://wmzy.github.io/react-f0rm/) for the full surface.
-- **14.33 KB gzip core** (13.0 KB brotli, emitter-external measurement); devtools/server/persist/resolvers ship as separate tree-shakeable entries.
+- **14.81 KB gzip core** (13.5 KB brotli, emitter-external measurement); devtools/server/persist/resolvers ship as separate tree-shakeable entries.
 
 ## Install
 
@@ -151,18 +157,18 @@ npx vitest bench --run test/bench/scale.bench.ts   # the three scale scenarios a
 
 react-f0rm vs React Hook Form, TanStack Form and Formik — rendering model, schema adapters, path typing, async validation, bundle size, ecosystem maturity — lives on the [Comparison page](https://wmzy.github.io/react-f0rm/comparison) of the docs site.
 
-Short version: **pick react-f0rm** for controlled components with true per-field subscriptions (design systems, editor-like forms), one Standard Schema adapter, compile-time-checked paths, `register`-style bindings when you want them, and a core at RHF's size — and you are comfortable with a young library. **Pick React Hook Form** for the mature ecosystem today (its performance edge is gone at the rendering level — see the bench notes). **TanStack Form** sits in between: the deepest possible type inference, at a larger core.
+Short version: **pick react-f0rm** for controlled components with true per-field subscriptions (design systems, editor-like forms), one Standard Schema adapter, compile-time-checked paths, `register`-style bindings when you want them, and a core ~5% over RHF's entry (components layer included, tree-shakeable headless) — and you are comfortable with a young library. **Pick React Hook Form** for the mature ecosystem today (its performance edge is gone at the rendering level — see the bench notes). **TanStack Form** sits in between: the deepest possible type inference, at a larger core.
 
 ## Docs Map
 
-- Guides: [Validation](https://wmzy.github.io/react-f0rm/guides/validation) · [Field Arrays](https://wmzy.github.io/react-f0rm/guides/field-arrays) · [Submission](https://wmzy.github.io/react-f0rm/guides/submission) · [Sub-forms](https://wmzy.github.io/react-f0rm/guides/sub-forms) · [React 19 Server Actions](https://wmzy.github.io/react-f0rm/guides/react19-server-actions) · [SSR](https://wmzy.github.io/react-f0rm/guides/ssr) · [TypeScript](https://wmzy.github.io/react-f0rm/guides/typescript) · [Custom components](https://wmzy.github.io/react-f0rm/guides/custom-components) · [UI-kit integration](https://wmzy.github.io/react-f0rm/guides/ui-integration) · [Testing](https://wmzy.github.io/react-f0rm/guides/testing) · [Hooks Reference](https://wmzy.github.io/react-f0rm/guides/hooks-reference) · [Headless & React Native](https://wmzy.github.io/react-f0rm/guides/headless-react-native)
+- Guides: [Validation](https://wmzy.github.io/react-f0rm/guides/validation) · [Field Arrays](https://wmzy.github.io/react-f0rm/guides/field-arrays) · [Submission](https://wmzy.github.io/react-f0rm/guides/submission) · [Sub-forms](https://wmzy.github.io/react-f0rm/guides/sub-forms) · [Derived Fields](https://wmzy.github.io/react-f0rm/guides/derived-fields) · [React 19 Server Actions](https://wmzy.github.io/react-f0rm/guides/react19-server-actions) · [SSR](https://wmzy.github.io/react-f0rm/guides/ssr) · [TypeScript](https://wmzy.github.io/react-f0rm/guides/typescript) · [Custom components](https://wmzy.github.io/react-f0rm/guides/custom-components) · [UI-kit integration](https://wmzy.github.io/react-f0rm/guides/ui-integration) · [Testing](https://wmzy.github.io/react-f0rm/guides/testing) · [Hooks Reference](https://wmzy.github.io/react-f0rm/guides/hooks-reference) · [Headless & React Native](https://wmzy.github.io/react-f0rm/guides/headless-react-native)
 - Examples: [Basic](https://wmzy.github.io/react-f0rm/examples/basic) · [Dynamic fields](https://wmzy.github.io/react-f0rm/examples/dynamic) · [Real-world form](https://wmzy.github.io/react-f0rm/examples/real-world-form) (wizard + cross-field validation + server backfill)
 - Migration: [from Formik](https://wmzy.github.io/react-f0rm/migration/from-formik) · [from React Hook Form](https://wmzy.github.io/react-f0rm/migration/from-react-hook-form) · [from TanStack Form](https://wmzy.github.io/react-f0rm/migration/from-tanstack-form) · [Breaking changes](https://wmzy.github.io/react-f0rm/migration/breaking-changes)
 
 ## Development
 
 ```bash
-npm test              # 858 tests, vmThreads pool (~3s)
+npm test              # 962 tests, vmThreads pool (~3s)
 npm run test:watch    # watch mode
 npm run coverage      # coverage report (95/90/95/95 thresholds enforced)
 npx vitest bench --run test/bench/  # benchmarks
@@ -171,6 +177,13 @@ npm run build         # production build (UMD + ESM + CJS)
 npm run lint          # ESLint
 npm run storybook     # Storybook dev server
 npm run docs:build    # Docusaurus build (docs-site/)
+```
+
+Migrating from React Hook Form? The codemods directory ships two jscodeshift transforms (`defaultValues`→`initialValues`, register-rules wrapping) plus the manual-steps checklist:
+
+```sh
+pnpm exec jscodeshift -t codemods/transforms/use-form-options.js src/
+pnpm exec jscodeshift -t codemods/transforms/register-binding.js src/
 ```
 
 ## License
